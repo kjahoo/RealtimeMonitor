@@ -105,87 +105,120 @@ def load_v3_models():
     return models, max_lb
 
 
-# ====== 데이터 업데이트 및 예측 ======
+# [수정] main_stock.py 및 main_etf.py의 process_stock 함수
+
+# 저장할 30개 컬럼 순서 (Reset 도구와 동일하게 맞춤)
+FINAL_COLUMNS = [
+    'date', 'code', 'name', 'open', 'high', 'low', 'close', 'volume',
+    'change_pct', 'kospi_change', 'kosdaq_change',
+    'prog_net_qty', 'prog_ratio_vol',
+    'ma5', 'ma20', 'ma60',
+    'disparity_5', 'disparity_20', 'disparity_60',
+    'volume_ratio', 'vol_power',
+    'bb_w', 'bb_p', 'rsi', 'adx',
+    'target1', 'target5', 'target20',
+    'prog_net_ratio', 'bb_pos'
+]
+
+
 def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
     try:
+        # 1. 파일 읽기
         df = pd.read_csv(file_path, encoding='utf-8-sig')
         df['date'] = pd.to_datetime(df['date'])
+        stock_name = df['name'].iloc[0] if 'name' in df.columns else ""
 
-        # 1. 여기서 'name' 변수에 종목명(예: 삼성전자)을 저장함
-        stock_name = df['name'].iloc[0]
-
+        # 2. 실시간 데이터 수집
         rt = inquiry.fetch_realtime_price(code)
         if not rt: return None
         curr = inquiry.safe_int(rt.get("stck_prpr"))
         oprc = inquiry.safe_int(rt.get("stck_oprc"))
         if oprc == 0: oprc = curr
         vol = inquiry.safe_int(rt.get("acml_vol"))
-        if vol == 0: return None
+        if vol == 0: return None  # 거래량 0이면 패스
 
+        # 3. 프로그램 매매 정보
         prog = inquiry.fetch_program_today(code, target_date.strftime('%Y%m%d'))
         p_net, p_ratio = 0, 0.0
         if prog:
             p_net = inquiry.safe_int(prog.get("whol_smtn_ntby_qty"))
             p_tot = inquiry.safe_int(prog.get("acml_vol"))
-            if p_tot > 0: p_ratio = round((inquiry.safe_int(prog.get("whol_smtn_shnu_vol")) + inquiry.safe_int(
-                prog.get("whol_smtn_seln_vol"))) / p_tot, 4)
+            if p_tot > 0:
+                p_ratio = round((inquiry.safe_int(prog.get("whol_smtn_shnu_vol")) + inquiry.safe_int(
+                    prog.get("whol_smtn_seln_vol"))) / p_tot, 4)
 
-        today_row = {"date": target_date, "code": code, "name": stock_name, "open": oprc,
-                     "high": inquiry.safe_int(rt.get("stck_hgpr")), "low": inquiry.safe_int(rt.get("stck_lwpr")),
-                     "close": curr, "volume": vol, "change_pct": (curr / oprc - 1) if oprc > 0 else 0,
-                     "kospi_change": k_val, "kosdaq_change": kq_val, "prog_net_qty": p_net, "prog_ratio_vol": p_ratio}
+        # 4. 오늘 데이터 행 생성 (30개 컬럼 요소 포함)
+        today_row = {
+            "date": target_date, "code": code, "name": stock_name,
+            "open": oprc, "high": inquiry.safe_int(rt.get("stck_hgpr")), "low": inquiry.safe_int(rt.get("stck_lwpr")),
+            "close": curr, "volume": vol,
+            "change_pct": (curr / oprc - 1) if oprc > 0 else 0,
+            "kospi_change": k_val, "kosdaq_change": kq_val,
+            "prog_net_qty": p_net, "prog_ratio_vol": p_ratio
+        }
 
+        # 5. 합치기
         df = pd.concat([df[df['date'] != target_date], pd.DataFrame([today_row])]).sort_values('date').reset_index(
             drop=True)
+
+        # 6. 기술적 지표 계산 (V3 기본)
         df = indicators.calculate_indicators_v3_save(df)
 
-        if 'prog_net_ratio' not in df.columns: df['prog_net_ratio'] = df.apply(
-            lambda x: x['prog_net_qty'] / x['volume'] if x['volume'] > 0 else 0, axis=1)
-        for col in V3_FEATURES:
-            if col not in df.columns: df[col] = 0.0
+        # 7. [추가] V3 함수에 없는 나머지 컬럼 수동 계산 (Reset 파일과 동기화)
+        if 'ma60' not in df.columns: df['ma60'] = df['close'].rolling(window=60).mean()
+        if 'disparity_60' not in df.columns: df['disparity_60'] = (df['close'] / df['ma60'] - 1).fillna(0)
+        if 'bb_pos' not in df.columns: df['bb_pos'] = 0.0  # 일단 0으로 처리
+        if 'prog_net_ratio' not in df.columns:
+            df['prog_net_ratio'] = df.apply(lambda x: x['prog_net_qty'] / x['volume'] if x['volume'] > 0 else 0, axis=1)
+
+        # Target (실시간 봇에서는 미래를 알 수 없으므로 0으로 둠)
+        for t in ['target1', 'target5', 'target20']:
+            if t not in df.columns: df[t] = 0.0
+
+        # 결측치 채우기
         df = df.fillna(0)
 
-        # 원본 데이터 업데이트
+        # 8. [핵심] 컬럼 순서 강제 적용 (30개)
+        for col in FINAL_COLUMNS:
+            if col not in df.columns: df[col] = 0
+        df = df[FINAL_COLUMNS]  # 순서 재배열
+
+        # 9. 저장 (업데이트)
         df.to_csv(file_path, index=False, encoding='utf-8-sig')
 
-        # [주식 필터] (main_stock.py인 경우 주석 해제, main_etf.py인 경우 주석 처리된 상태 유지하거나 삭제)
-        # if len(df) >= 20 and (df['close'] * df['volume']).iloc[-20:].mean() < 1000000000: return None
-
+        # 10. 예측 진행
         if len(df) < max_lb: return None
 
         s_sum, d_sum = 0.0, 0.0
         s_hits, d_hits = 0, 0
         results = {}
 
-        # 🔴 [수정된 부분] 변수명을 name -> model_name으로 변경하여 충돌 방지
         for model_name, info in models.items():
             lb = info['lookback']
+            # 학습 때 썼던 Feature만 뽑아서 예측에 사용
             window = df.iloc[-lb:][V3_FEATURES].values
             win_scaled = info['scaler'].transform(window).reshape(1, lb, len(V3_FEATURES))
             tensor_input = tf.convert_to_tensor(win_scaled, dtype=tf.float32)
             prob = float(info['model'](tensor_input, training=False)[0, 0])
 
             results[model_name] = round(prob, 4)
-
             if prob > info['threshold']:
                 if info['type'] == "surge":
-                    s_sum += prob * info['weight']
+                    s_sum += prob * info['weight'];
                     s_hits += 1
                 else:
-                    d_sum += prob * info['weight']
+                    d_sum += prob * info['weight'];
                     d_hits += 1
 
         return {
-            "code": code,
-            "name": stock_name,  # ✅ 이제 정상적으로 종목명이 들어갑니다
-            "close_price": curr,
+            "code": code, "name": stock_name,
+            "close_price": curr, "market_cap": inquiry.fetch_market_cap(code),
             "score_total": round(s_sum - d_sum, 4),
-            "net_hits": s_hits - d_hits,
-            "surge_hits": s_hits,
-            "drop_hits": d_hits,
+            "net_hits": s_hits - d_hits, "surge_hits": s_hits, "drop_hits": d_hits,
             **results
         }
-    except:
+    except Exception as e:
+        # print(f"Error {code}: {e}") # 디버깅용
         return None
 
 

@@ -2,7 +2,9 @@ import os
 import sys
 import time
 import pandas as pd
-from datetime import datetime
+import numpy as np
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from kis_api import auth, inquiry, indicators, common
 from config import secrets
 
@@ -12,84 +14,206 @@ DATA_DIRS = [
     r"C:\Projects\RealtimeMonitor\Data\ETF"
 ]
 
+# 저장할 최종 컬럼 순서 (30개)
+FINAL_COLUMNS = [
+    'date', 'code', 'name', 'open', 'high', 'low', 'close', 'volume',
+    'change_pct', 'kospi_change', 'kosdaq_change',
+    'prog_net_qty', 'prog_ratio_vol',
+    'ma5', 'ma20', 'ma60',
+    'disparity_5', 'disparity_20', 'disparity_60',
+    'volume_ratio', 'vol_power',
+    'bb_w', 'bb_p', 'rsi', 'adx',
+    'target1', 'target5', 'target20',
+    'prog_net_ratio', 'bb_pos'
+]
 
-def fetch_chart_data(code, start_date, end_date):
-    """
-    특정 기간의 일봉 데이터를 API로 조회합니다.
-    """
-    url = f"{secrets.URL_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+
+# =========================================================
+# 🛠️ 데이터 수집 헬퍼 함수 (청킹 적용)
+# =========================================================
+
+def fetch_market_index_history(market_code, start_date, end_date):
+    """ 지수 데이터 수집 (2개월 단위 분할) """
+    url = f"{secrets.URL_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice"
     headers = {
         "content-type": "application/json; charset=utf-8",
         "authorization": f"Bearer {auth.get_access_token()}",
         "appkey": secrets.APP_KEY,
         "appsecret": secrets.APP_SECRET,
-        "tr_id": "FHKST03010100",
+        "tr_id": "FHKUP03500100",
         "custtype": "P"
     }
 
-    # KIS API 날짜 포맷 (YYYYMMDD)
-    params = {
-        "FID_COND_MRKT_DIV_CODE": "J",
-        "FID_INPUT_ISCD": code,
-        "FID_INPUT_DATE_1": start_date,  # 시작일
-        "FID_INPUT_DATE_2": end_date,  # 종료일
-        "FID_PERIOD_DIV_CODE": "D",  # 일봉
-        "FID_ORG_ADJ_PRC": "1"  # 수정주가 반영
+    start_dt = datetime.strptime(start_date, "%Y%m%d")
+    end_dt = datetime.strptime(end_date, "%Y%m%d")
+
+    all_rows = []
+    curr = start_dt
+
+    while curr <= end_dt:
+        # 지수는 2개월 단위도 안전함
+        next_step = curr + relativedelta(months=2)
+        if next_step > end_dt: next_step = end_dt
+
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "U", "FID_INPUT_ISCD": market_code,
+            "FID_INPUT_DATE_1": curr.strftime("%Y%m%d"),
+            "FID_INPUT_DATE_2": next_step.strftime("%Y%m%d"),
+            "FID_PERIOD_DIV_CODE": "D"
+        }
+        res = common.call_api(url, params, headers)
+        time.sleep(0.1)
+
+        if res and "output2" in res:
+            for item in res['output2']:
+                if not item['stck_bsop_date']: continue
+                all_rows.append({
+                    "date": item['stck_bsop_date'],
+                    "close": float(item['bstp_nmix_prpr'])
+                })
+        curr = next_step + timedelta(days=1)
+
+    if not all_rows: return pd.DataFrame()
+    df = pd.DataFrame(all_rows)
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.sort_values('date').drop_duplicates('date').reset_index(drop=True)
+
+    col_name = 'kospi_change' if market_code == '0001' else 'kosdaq_change'
+    df[col_name] = df['close'].pct_change().fillna(0)
+    return df[['date', col_name]]
+
+
+def fetch_program_history(code, start_date, end_date):
+    """ 프로그램 매매 데이터 수집 (1개월 단위 분할) """
+    url = f"{secrets.URL_BASE}/uapi/domestic-stock/v1/quotations/program-trade-by-stock-daily"
+    headers = {
+        "content-type": "application/json; charset=utf-8",
+        "authorization": f"Bearer {auth.get_access_token()}",
+        "appkey": secrets.APP_KEY,
+        "appsecret": secrets.APP_SECRET,
+        "tr_id": "FHPPG04650201",
+        "custtype": "P"
     }
 
-    res = common.call_api(url, params, headers)
+    start_dt = datetime.strptime(start_date, "%Y%m%d")
+    end_dt = datetime.strptime(end_date, "%Y%m%d")
 
-    data_list = []
-    if res and "output2" in res:
-        for item in res['output2']:
-            # 데이터가 비어있는 경우 건너뜀
-            if not item['stck_bsop_date']: continue
+    all_rows = []
+    curr = start_dt
 
-            data_list.append({
-                "date": pd.to_datetime(item['stck_bsop_date']),
-                "open": int(item['stck_oprc']),
-                "high": int(item['stck_hgpr']),
-                "low": int(item['stck_lwpr']),
-                "close": int(item['stck_clpr']),
-                "volume": int(item['acml_vol']),
-                # 거래대금 등은 필요하면 추가
-            })
+    while curr <= end_dt:
+        curr_end = curr + relativedelta(months=1)
+        if curr_end > end_dt: curr_end = end_dt
 
-    # API는 최신순으로 들어오므로 날짜 오름차순 정렬
-    if data_list:
-        return pd.DataFrame(data_list).sort_values('date')
+        params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+                  "FID_INPUT_DATE_1": curr_end.strftime("%Y%m%d")}
+        res = common.call_api(url, params, headers)
+        time.sleep(0.05)
+
+        if res and "output" in res:
+            for item in res['output']:
+                if not item['stck_bsop_date']: continue
+                d_str = item['stck_bsop_date']
+                if not (curr.strftime("%Y%m%d") <= d_str <= curr_end.strftime("%Y%m%d")): continue
+
+                all_rows.append({
+                    "date": d_str,
+                    "prog_net_qty": int(item['whol_smtn_ntby_qty']),
+                    "prog_buy": int(item['whol_smtn_shnu_vol']),
+                    "prog_sell": int(item['whol_smtn_seln_vol'])
+                })
+        curr = curr_end + timedelta(days=1)
+
+    if not all_rows: return pd.DataFrame()
+    df = pd.DataFrame(all_rows)
+    df['date'] = pd.to_datetime(df['date'])
+    return df.drop_duplicates('date')
+
+
+def fetch_chart_data_chunked(code, start_date, end_date):
+    """
+    [수정됨] 주가 데이터 수집 (1개월 단위 분할 요청)
+    긴 기간 요청 시 API 제한이나 누락 방지를 위해 1개월씩 끊어서 요청합니다.
+    """
+    url = f"{secrets.URL_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+    headers = {
+        "content-type": "application/json; charset=utf-8",
+        "authorization": f"Bearer {auth.get_access_token()}",
+        "appkey": secrets.APP_KEY, "appsecret": secrets.APP_SECRET,
+        "tr_id": "FHKST03010100", "custtype": "P"
+    }
+
+    start_dt = datetime.strptime(start_date, "%Y%m%d")
+    end_dt = datetime.strptime(end_date, "%Y%m%d")
+
+    all_rows = []
+    curr = start_dt
+
+    while curr <= end_dt:
+        # 1개월(30일) 단위로 다음 날짜 계산
+        next_step = curr + relativedelta(months=1)
+        if next_step > end_dt: next_step = end_dt
+
+        req_start = curr.strftime("%Y%m%d")
+        req_end = next_step.strftime("%Y%m%d")
+
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+            "FID_INPUT_DATE_1": req_start, "FID_INPUT_DATE_2": req_end,
+            "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "1"
+        }
+
+        res = common.call_api(url, params, headers)
+        time.sleep(0.05)  # 짧은 딜레이
+
+        if res and "output2" in res:
+            for item in res['output2']:
+                if not item['stck_bsop_date']: continue
+                all_rows.append({
+                    "date": pd.to_datetime(item['stck_bsop_date']),
+                    "open": int(item['stck_oprc']),
+                    "high": int(item['stck_hgpr']),
+                    "low": int(item['stck_lwpr']),
+                    "close": int(item['stck_clpr']),
+                    "volume": int(item['acml_vol'])
+                })
+
+        # 다음 구간 시작일 = 이번 구간 종료일 + 1일
+        curr = next_step + timedelta(days=1)
+
+    if all_rows:
+        return pd.DataFrame(all_rows).sort_values('date').drop_duplicates('date').reset_index(drop=True)
     return pd.DataFrame()
 
 
+# =========================================================
+# 🚀 메인 업데이트 로직
+# =========================================================
 def update_all_files():
-    # 1. 토큰 발급
     if not auth.get_access_token():
         print("❌ 토큰 발급 실패")
         return
 
     print("\n" + "=" * 50)
-    print("🛠️ [데이터 일괄 업데이트 도구] Missed Data Recovery")
+    print("🛠️ [데이터 일괄 업데이트] 안정적 분할 요청(Chunked) 모드")
     print("=" * 50)
 
-    # 2. 사용자 입력
-    user_date = input("👉 시작 날짜를 입력하세요 (예: 20240101): ").strip()
+    user_date = input("👉 시작 날짜를 입력하세요 (예: 20260101): ").strip()
     if len(user_date) != 8 or not user_date.isdigit():
-        print("⚠️ 날짜 형식이 올바르지 않습니다. (YYYYMMDD)")
+        print("⚠️ 날짜 형식이 올바르지 않습니다.")
         return
 
     start_date_str = user_date
     end_date_str = datetime.now().strftime("%Y%m%d")
 
-    print(f"\n📅 기간 설정: {start_date_str} ~ {end_date_str}")
-    print("⚠️ 주의: 파일이 많을 경우 시간이 꽤 걸립니다.")
-    print("⚠️ API 호출 제한을 피하기 위해 천천히 진행됩니다.\n")
+    print(f"\n1️⃣ 시장 지수(KOSPI/KOSDAQ) 데이터를 먼저 수집합니다... ({start_date_str} ~ {end_date_str})")
+    df_kospi = fetch_market_index_history("0001", start_date_str, end_date_str)
+    df_kosdaq = fetch_market_index_history("1001", start_date_str, end_date_str)
+    print("   ✅ 지수 데이터 준비 완료.")
 
-    confirm = input("진행하시겠습니까? (y/n): ").strip().lower()
-    if confirm != 'y':
-        print("취소되었습니다.")
-        return
+    confirm = input("\n데이터 업데이트를 진행하시겠습니까? (y/n): ").strip().lower()
+    if confirm != 'y': return
 
-    # 3. 전체 파일 목록 수집
     all_files = []
     for d_dir in DATA_DIRS:
         if os.path.exists(d_dir):
@@ -99,77 +223,95 @@ def update_all_files():
     total_files = len(all_files)
     print(f"\n📂 총 대상 파일: {total_files}개")
 
-    success_cnt = 0
-    fail_cnt = 0
+    success_cnt, fail_cnt = 0, 0
 
-    # 4. 순회 및 업데이트
     for idx, file_path in enumerate(all_files, 1):
-        code = os.path.basename(file_path)[1:7]  # A005930.csv -> 005930
-
+        code = os.path.basename(file_path)[1:7]
         try:
-            # (1) 기존 파일 읽기
+            # 1. 기존 파일 읽기
             df_old = pd.read_csv(file_path, encoding='utf-8-sig')
             df_old['date'] = pd.to_datetime(df_old['date'])
-
-            # 종목명 백업
             name = df_old['name'].iloc[0] if 'name' in df_old.columns else ""
 
-            # (2) API로 신규 데이터 요청 (기간 조회)
-            df_new = fetch_chart_data(code, start_date_str, end_date_str)
+            # 2. 신규 데이터 수집 (1개월 단위 분할 요청 적용)
+            df_price = fetch_chart_data_chunked(code, start_date_str, end_date_str)
 
-            if df_new.empty:
-                # 거래정지 등으로 데이터가 없을 수 있음
-                # print(f"   ⚠️ 신규 데이터 없음: {name}({code})")
-                pass
-            else:
-                # (3) 데이터 병합 (Merge)
-                # 기존 데이터에서 해당 기간 이후의 데이터는 삭제하고(덮어쓰기 위해) 붙이기
-                # 혹은 그냥 concat 후 drop_duplicates가 더 안전함
+            if not df_price.empty:
+                df_prog = fetch_program_history(code, start_date_str, end_date_str)
 
-                # 병합을 위해 컬럼명 맞추기
-                # df_new에는 name, change_pct 등의 컬럼이 없을 수 있으므로 채워줌
+                # 병합 (주가 + 프로그램)
+                if not df_prog.empty:
+                    df_new = pd.merge(df_price, df_prog, on='date', how='left')
+                    df_new['prog_net_qty'] = df_new['prog_net_qty'].fillna(0)
+                    df_new['prog_buy'] = df_new['prog_buy'].fillna(0)
+                    df_new['prog_sell'] = df_new['prog_sell'].fillna(0)
+                else:
+                    df_new = df_price
+                    df_new['prog_net_qty'] = 0
+                    df_new['prog_buy'] = 0;
+                    df_new['prog_sell'] = 0
+
+                # 계산: 프로그램 비중
+                df_new['prog_ratio_vol'] = np.where(df_new['volume'] > 0,
+                                                    (df_new['prog_buy'] + df_new['prog_sell']) / df_new['volume'], 0.0)
+                df_new['prog_net_ratio'] = np.where(df_new['volume'] > 0,
+                                                    df_new['prog_net_qty'] / df_new['volume'], 0.0)
+
                 df_new['code'] = code
                 df_new['name'] = name
 
-                # 기존 데이터 + 신규 데이터 합치기
+                # 3. 구형 데이터와 합치기
                 df_combined = pd.concat([df_old, df_new])
-
-                # 날짜 기준 중복 제거 (최신 데이터 우선)
-                # keep='last'를 쓰면 뒤에 붙인 새 데이터(df_new)가 남음 -> 업데이트 효과
-                df_combined = df_combined.drop_duplicates(subset=['date'], keep='last')
-
-                # 날짜순 정렬
+                df_combined = df_combined.drop_duplicates(subset=['date'], keep='last')  # 최신 데이터 우선
                 df_combined = df_combined.sort_values('date').reset_index(drop=True)
+            else:
+                df_combined = df_old
 
-                # 등락률(change_pct) 재계산 (데이터가 중간에 끼어들었을 수 있으므로)
-                df_combined['change_pct'] = df_combined['close'].pct_change().fillna(0)
+                # 4. 시장 지수 병합 (업데이트)
+            if 'kospi_change' in df_combined.columns: df_combined.drop(columns=['kospi_change'], inplace=True)
+            if 'kosdaq_change' in df_combined.columns: df_combined.drop(columns=['kosdaq_change'], inplace=True)
 
-                # (4) 보조지표 전면 재계산 (가장 중요!)
-                # V3 모델용 지표들을 다시 계산해서 값들을 올바르게 맞춤
-                df_final = indicators.calculate_indicators_v3_save(df_combined)
+            df_combined = pd.merge(df_combined, df_kospi, on='date', how='left')
+            df_combined = pd.merge(df_combined, df_kosdaq, on='date', how='left')
+            df_combined[['kospi_change', 'kosdaq_change']] = df_combined[['kospi_change', 'kosdaq_change']].fillna(0)
 
-                # 결측치 처리 (지표 계산 초반부 등)
-                df_final = df_final.fillna(0)
+            # 5. 지표 및 Target 재계산
+            df_combined['change_pct'] = df_combined['close'].pct_change().fillna(0)
 
-                # (5) 저장
-                df_final.to_csv(file_path, index=False, encoding='utf-8-sig')
-                success_cnt += 1
+            # Target
+            df_combined['target1'] = df_combined['close'].shift(-1) / df_combined['close'] - 1
+            df_combined['target5'] = df_combined['close'].shift(-5) / df_combined['close'] - 1
+            df_combined['target20'] = df_combined['close'].shift(-20) / df_combined['close'] - 1
+
+            # 보조지표
+            df_combined = indicators.calculate_indicators_v3_save(df_combined)
+
+            # 추가 지표
+            if 'ma60' not in df_combined.columns: df_combined['ma60'] = df_combined['close'].rolling(window=60).mean()
+            if 'disparity_60' not in df_combined.columns: df_combined['disparity_60'] = (
+                        df_combined['close'] / df_combined['ma60'] - 1).fillna(0)
+            if 'bb_pos' not in df_combined.columns: df_combined['bb_pos'] = 0.0
+
+            # 6. 저장
+            for col in FINAL_COLUMNS:
+                if col not in df_combined.columns: df_combined[col] = 0
+
+            df_final = df_combined[FINAL_COLUMNS].fillna(0)
+            df_final.to_csv(file_path, index=False, encoding='utf-8-sig')
+            success_cnt += 1
 
         except Exception as e:
-            print(f"❌ 실패: {code} - {e}")
             fail_cnt += 1
 
-        # 진행률 표시 (한 줄에 갱신)
         progress = (idx / total_files) * 100
         sys.stdout.write(f"\r🚀 진행률: [{idx}/{total_files}] {progress:.1f}% (성공: {success_cnt})")
         sys.stdout.flush()
 
-        # API 호출 제한 준수 (너무 빠르면 차단됨)
+        # 파일 간 딜레이
         time.sleep(0.05)
 
     print("\n\n✅ 모든 작업이 완료되었습니다.")
-    print(f"   - 성공: {success_cnt}개")
-    print(f"   - 실패/건너뜀: {fail_cnt}개")
+    print(f"   - 성공: {success_cnt}개, 실패: {fail_cnt}개")
 
 
 if __name__ == "__main__":
