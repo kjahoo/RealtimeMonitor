@@ -1,0 +1,6 @@
+pandas
+numpy
+tensorflow
+requests
+pyyaml
+openpyxl
