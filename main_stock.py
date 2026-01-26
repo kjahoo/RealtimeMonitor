@@ -322,13 +322,15 @@ if __name__ == "__main__":
 
     try:
         while True:
-            # 시장 지수 확인
-            k_val = inquiry.fetch_index_change("0001")
-            kq_val = inquiry.fetch_index_change("1001")
-            print(
-                f"\n📊 [Cycle] {datetime.now().strftime('%H:%M:%S')} KOSPI: {k_val * 100:.2f}%, KOSDAQ: {kq_val * 100:.2f}%")
+            # [이전 위치] 여기서 지수를 한 번만 가져오던 것을 아래 for 루프 안으로 이동합니다.
 
             for idx, filename in enumerate(files, 1):
+                # ✅ [수정] 1번 종목(시작) 및 50개 종목마다 지수 데이터 갱신
+                if (idx - 1) % 50 == 0:
+                    k_val = inquiry.fetch_index_change("0001")  # 코스피
+                    kq_val = inquiry.fetch_index_change("1001")  # 코스닥
+                    print(f"\n📊 [지수 갱신] {idx}번 종목 블록 - KOSPI: {k_val * 100:.2f}%, KOSDAQ: {kq_val * 100:.2f}%")
+
                 code = filename[1:7]
                 file_path = os.path.join(DATA_DIR, filename)
 
@@ -336,40 +338,31 @@ if __name__ == "__main__":
                 res = process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb)
 
                 if res:
-                    # 시가총액 필터 (1000억 이상)
-                    cap = inquiry.fetch_market_cap(code)
-                    if cap < 1000: continue
+                    # 1. 시가총액 필터 (1000억 이상) - process_stock 내부 혹은 외부에서 체크
+                    # res에 이미 fetch_market_cap이 포함되어 있으므로 중복 호출 방지를 위해 res 사용
+                    if res['market_cap'] < 1000:
+                        continue
 
-                    res['market_cap'] = cap
+                    # 2. 분석 시간 기록 및 결과 업데이트
                     res['time'] = datetime.now().strftime("%H:%M:%S")
                     today_results[code] = res
 
-                    # 결과 딕셔너리에 추가 정보 담기
-                    if 'market_cap' not in res:
-                        res['market_cap'] = inquiry.fetch_market_cap(code)
-                    res['time'] = datetime.now().strftime("%H:%M:%S")
-
-                    # 딕셔너리에 저장
-                    today_results[code] = res
-
-                    # ✅ [수정완료] 키 이름을 score_total, close_price로 변경
+                    # 3. 알림 조건 체크 (점수 0.5 이상 및 미전송 종목)
                     if res['score_total'] >= 0.5 and code not in sent_codes:
-                        type_str = "ETF" if "main_etf" in sys.argv[0] else "주식"  # (선택사항)
-
                         msg = f"🚀 [포착] {res['name']} ({code})\n점수: {res['score_total']:.2f}\n현재가: {res['close_price']:,}"
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
                         sent_codes.add(code)
 
-                # 진행상황 및 중간 저장 (50종목마다)
+                # 4. 진행상황 출력 및 중간 저장 (50종목마다)
                 if idx % 50 == 0:
-                    print(f"   ⏳ {idx}/{len(files)} 완료...")
+                    print(f"   ⏳ {idx}/{len(files)} 완료 및 데이터 백업 중...")
                     save_and_backup_results(list(today_results.values()), today_str)
                     gc.collect()
 
-            # 사이클 종료 후 저장
+            # 모든 종목(한 사이클) 완료 후 최종 저장
             save_and_backup_results(list(today_results.values()), today_str)
-            print("✅ 사이클 완료. 1분 대기.")
+            print(f"✅ {datetime.now().strftime('%H:%M:%S')} 전 종목 분석 완료. 1분 대기.")
             time.sleep(60)
 
     except KeyboardInterrupt:
