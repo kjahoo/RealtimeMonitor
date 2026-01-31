@@ -183,8 +183,24 @@ def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
             if col not in df.columns: df[col] = 0
         df = df[FINAL_COLUMNS]  # 순서 재배열
 
-        # 9. 저장 (업데이트)
-        df.to_csv(file_path, index=False, encoding='utf-8-sig')
+        # 9. [수정] 안전한 저장 (Atomic Write)
+        # 파일을 직접 덮어쓰지 않고 .tmp 파일에 쓴 뒤 교체합니다.
+        # 이렇게 하면 쓰기 도중 프로그램이 종료되어도 원본 파일이 손상되지 않습니다.
+        temp_file_path = file_path + ".tmp"
+
+        try:
+            # 1) 임시 파일에 먼저 저장
+            df.to_csv(temp_file_path, index=False, encoding='utf-8-sig')
+
+            # 2) 임시 파일이 정상적으로 생성되었는지 확인 후 원본과 교체
+            if os.path.exists(temp_file_path):
+                os.replace(temp_file_path, file_path)
+        except Exception as save_err:
+            print(f"   ❌ 파일 저장 중 오류 발생 ({code}): {save_err}")
+            # 저장 실패 시 임시 파일 삭제 시도 (청소)
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            return None  # 저장 실패 시 None 반환하여 진행 막음
 
         # 10. 예측 진행
         if len(df) < max_lb: return None
@@ -285,6 +301,32 @@ def load_existing_results(date_str, is_stock=True):
 
     return results
 
+
+# [추가] 원본 데이터 안전 백업 함수
+def backup_source_data(source_dir, date_str, subdir_name):
+    """프로그램 시작 전 원본 데이터를 Backup 폴더로 복사합니다."""
+    backup_root = os.path.join(secrets.LOCAL_DATA_PATH, "Backup", date_str, subdir_name)
+
+    if not os.path.exists(backup_root):
+        os.makedirs(backup_root)
+
+    print(f"📂 [안전장치] 원본 데이터 백업 시작... -> {backup_root}")
+
+    cnt = 0
+    try:
+        for f in os.listdir(source_dir):
+            if f.endswith(".csv"):
+                src = os.path.join(source_dir, f)
+                dst = os.path.join(backup_root, f)
+                # 백업 폴더에 파일이 없을 때만 복사 (중복 복사 방지)
+                if not os.path.exists(dst):
+                    shutil.copy2(src, dst)
+                    cnt += 1
+        print(f"   ✅ {cnt}개 파일 백업 완료.")
+    except Exception as e:
+        print(f"   ⚠️ 백업 중 오류 발생: {e}")
+
+
 # ====== 메인 루프 ======
 if __name__ == "__main__":
     print("\n🚀 [Realtime Monitor V3] 시스템 시작 (개선된 구조 C:)")
@@ -293,6 +335,16 @@ if __name__ == "__main__":
     if not os.path.exists(secrets.LOCAL_DATA_PATH):
         os.makedirs(secrets.LOCAL_DATA_PATH)
         print(f"📂 로컬 데이터 폴더 생성: {secrets.LOCAL_DATA_PATH}")
+
+    # ==========================================
+    # ✅ [추가] 시작 전 원본 데이터 백업 실행
+    # ==========================================
+    today_str = datetime.now().strftime("%Y%m%d")
+
+    # 현재 파일이 Stock인지 ETF인지 경로를 보고 판단하여 백업 폴더명 지정
+    data_type_name = "Stock" if "Stock" in DATA_DIR else "ETF"
+    backup_source_data(DATA_DIR, today_str, data_type_name)
+    # ==========================================
 
     # 1. 토큰 발급
     token = auth.get_access_token()

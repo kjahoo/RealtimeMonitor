@@ -224,6 +224,8 @@ def update_all_files():
     print(f"\n📂 총 대상 파일: {total_files}개")
 
     success_cnt, fail_cnt = 0, 0
+    # 실패한 종목 정보를 담을 리스트 (코드, 에러내용)
+    failed_items = []
 
     for idx, file_path in enumerate(all_files, 1):
         code = os.path.basename(file_path)[1:7]
@@ -248,7 +250,7 @@ def update_all_files():
                 else:
                     df_new = df_price
                     df_new['prog_net_qty'] = 0
-                    df_new['prog_buy'] = 0;
+                    df_new['prog_buy'] = 0
                     df_new['prog_sell'] = 0
 
                 # 계산: 프로그램 비중
@@ -267,7 +269,7 @@ def update_all_files():
             else:
                 df_combined = df_old
 
-                # 4. 시장 지수 병합 (업데이트)
+            # 4. 시장 지수 병합 (업데이트)
             if 'kospi_change' in df_combined.columns: df_combined.drop(columns=['kospi_change'], inplace=True)
             if 'kosdaq_change' in df_combined.columns: df_combined.drop(columns=['kosdaq_change'], inplace=True)
 
@@ -302,9 +304,11 @@ def update_all_files():
 
         except Exception as e:
             fail_cnt += 1
+            # 실패한 종목 코드와 에러 메시지를 리스트에 저장
+            failed_items.append({'code': code, 'error': str(e)})
 
         progress = (idx / total_files) * 100
-        sys.stdout.write(f"\r🚀 진행률: [{idx}/{total_files}] {progress:.1f}% (성공: {success_cnt})")
+        sys.stdout.write(f"\r🚀 진행률: [{idx}/{total_files}] {progress:.1f}% (성공: {success_cnt}, 실패: {fail_cnt})")
         sys.stdout.flush()
 
         # 파일 간 딜레이
@@ -312,6 +316,14 @@ def update_all_files():
 
     print("\n\n✅ 모든 작업이 완료되었습니다.")
     print(f"   - 성공: {success_cnt}개, 실패: {fail_cnt}개")
+
+    # 실패 종목이 있을 경우 출력
+    if failed_items:
+        print("\n⚠️ [업데이트 실패 종목 목록]")
+        print("=" * 40)
+        for item in failed_items:
+            print(f"❌ 종목코드: {item['code']} | 사유: {item['error']}")
+        print("=" * 40)
 
 
 if __name__ == "__main__":
