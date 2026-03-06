@@ -206,7 +206,7 @@ def fetch_chart_data_chunked(code, start_date_str, end_date_str):
 
 
 # =========================================================
-# 🚀 메인 실행 로직
+# 🚀 메인 실행 로직 (수정 버전)
 # =========================================================
 def run_reset_tool():
     if not auth.get_access_token():
@@ -226,12 +226,31 @@ def run_reset_tool():
     print("   ✅ 지수 데이터 준비 완료.")
 
     while True:
-        code = input("\n👉 종목코드(6자리) 입력 (종료: q): ").strip()
-        if code.lower() == 'q': break
-        if not code.isdigit() or len(code) != 6: continue
+        # 입력값을 대문자로 변환하고 공백 제거
+        raw_code = input("\n👉 종목코드 입력 (예: 069500, AAPL) (종료: q): ").strip().upper()
+
+        if raw_code == 'Q': break
+        if not raw_code: continue
+
+        code = raw_code
+        # 국내 주식 접두사 'A' 처리 (예: A005930 -> 005930)
+        if len(code) == 7 and code.startswith('A') and code[1:].isdigit():
+            code = code[1:]
+
+        # 유효성 검사: 길이는 유연하게 두되(해외 종목 고려), 최소 1자 이상
+        if len(code) < 1:
+            print("⚠️ 올바른 종목코드를 입력해주세요.")
+            continue
 
         try:
+            # 종목 정보 조회 (기존 inquiry 모듈 사용)
             name = inquiry.fetch_stock_name(code)
+
+            # 종목을 찾지 못한 경우에 대한 처리
+            if not name or name == "Unknown":
+                print(f"❌ 종목 정보를 찾을 수 없습니다: {code}")
+                continue
+
             kind = inquiry.fetch_stock_kind(code)
             is_etf = (kind in ["ETF", "ETN"])
             save_dir = DATA_DIR_ETF if is_etf else DATA_DIR_STOCK
@@ -239,24 +258,24 @@ def run_reset_tool():
             print(f"   Target: {name} ({code}) - {kind}")
 
             # 2. 주식 시세 수집
+            # 주의: 현재 fetch_chart_data_chunked는 국내 주식 API를 사용합니다.
+            # 해외 종목(알파벳) 수집이 필요하다면 이 부분에서 분기 처리가 필요합니다.
             df = fetch_chart_data_chunked(code, START_DATE_FIXED, end_date)
+
             if df.empty:
-                print("❌ 시세 데이터 없음.")
+                print(f"❌ {code} 시세 데이터 없음 (국내 종목이 아니거나 상장 전일 수 있습니다).")
                 continue
 
-            # 3. 프로그램 매매 수집 및 병합
+            # 3. 프로그램 매매 수집 및 병합 (국내 종목인 경우에만 유효)
             df_prog = fetch_program_history_chunked(code, START_DATE_FIXED, end_date)
             if not df_prog.empty:
                 df = pd.merge(df, df_prog, on='date', how='left')
                 df['prog_net_qty'] = df['prog_net_qty'].fillna(0)
                 df['prog_buy'] = df['prog_buy'].fillna(0)
                 df['prog_sell'] = df['prog_sell'].fillna(0)
-                # prog_ratio_vol 계산 (프로그램관여비중)
-                # (매수+매도) / 전체거래량
                 df['prog_ratio_vol'] = np.where(df['volume'] > 0,
                                                 (df['prog_buy'] + df['prog_sell']) / df['volume'],
                                                 0.0)
-                # prog_net_ratio 계산 (순매수비중)
                 df['prog_net_ratio'] = np.where(df['volume'] > 0,
                                                 df['prog_net_qty'] / df['volume'],
                                                 0.0)
@@ -268,25 +287,21 @@ def run_reset_tool():
             # 4. 지수 데이터 병합
             df = pd.merge(df, df_kospi, on='date', how='left')
             df = pd.merge(df, df_kosdaq, on='date', how='left')
-            df['kospi_change'] = df['kospi_change'].fillna(0)
-            df['kosdaq_change'] = df['kosdaq_change'].fillna(0)
+            df['kospi_change'] = df['kospi_change'].fillna(0).infer_objects(copy=False)
+            df['kosdaq_change'] = df['kosdaq_change'].fillna(0).infer_objects(copy=False)
 
             # 5. 기본 지표 계산
             df['code'] = code
             df['name'] = name
             df['change_pct'] = df['close'].pct_change().fillna(0)
 
-            # 6. Target 계산 (미래 데이터 참조)
-            # -1일(내일), -5일(일주일뒤), -20일(한달뒤) 수익률
+            # 6. Target 계산
             df['target1'] = df['close'].shift(-1) / df['close'] - 1
             df['target5'] = df['close'].shift(-5) / df['close'] - 1
             df['target20'] = df['close'].shift(-20) / df['close'] - 1
-
-            # 마지막 데이터들은 미래가 없으므로 0으로 채움
             df[['target1', 'target5', 'target20']] = df[['target1', 'target5', 'target20']].fillna(0)
 
-            # 7. 기술적 지표 계산 (Indicators V3)
-            # MA60 등은 indicators에 없으면 수동 계산
+            # 7. 기술적 지표 계산
             df = indicators.calculate_indicators_v3_save(df)
 
             if 'ma60' not in df.columns:
@@ -296,7 +311,7 @@ def run_reset_tool():
             if 'bb_pos' not in df.columns:
                 df['bb_pos'] = 0.0
 
-            # 8. 최종 저장 (컬럼 순서 맞춤)
+            # 8. 최종 저장
             for col in FINAL_COLUMNS:
                 if col not in df.columns: df[col] = 0
 
