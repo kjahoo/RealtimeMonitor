@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import requests  # 텔레그램 전송을 위해 추가됨
 import pandas as pd
 import numpy as np
 import tensorflow as tf
@@ -31,6 +32,9 @@ TARGET_SCORE = 0.2
 # ⏱️ 사이클 대기 시간
 CYCLE_DELAY = 30
 
+# 📉 [추가] 매도 시그널 알림 임계값 (0.35, 0.3, 0.25, 0.20, 0)
+DROP_THRESHOLDS = [0.35, 0.30, 0.25, 0.20, 0]
+
 # V3 모델 세팅
 MODEL_SETTINGS = {
     "target1": {"lb": 21, "thr": 0.4974, "weight": 0.1384},
@@ -51,6 +55,17 @@ V3_FEATURES = [
 
 
 # ====== 함수 정의 ======
+
+# 🔔 [추가] 텔레그램 알림 함수
+def send_telegram(msg):
+    """텔레그램 알림 발송"""
+    if not secrets.TELEGRAM_BOT_TOKEN: return
+    try:
+        url = f"https://api.telegram.org/bot{secrets.TELEGRAM_BOT_TOKEN}/sendMessage"
+        requests.post(url, data={"chat_id": secrets.TELEGRAM_CHAT_ID, "text": msg}, timeout=3)
+    except Exception as e:
+        print(f"⚠️ 텔레그램 전송 실패: {e}")
+
 
 def load_v3_models():
     """모델 로드"""
@@ -210,7 +225,7 @@ def update_split_logs(stock_results, etf_results, today_str):
 
 def run_updater():
     if not auth.get_access_token():
-        print("❌ 토큰 발급 실패");
+        print("❌ 토큰 발급 실패")
         return
 
     models = load_v3_models()
@@ -220,7 +235,11 @@ def run_updater():
     print(f"\n🚀 [Promising Updater] 통합 추적 시작")
     print(f"   - 자동발굴: 점수 {TARGET_SCORE}점 이상만 추적")
     print(f"   - 검색기록: 점수 상관없이 🔍 무조건 추적")
+    print(f"   - 매도시그널: {DROP_THRESHOLDS} 이하로 하락 시 알림 발송")
     print(f"   - 주기: {CYCLE_DELAY}초\n")
+
+    # 📊 [추가] 종목별 이전 점수 기록용 딕셔너리 (하락 돌파 감지용)
+    last_scores = {}
 
     while True:
         try:
@@ -333,9 +352,24 @@ def run_updater():
                     total_score = round(s_sum - d_sum, 4)
                     cap = inquiry.fetch_market_cap(code)
 
-                    # 🟢 [출력] 검색 기록에 있는 종목만 콘솔 출력 (점수 낮아도 표시됨)
+                    # 🟢 [출력 & 하락 알림] 검색 기록에 있는 종목만 처리
                     if code in history_codes:
                         print(f"   🔍 [{code}] {stock_name:<8} | 점수: {total_score:.4f} | 현재가: {curr:,}원")
+
+                        # [추가 로직] 매도 시그널 알림 (하락 돌파 감지)
+                        # 프로그램 시작 직후에는 알림이 울리지 않고, 점수가 갱신되면서 지정된 구간을 '하향 돌파'할 때만 울림
+                        prev_score = last_scores.get(code, total_score)
+
+                        for thr in DROP_THRESHOLDS:
+                            # 이전 점수는 특정 임계값보다 높았는데, 현재 점수가 그 임계값 이하로 떨어진 경우
+                            if prev_score > thr and total_score <= thr:
+                                msg = f"🚨 [매도/분할매도 시그널] {stock_name} ({code})\n점수가 {thr} 이하로 하락했습니다!\n점수 변화: {prev_score:.4f} ➡️ {total_score:.4f}\n현재가: {curr:,}원"
+                                print(f"   🔔 {msg.replace(chr(10), '  ')}")
+                                send_telegram(msg)
+                                break  # 한 번에 여러 구간을 깨더라도 한 사이클에 메시지는 1회만 전송
+
+                        # 다음 검사를 위해 현재 점수를 저장
+                        last_scores[code] = total_score
 
                     # (6) 결과 리스트 추가
                     result_row = {
