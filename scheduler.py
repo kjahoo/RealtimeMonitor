@@ -11,6 +11,9 @@ scheduler.py - RealtimeMonitor 자동 스케줄러
   ※ main_etf.py 는 당분간 실행하지 않음
   ※ Search_Stock_V3.py 는 스케줄러 기동 시 항상 별도 콘솔로 실행되며,
      비정상 종료 시 자동 재시작됩니다.
+  ※ telegram_chat.py 는 스케줄러 기동 시 항상 별도 콘솔로 실행되며,
+     텔레그램으로 종목명/코드 입력 시 V3 분석 결과를 응답합니다.
+     비정상 종료 시 자동 재시작됩니다.
 
 [사용법]
   python scheduler.py
@@ -133,6 +136,28 @@ def ensure_search_bot_alive():
     if proc is None or proc.poll() is not None:
         log("⚠️ Search_Stock_V3.py 종료 감지 → 재시작")
         start_search_bot()
+
+
+def start_telegram_bot():
+    """telegram_chat.py 를 별도 콘솔 창으로 실행합니다."""
+    script_path = os.path.join(PROJECT_DIR, "kis_api", "telegram_chat.py")
+    try:
+        proc = subprocess.Popen(
+            [PYTHON_EXE, script_path],
+            cwd=PROJECT_DIR,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        running_procs["telegram"] = proc
+        log(f"📱 telegram_chat.py 시작 (PID: {proc.pid})")
+    except Exception as e:
+        log(f"   ❌ telegram_chat.py 시작 실패: {e}")
+
+
+def ensure_telegram_bot_alive():
+    proc = running_procs.get("telegram")
+    if proc is None or proc.poll() is not None:
+        log("⚠️ telegram_chat.py 종료 감지 → 재시작")
+        start_telegram_bot()
 
 
 # ====================================================
@@ -355,8 +380,9 @@ def main():
     signal.signal(signal.SIGINT,  on_exit)
     signal.signal(signal.SIGTERM, on_exit)
 
-    # ── Search_Stock_V3 는 스케줄러 시작과 동시에 항상 기동
+    # ── Search_Stock_V3, telegram_chat 는 스케줄러 시작과 동시에 항상 기동
     start_search_bot()
+    start_telegram_bot()
 
     data_updated_today = False  # 하루에 1번만 Update_Data_All 실행
 
@@ -392,8 +418,9 @@ def main():
                 log(f"😴 다음 평일 08:00까지 대기 ({h}시간 {m}분)")
 
         # ── 봇 생존 확인
-        check_market_bots_alive()   # 시장 연동 봇 (stock, update)
-        ensure_search_bot_alive()   # Search_Stock_V3 (항상)
+        check_market_bots_alive()    # 시장 연동 봇 (stock, update)
+        ensure_search_bot_alive()    # Search_Stock_V3 (항상)
+        ensure_telegram_bot_alive()  # telegram_chat (항상)
 
         # ── 현재 상태 주기적 출력 (폴링 주기 내 첫 번째 틱)
         if datetime.now().second < POLL_INTERVAL:
@@ -406,7 +433,11 @@ def main():
                     running_procs.get("search") and
                     running_procs["search"].poll() is None
                 )
-                log(f"💓 [{mode}] 시장봇: {market_alive}/2 | 검색봇: {'✅' if search_alive else '❌'}")
+                tg_alive = (
+                    running_procs.get("telegram") and
+                    running_procs["telegram"].poll() is None
+                )
+                log(f"💓 [{mode}] 시장봇: {market_alive}/2 | 검색봇: {'✅' if search_alive else '❌'} | 텔레봇: {'✅' if tg_alive else '❌'}")
 
         time.sleep(POLL_INTERVAL)
 

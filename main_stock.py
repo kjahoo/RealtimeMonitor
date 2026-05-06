@@ -61,7 +61,8 @@ def send_telegram(msg):
     try:
         import requests
         url = f"https://api.telegram.org/bot{secrets.TELEGRAM_BOT_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": secrets.TELEGRAM_CHAT_ID, "text": msg}, timeout=3)
+        for chat_id in secrets.TELEGRAM_NOTIFY_IDS:
+            requests.post(url, data={"chat_id": chat_id, "text": msg}, timeout=3)
     except Exception as e:
         print(f"⚠️ 텔레그램 전송 실패: {e}")
 
