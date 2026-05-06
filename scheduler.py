@@ -19,7 +19,6 @@ scheduler.py - RealtimeMonitor 자동 스케줄러
 import os
 import sys
 import time
-import glob
 import shutil
 import subprocess
 import signal
@@ -254,34 +253,38 @@ def check_market_bots_alive():
 
 
 # ====================================================
-# 📋 Search_History.csv 당일 파일 준비
+# 📋 Search_History.csv 다음 거래일 파일 준비
 # ====================================================
 LOGS_DIR = os.path.join(PROJECT_DIR, "logs")
 
 
-def copy_search_history_if_missing():
+def get_next_trading_day():
+    """다음 거래일(평일) 날짜 반환"""
+    candidate = datetime.now().date() + timedelta(days=1)
+    while candidate.weekday() >= 5:  # 5=토, 6=일
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def copy_search_history_to_next_trading_day():
     """
-    오늘자 YYYYMMDD_Search_History.csv 가 없으면 가장 최근 전일 파일을 복사합니다.
-    Update_Promising_Stocks.py 가 오늘자 파일을 읽기 때문에 장 시작 전에 준비해야 합니다.
+    오늘자 YYYYMMDD_Search_History.csv 를 다음 거래일 파일명으로 복사합니다.
+    장 종료(20:00) 직전 CLOSED 전환 시 호출합니다.
     """
     today_str = datetime.now().strftime("%Y%m%d")
     today_file = os.path.join(LOGS_DIR, f"{today_str}_Search_History.csv")
 
-    if os.path.exists(today_file):
-        log(f"📋 오늘자 Search_History.csv 이미 존재 ({today_str})")
+    if not os.path.exists(today_file):
+        log(f"⚠️ 오늘자 Search_History.csv 없음 ({today_str}) → 복사 건너뜀")
         return
 
-    candidates = sorted(glob.glob(os.path.join(LOGS_DIR, "*_Search_History.csv")))
-    prev_files = [f for f in candidates if os.path.basename(f) < f"{today_str}_Search_History.csv"]
+    next_day = get_next_trading_day()
+    next_str = next_day.strftime("%Y%m%d")
+    next_file = os.path.join(LOGS_DIR, f"{next_str}_Search_History.csv")
 
-    if not prev_files:
-        log("⚠️ 복사할 전일 Search_History.csv 파일을 찾을 수 없습니다.")
-        return
-
-    src = prev_files[-1]
     try:
-        shutil.copy2(src, today_file)
-        log(f"📋 Search_History.csv 복사 완료: {os.path.basename(src)} → {today_str}_Search_History.csv")
+        shutil.copy2(today_file, next_file)
+        log(f"📋 Search_History.csv 복사 완료: {today_str} → {next_str}")
     except Exception as e:
         log(f"❌ Search_History.csv 복사 실패: {e}")
 
@@ -370,12 +373,10 @@ def main():
             current_mode = mode
 
             if mode in ("NXT", "KRX"):
-                # 08:00 NXT 진입 시에만 Search_History 파일 준비
-                if mode == "NXT" and TIME_NXT_START <= datetime.now().time() < TIME_KRX_START:
-                    copy_search_history_if_missing()
                 start_bots(mode)
 
             elif mode == "CLOSED":
+                copy_search_history_to_next_trading_day()
                 stop_market_bots()
                 if not data_updated_today:
                     run_update_data_all()

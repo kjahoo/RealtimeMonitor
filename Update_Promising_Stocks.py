@@ -28,7 +28,7 @@ TARGET_SCORE   = 0.2
 CYCLE_DELAY    = 30
 
 # 매도 시그널 임계값
-DROP_THRESHOLDS = [0.35, 0.30, 0.25, 0.20, 0]
+DROP_THRESHOLDS = [0.40, 0.35, 0.30, 0.25, 0.20, 0]
 
 # ✅ [추가] NXT 시간대 API 타임아웃 제한
 #    NXT 데이터가 없는 종목은 call_api가 재시도하며 오래 걸림
@@ -383,9 +383,15 @@ def run_updater():
                         prev_score = last_scores.get(code, total_score)
                         for thr in DROP_THRESHOLDS:
                             if prev_score > thr and total_score <= thr:
-                                msg = (f"🚨 [매도 시그널] {stock_name} ({code})\n"
-                                       f"점수가 {thr} 이하로 하락!\n"
-                                       f"점수 변화: {prev_score:.4f} → {total_score:.4f}\n"
+                                if thr >= 0.40:
+                                    signal_label = "[매도 시그널-10%보유]"
+                                elif thr >= 0.35:
+                                    signal_label = "[매도 시그널-5%보유]"
+                                else:
+                                    signal_label = "[매도 시그널-전량매도]"
+                                msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
+                                       f"점수가 {thr * 100:.0f}점 이하로 하락!\n"
+                                       f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
                                        f"현재가: {curr:,}원")
                                 print(f"   🔔 {msg.replace(chr(10), '  ')}")
                                 send_telegram(msg)

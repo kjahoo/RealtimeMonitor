@@ -401,7 +401,16 @@ if __name__ == "__main__":
 
                     # 3. 알림 조건 체크 (점수 0.5 이상 및 미전송 종목)
                     if res['score_total'] >= 0.5 and code not in sent_codes:
-                        msg = f"🚀 [포착] {res['name']} ({code})\n점수: {res['score_total']:.2f}\n현재가: {res['close_price']:,}"
+                        score = res['score_total']
+                        if score >= 0.8:
+                            label = "[포착-15%매수추천]"
+                        elif score >= 0.7:
+                            label = "[포착-10%매수추천]"
+                        elif score >= 0.6:
+                            label = "[포착-5%매수추천]"
+                        else:
+                            label = "[포착]"
+                        msg = f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n현재가: {res['close_price']:,}"
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
                         sent_codes.add(code)
