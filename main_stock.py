@@ -55,6 +55,15 @@ V3_FEATURES = [
 ]
 
 
+# 점수 구간(tier) 반환 — None이면 0.5 미만
+def get_score_tier(score):
+    if score >= 0.8: return 0.8
+    elif score >= 0.7: return 0.7
+    elif score >= 0.6: return 0.6
+    elif score >= 0.5: return 0.5
+    return None
+
+
 # 텔레그램 알림
 def send_telegram(msg):
     if not secrets.TELEGRAM_BOT_TOKEN: return
@@ -369,7 +378,7 @@ if __name__ == "__main__":
     target_date = pd.to_datetime(today_str).normalize()
 
     today_results = load_existing_results(today_str, is_stock=True)
-    sent_codes = {code for code, info in today_results.items() if info.get('score_total', 0) >= 0.5}
+    sent_tiers = {}  # {code: last_alerted_tier} — 세션(NXT/KRX) 시작 시 초기화
 
     STOCK_KIND_CACHE = {}
 
@@ -400,9 +409,10 @@ if __name__ == "__main__":
                     res['time'] = datetime.now().strftime("%H:%M:%S")
                     today_results[code] = res
 
-                    # 3. 알림 조건 체크 (점수 0.5 이상 및 미전송 종목)
-                    if res['score_total'] >= 0.5 and code not in sent_codes:
-                        score = res['score_total']
+                    # 3. 알림 조건 체크 — 점수 구간(tier)이 바뀔 때마다 재알림
+                    score = res['score_total']
+                    tier = get_score_tier(score)
+                    if tier is not None and sent_tiers.get(code) != tier:
                         if score >= 0.8:
                             label = "[포착-15%매수추천]"
                         elif score >= 0.7:
@@ -414,7 +424,7 @@ if __name__ == "__main__":
                         msg = f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n현재가: {res['close_price']:,}"
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
-                        sent_codes.add(code)
+                        sent_tiers[code] = tier
 
                 # 4. 진행상황 출력 및 중간 저장 (50종목마다)
                 if idx % 50 == 0:

@@ -309,7 +309,7 @@ def analyze(code, models, max_lb):
     return result, None
 
 
-def _save_search_log(code, name, curr, cap, change_pct, total_score, s_hits, d_hits, is_etf, probs):
+def _save_search_log(code, name, curr, cap, change_pct, total_score, s_hits, d_hits, is_etf, probs, chat_id=None):
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
 
@@ -317,7 +317,7 @@ def _save_search_log(code, name, curr, cap, change_pct, total_score, s_hits, d_h
     hist_path  = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
     hist_exists = os.path.exists(hist_path)
     hist_fields = ["timestamp", "code", "name", "current_price", "market_cap",
-                   "change_pct", "total_score", "net_hits", "surge_hits", "drop_hits", "signal"]
+                   "change_pct", "total_score", "net_hits", "surge_hits", "drop_hits", "signal", "chat_id"]
 
     type_str   = "ETF" if is_etf else "Stock"
     v3_path    = os.path.join(LOG_DIR, f"{today_str}_{type_str}_V3.csv")
@@ -327,20 +327,34 @@ def _save_search_log(code, name, curr, cap, change_pct, total_score, s_hits, d_h
                   "target1", "target5", "target20", "drop1", "drop5", "drop20"]
 
     try:
+        new_row = {
+            "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "code": code, "name": name,
+            "current_price": curr, "market_cap": cap,
+            "change_pct":    round(change_pct * 100, 2),
+            "total_score":   total_score,
+            "net_hits":      s_hits - d_hits,
+            "surge_hits":    s_hits, "drop_hits": d_hits,
+            "signal":        f"Target {s_hits} / Drop {d_hits}",
+            "chat_id":       str(chat_id) if chat_id else "",
+        }
+        if hist_exists:
+            df = _read_history_csv(hist_path)
+            cid = str(chat_id) if chat_id else ""
+            dup = (df['code'].astype(str).str.strip().str.zfill(6) == str(code)) & \
+                  (df.get('chat_id', pd.Series(dtype=str)).fillna('') == cid)
+            if dup.any():
+                # 기존 행 업데이트
+                for col, val in new_row.items():
+                    if col in df.columns:
+                        df.loc[dup, col] = val
+                df.to_csv(hist_path, index=False, encoding='utf-8-sig')
+                return  # 파일 저장 완료, 아래 append 생략
         with open(hist_path, "a", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=hist_fields, extrasaction="ignore")
             if not hist_exists:
                 w.writeheader()
-            w.writerow({
-                "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "code": code, "name": name,
-                "current_price": curr, "market_cap": cap,
-                "change_pct":    round(change_pct * 100, 2),
-                "total_score":   total_score,
-                "net_hits":      s_hits - d_hits,
-                "surge_hits":    s_hits, "drop_hits": d_hits,
-                "signal":        f"Target {s_hits} / Drop {d_hits}",
-            })
+            w.writerow(new_row)
     except Exception as e:
         print(f"⚠️ 검색기록 저장 실패: {e}")
 
@@ -360,6 +374,81 @@ def _save_search_log(code, name, curr, cap, change_pct, total_score, s_hits, d_h
             })
     except Exception as e:
         print(f"⚠️ V3 로그 저장 실패: {e}")
+
+
+def _read_history_csv(hist_path):
+    """컬럼 수가 다른 구/신 행이 섞인 Search_History.csv를 안전하게 읽는다."""
+    try:
+        return pd.read_csv(hist_path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
+    except TypeError:
+        # pandas < 1.3 fallback
+        return pd.read_csv(hist_path, encoding='utf-8-sig', dtype=str, error_bad_lines=False)
+
+
+def delete_from_history(code, chat_id, today_str):
+    """Search_History에서 해당 code + chat_id 행을 삭제. (삭제수, 종목명) 반환."""
+    hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
+    if not os.path.exists(hist_path):
+        return 0, ""
+    try:
+        df = _read_history_csv(hist_path)
+        if 'code' not in df.columns or 'chat_id' not in df.columns:
+            return 0, ""
+        df['code'] = df['code'].apply(lambda x: str(x).strip().zfill(6) if str(x).strip().isdigit() else str(x).strip())
+        mask = (df['code'] == code) & (df['chat_id'].fillna('') == str(chat_id))
+        name = df.loc[mask, 'name'].iloc[0] if mask.any() else ""
+        removed = int(mask.sum())
+        df[~mask].to_csv(hist_path, index=False, encoding='utf-8-sig')
+        return removed, name
+    except Exception as e:
+        print(f"⚠️ 삭제 실패: {e}")
+        return -1, ""
+
+
+def get_my_watchlist(chat_id, today_str):
+    """오늘 Search_History에서 해당 chat_id가 추가한 종목 목록 반환. [(code, name, total_score, timestamp), ...]"""
+    hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
+    if not os.path.exists(hist_path):
+        return []
+    try:
+        df = _read_history_csv(hist_path)
+        if 'code' not in df.columns or 'chat_id' not in df.columns:
+            return []
+        df['code'] = df['code'].apply(lambda x: str(x).strip().zfill(6) if str(x).strip().isdigit() else str(x).strip())
+        df = df[df['chat_id'].fillna('') == str(chat_id)]
+        df = df.sort_values('timestamp').drop_duplicates(subset='code', keep='last')
+        return [
+            (row['code'], row.get('name', ''), row.get('total_score', ''), row.get('timestamp', ''))
+            for _, row in df.iterrows()
+        ]
+    except Exception as e:
+        print(f"⚠️ 목록 조회 실패: {e}")
+        return []
+
+
+def get_all_watchlists(today_str):
+    """오늘 Search_History 전체를 chat_id별로 묶어 반환. {chat_id: [(code, name, score, ts), ...]}"""
+    hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
+    if not os.path.exists(hist_path):
+        return {}
+    try:
+        df = _read_history_csv(hist_path)
+        if 'code' not in df.columns or 'chat_id' not in df.columns:
+            return {}
+        df['code'] = df['code'].apply(lambda x: str(x).strip().zfill(6) if str(x).strip().isdigit() else str(x).strip())
+        df = df.sort_values('timestamp').drop_duplicates(subset=['code', 'chat_id'], keep='last')
+        result = {}
+        for cid, group in df.groupby(df['chat_id'].fillna('')):
+            if not cid:
+                continue
+            result[cid] = [
+                (row['code'], row.get('name', ''), row.get('total_score', ''), row.get('timestamp', ''))
+                for _, row in group.iterrows()
+            ]
+        return result
+    except Exception as e:
+        print(f"⚠️ 전체 목록 조회 실패: {e}")
+        return {}
 
 
 # ====================================================
@@ -465,14 +554,114 @@ def run():
                     send_message(chat_id, "❌ 권한이 없습니다.")
                     continue
 
-                # /start, /help
-                if text.startswith("/") and text.split()[0] not in ("/users",):
+                # /start
+                if text == "/start":
                     send_message(chat_id,
-                        "📱 종목 조회 봇\n\n"
-                        "종목코드(6자리) 또는 종목명을 입력하세요.\n"
-                        "예) 005930  /  삼성전자  /  카카오\n\n"
-                        "/users  봇 방문자 목록"
+                        "안녕하세요! 주식 분석 봇입니다.\n"
+                        "종목코드(6자리) 또는 종목명을 입력하면 V3 모델 분석 결과를 알려드립니다.\n\n"
+                        "자세한 사용법은 /help 를 입력하세요."
                     )
+                    continue
+
+                # /help
+                if text == "/help":
+                    send_message(chat_id,
+                        "📖 사용법 안내\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        "🔍 종목 분석\n"
+                        "  종목코드(6자리) 또는 종목명 입력\n"
+                        "  예) 005930  /  삼성전자  /  카카오\n"
+                        "  → 현재가·시총·종합점수·매수/매도 시그널 표시\n"
+                        "  → 분석한 종목은 자동으로 추적 목록에 추가됨\n"
+                        "\n"
+                        "📋 /list\n"
+                        "  내가 추적 중인 종목 목록 조회\n"
+                        "  점수가 특정 구간 이하로 하락하면 자동 알림 발송\n"
+                        "\n"
+                        "🗑️ /del <종목>\n"
+                        "  추적 목록에서 종목 삭제\n"
+                        "  예) /del 005930  /  /del 삼성전자\n"
+                        "  ※ 종목명은 정확히 입력해야 합니다\n"
+                        "\n"
+                        "🚨 자동 알림 기준\n"
+                        "  점수 40점 이하 → 10% 보유 권고\n"
+                        "  점수 35점 이하 → 5% 보유 권고\n"
+                        "  점수 30점 이하 → 전량 매도 권고\n"
+                        "\n"
+                        "👥 /users\n"
+                        "  봇 방문자 목록 조회"
+                    )
+                    continue
+
+                # 그 외 슬래시 커맨드
+                if text.startswith("/") and text.split()[0] not in ("/users", "/del", "/list"):
+                    send_message(chat_id, "알 수 없는 명령어입니다. /help 를 입력하면 사용법을 확인할 수 있습니다.")
+                    continue
+
+                # /list — 추적 종목 목록
+                if text == "/list":
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    is_owner = str(chat_id) == secrets.TELEGRAM_NOTIFY_IDS[0]
+
+                    def _format_stock_line(code, name, score, ts):
+                        try:
+                            score_str = f"{float(score)*100:.1f}점" if score else "-"
+                        except (ValueError, TypeError):
+                            score_str = "-"
+                        time_str = ts[11:16] if len(str(ts)) >= 16 else str(ts)
+                        return f"• {name} ({code})  {score_str}  [{time_str}]"
+
+                    if is_owner:
+                        all_lists = get_all_watchlists(today_str_now)
+                        if not all_lists:
+                            send_message(chat_id, "📋 오늘 추적 중인 종목이 없습니다.")
+                        else:
+                            lines = []
+                            for cid, stocks in all_lists.items():
+                                info = visitors.get(int(cid) if str(cid).isdigit() else cid, {})
+                                user_label = info.get('name', '') or info.get('username', '') or cid
+                                lines.append(f"👤 {user_label} ({len(stocks)}개)")
+                                for item in stocks:
+                                    lines.append(_format_stock_line(*item))
+                                lines.append("")
+                            send_message(chat_id, "\n".join(lines).strip())
+                    else:
+                        watchlist = get_my_watchlist(chat_id, today_str_now)
+                        if not watchlist:
+                            send_message(chat_id, "📋 오늘 추적 중인 종목이 없습니다.\n종목을 검색하면 자동으로 추적 목록에 추가됩니다.")
+                        else:
+                            lines = [f"📋 내 추적 종목 ({len(watchlist)}개)\n"]
+                            for item in watchlist:
+                                lines.append(_format_stock_line(*item))
+                            send_message(chat_id, "\n".join(lines))
+                    continue
+
+                # /del — 검색 기록에서 삭제 (완전 일치만 허용)
+                if text.lower().startswith("/del"):
+                    parts = text.split(maxsplit=1)
+                    if len(parts) < 2:
+                        send_message(chat_id, "사용법: /del <종목코드 또는 종목명>\n예) /del 005930  /  /del 삼성전자")
+                        continue
+                    query = parts[1].strip()
+                    q = query.strip()
+                    if q.isdigit() and len(q) == 6:
+                        del_code = q
+                    elif q.lower() in name_cache:
+                        del_code, _ = name_cache[q.lower()]
+                    else:
+                        del_code = None
+                    if not del_code:
+                        send_message(chat_id, f"❌ '{query}' 종목을 찾을 수 없습니다.")
+                        continue
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    removed, del_name = delete_from_history(del_code, chat_id, today_str_now)
+                    if removed > 0:
+                        send_message(chat_id, f"🗑️ {del_name} ({del_code}) 추적 목록에서 삭제됐습니다.")
+                        print(f"   🗑️ [{chat_id}] {del_name}({del_code}) 삭제", flush=True)
+                    elif removed == 0:
+                        send_message(chat_id, f"⚠️ {del_code} 종목이 내 추적 목록에 없습니다.")
+                    else:
+                        send_message(chat_id, "❌ 삭제 중 오류가 발생했습니다.")
                     continue
 
                 # /users — 방문자 목록 (등록 사용자만 조회 가능)
@@ -504,6 +693,13 @@ def run():
                     send_message(chat_id, f"❌ {err}")
                 else:
                     send_message(chat_id, format_result(result))
+                    _save_search_log(
+                        result['code'], result['name'], result['curr'], result['cap'],
+                        result['change_pct'], result['total_score'],
+                        result['s_hits'], result['d_hits'],
+                        result['kind'] in ('ETF', 'ETN'), result['probs'],
+                        chat_id,
+                    )
                     print(f"   ✅ [{code}] {result['name']} 전송 완료", flush=True)
 
         except KeyboardInterrupt:

@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import json
 import requests
 import pandas as pd
 import numpy as np
@@ -19,10 +20,11 @@ from tensorflow.keras.models import load_model
 import pickle
 
 # ====== [환경 설정] ======
-MODEL_DIR      = secrets.V3_MODEL_DIR
-DATA_DIR_STOCK = r"C:\Projects\RealtimeMonitor\Data\Stock"
-DATA_DIR_ETF   = r"C:\Projects\RealtimeMonitor\Data\ETF"
-LOG_DIR        = r"C:\Projects\RealtimeMonitor\logs"
+MODEL_DIR        = secrets.V3_MODEL_DIR
+DATA_DIR_STOCK   = r"C:\Projects\RealtimeMonitor\Data\Stock"
+DATA_DIR_ETF     = r"C:\Projects\RealtimeMonitor\Data\ETF"
+LOG_DIR          = r"C:\Projects\RealtimeMonitor\logs"
+LAST_SCORES_FILE = os.path.join(LOG_DIR, "last_scores.json")
 
 TARGET_SCORE   = 0.2
 CYCLE_DELAY    = 30
@@ -57,14 +59,42 @@ V3_FEATURES = [
 # ====================================================
 # 🔔 텔레그램
 # ====================================================
-def send_telegram(msg):
+def send_telegram(msg, chat_ids=None):
     if not secrets.TELEGRAM_BOT_TOKEN: return
+    ids = chat_ids if chat_ids else secrets.TELEGRAM_NOTIFY_IDS
     try:
         url = f"https://api.telegram.org/bot{secrets.TELEGRAM_BOT_TOKEN}/sendMessage"
-        for chat_id in secrets.TELEGRAM_NOTIFY_IDS:
+        for chat_id in ids:
             requests.post(url, data={"chat_id": chat_id, "text": msg}, timeout=3)
     except Exception as e:
         print(f"   ⚠️ 텔레그램 전송 실패: {e}")
+
+
+# ====================================================
+# 💾 last_scores 영속화 (재시작 후에도 이전 점수 유지)
+# ====================================================
+def load_last_scores():
+    today_str = datetime.now().strftime("%Y%m%d")
+    try:
+        if os.path.exists(LAST_SCORES_FILE):
+            with open(LAST_SCORES_FILE, encoding='utf-8') as f:
+                data = json.load(f)
+            # 날짜가 다르면 (전날 데이터) 초기화
+            if data.get("date") == today_str:
+                return data.get("scores", {})
+    except Exception:
+        pass
+    return {}
+
+
+def save_last_scores(last_scores):
+    today_str = datetime.now().strftime("%Y%m%d")
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        with open(LAST_SCORES_FILE, 'w', encoding='utf-8') as f:
+            json.dump({"date": today_str, "scores": last_scores}, f)
+    except Exception as e:
+        print(f"   ⚠️ last_scores 저장 실패: {e}")
 
 
 # ====================================================
@@ -138,8 +168,9 @@ def fetch_realtime_safe(code):
 # 📋 타겟 리스트 로드
 # ====================================================
 def get_all_targets_and_history(today_str):
-    targets     = {}
-    history_set = set()
+    targets      = {}
+    history_set  = set()
+    history_chat = {}   # {code: set(chat_id)} — 검색한 사용자 매핑
 
     files = {
         'Stock':   os.path.join(LOG_DIR, f"{today_str}_Stock_V3.csv"),
@@ -159,20 +190,25 @@ def get_all_targets_and_history(today_str):
         except Exception as e:
             print(f"   ⚠️ Stock Log 읽기 오류: {e}")
 
-    # Search History (점수 무관 전부 추적)
+    # Search History (점수 무관 전부 추적, chat_id별 매핑)
     if os.path.exists(files['History']):
         try:
             df = pd.read_csv(files['History'], encoding='utf-8-sig', dtype=str)
             if 'code' in df.columns:
                 df = df.dropna(subset=['code'])
-                for c in df['code'].apply(format_code).tolist():
+                for _, row in df.iterrows():
+                    c = format_code(row['code'])
                     history_set.add(c)
                     if c not in targets:
                         targets[c] = check_is_etf(c)
+                    # chat_id 컬럼이 있으면 검색자 기록
+                    cid = str(row.get('chat_id', '')).strip()
+                    if cid:
+                        history_chat.setdefault(c, set()).add(cid)
         except Exception as e:
             print(f"   ⚠️ History Log 읽기 오류: {e}")
 
-    return targets, history_set
+    return targets, history_set, history_chat
 
 
 # ====================================================
@@ -214,6 +250,42 @@ def update_split_logs(stock_results, etf_results, today_str):
 
 
 # ====================================================
+# 🔄 Search_History 점수 업데이트
+# ====================================================
+def update_search_history_scores(updates, today_str):
+    """
+    updates: {code: {'total_score': ..., 'close_price': ..., 'net_hits': ...,
+                     'surge_hits': ..., 'drop_hits': ...}}
+    Search_History.csv의 해당 code 행 점수·현재가를 일괄 덮어씁니다.
+    """
+    if not updates:
+        return
+    hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
+    if not os.path.exists(hist_path):
+        return
+    try:
+        df = pd.read_csv(hist_path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
+        if 'code' not in df.columns:
+            return
+        df['code'] = df['code'].apply(format_code)
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for code, vals in updates.items():
+            mask = df['code'] == code
+            if not mask.any():
+                continue
+            df.loc[mask, 'total_score']   = str(vals.get('total_score', ''))
+            df.loc[mask, 'current_price'] = str(vals.get('close_price', ''))
+            df.loc[mask, 'net_hits']      = str(vals.get('net_hits', ''))
+            df.loc[mask, 'surge_hits']    = str(vals.get('surge_hits', ''))
+            df.loc[mask, 'drop_hits']     = str(vals.get('drop_hits', ''))
+            df.loc[mask, 'signal']        = f"Target {vals.get('surge_hits',0)} / Drop {vals.get('drop_hits',0)}"
+            df.loc[mask, 'timestamp']     = now_str
+        df.to_csv(hist_path, index=False, encoding='utf-8-sig')
+    except Exception as e:
+        print(f"   ⚠️ Search_History 점수 업데이트 실패: {e}")
+
+
+# ====================================================
 # 🚀 메인 루프
 # ====================================================
 def run_updater():
@@ -235,8 +307,7 @@ def run_updater():
     print(f"   - 매도시그널: {DROP_THRESHOLDS} 이하 하락 시 알림")
     print(f"   - 주기      : {CYCLE_DELAY}초\n")
 
-    last_scores  = {}   # 매도 시그널용 이전 점수 기록
-    # ✅ [추가] NXT 시간대 미지원 종목 캐시 (사이클마다 초기화)
+    last_scores    = load_last_scores()   # 재시작 후에도 이전 점수 복원
     nxt_skip_cache = set()
 
     while True:
@@ -253,7 +324,7 @@ def run_updater():
             kq_val = inquiry.fetch_index_change("1001")
 
             # 2. 타겟 리스트
-            targets, history_codes = get_all_targets_and_history(today_str)
+            targets, history_codes, history_chat = get_all_targets_and_history(today_str)
 
             if not targets:
                 print(f"   ⏳ [{datetime.now().strftime('%H:%M:%S')}] 유망 종목 없음. 대기 중...")
@@ -267,8 +338,9 @@ def run_updater():
                   f"모드: {market_mode}"
                   + (f" | NXT스킵: {nxt_skip_count}개" if nxt_skip_count else ""))
 
-            results_stock = []
-            results_etf   = []
+            results_stock   = []
+            results_etf     = []
+            history_updates = {}   # {code: score 정보} — 사이클 끝에 Search_History 갱신용
 
             for code, is_etf in targets.items():
                 try:
@@ -381,9 +453,15 @@ def run_updater():
                         print(f"   🔍 [{code}] {stock_name:<8} | "
                               f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
-                        prev_score = last_scores.get(code, total_score)
-                        for thr in DROP_THRESHOLDS:
-                            if prev_score > thr and total_score <= thr:
+                        prev_score = last_scores.get(code)
+                        if prev_score is None:
+                            # 첫 관측 — 기준점만 기록, 알림 없음
+                            last_scores[code] = total_score
+                        else:
+                            # 이번 사이클에 넘어선 임계값 전부 수집 → 가장 낮은(심각한) 값으로 알림 1회
+                            crossed = [thr for thr in DROP_THRESHOLDS if prev_score > thr and total_score <= thr]
+                            if crossed:
+                                thr = min(crossed)
                                 if thr >= 0.40:
                                     signal_label = "[매도 시그널-10%보유]"
                                 elif thr >= 0.35:
@@ -395,12 +473,21 @@ def run_updater():
                                        f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
                                        f"현재가: {curr:,}원")
                                 print(f"   🔔 {msg.replace(chr(10), '  ')}")
-                                send_telegram(msg)
-                                break
+                                notify_ids = history_chat.get(code) or secrets.TELEGRAM_NOTIFY_IDS
+                                send_telegram(msg, notify_ids)
+                            last_scores[code] = total_score
 
-                        last_scores[code] = total_score
+                    # (8) history 종목이면 업데이트 수집
+                    if code in history_codes:
+                        history_updates[code] = {
+                            'total_score': total_score,
+                            'close_price': curr,
+                            'net_hits':    s_hits - d_hits,
+                            'surge_hits':  s_hits,
+                            'drop_hits':   d_hits,
+                        }
 
-                    # (8) 결과 저장
+                    # (9) 결과 저장
                     result_row = {
                         'code': code, 'name': stock_name,
                         'close_price': curr, 'market_cap': cap,
@@ -425,6 +512,8 @@ def run_updater():
 
             # 3. 로그 저장
             update_split_logs(results_stock, results_etf, today_str)
+            update_search_history_scores(history_updates, today_str)
+            save_last_scores(last_scores)
             time.sleep(CYCLE_DELAY)
 
         except KeyboardInterrupt:

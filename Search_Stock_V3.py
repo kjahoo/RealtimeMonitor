@@ -54,29 +54,43 @@ V3_FEATURES = [
 # =================================================================================
 
 def save_search_log(data_dict):
-    """(1) 검색 기록을 날짜별 파일에 저장 (YYYYMMDD_Search_History.csv)"""
+    """(1) 검색 기록을 날짜별 파일에 저장 (YYYYMMDD_Search_History.csv)
+    동일 code + chat_id가 이미 있으면 행을 추가하지 않고 업데이트한다."""
     if not os.path.exists(LOG_DIR): os.makedirs(LOG_DIR)
 
-    # 🟢 [수정] 날짜가 포함된 파일명 생성
     today_str = datetime.now().strftime("%Y%m%d")
-    filename = f"{today_str}_Search_History.csv"
+    filename  = f"{today_str}_Search_History.csv"
     file_path = os.path.join(LOG_DIR, filename)
-
     file_exists = os.path.exists(file_path)
 
-    # market_cap 포함
     fieldnames = ['timestamp', 'code', 'name', 'current_price', 'market_cap',
-                  'change_pct', 'total_score', 'net_hits', 'surge_hits', 'drop_hits', 'signal']
+                  'change_pct', 'total_score', 'net_hits', 'surge_hits', 'drop_hits', 'signal', 'chat_id']
 
     try:
+        code = str(data_dict.get('code', '')).strip().zfill(6)
+        cid  = str(data_dict.get('chat_id', ''))
+
+        if file_exists:
+            try:
+                df = pd.read_csv(file_path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
+            except TypeError:
+                df = pd.read_csv(file_path, encoding='utf-8-sig', dtype=str, error_bad_lines=False)
+
+            if 'code' in df.columns and 'chat_id' in df.columns:
+                df['code'] = df['code'].astype(str).str.strip().str.zfill(6)
+                dup = (df['code'] == code) & (df['chat_id'].fillna('') == cid)
+                if dup.any():
+                    for col, val in data_dict.items():
+                        if col in df.columns:
+                            df.loc[dup, col] = val
+                    df.to_csv(file_path, index=False, encoding='utf-8-sig')
+                    print(f"   💾 [History] 기존 기록 업데이트 ({filename})")
+                    return
+
         with open(file_path, mode='a', newline='', encoding='utf-8-sig') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            # 파일이 처음 생성될 때만 헤더 작성
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
             if not file_exists:
                 writer.writeheader()
-
-            # 안전장치 포함하여 저장
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
             writer.writerow(data_dict)
 
         print(f"   💾 [History] 검색 기록 저장 완료 ({filename})")
@@ -351,11 +365,12 @@ def run_manual_analysis():
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'code': code, 'name': stock_name,
             'current_price': curr,
-            'market_cap': cap,  # 👈 [추가] 시가총액 정보를 넘겨줘야 로그에 저장됨
+            'market_cap': cap,
             'change_pct': round(today_row['change_pct'] * 100, 2),
             'total_score': total_score,
             'net_hits': net_hits, 'surge_hits': s_hits, 'drop_hits': d_hits,
-            'signal': f"Target {s_hits} / Drop {d_hits}"
+            'signal': f"Target {s_hits} / Drop {d_hits}",
+            'chat_id': secrets.TELEGRAM_CHAT_ID,
         }
 
         # 🟢 [저장]
