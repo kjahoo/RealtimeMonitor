@@ -36,14 +36,14 @@ from kis_api import auth, inquiry, indicators
 DATA_DIR = r"C:\Projects\RealtimeMonitor\Data\Stock"
 MODEL_DIR = secrets.V3_MODEL_DIR  # secrets.py에 설정된 모델 경로
 
-# V3 모델 설정 — Exp-01 (fold_01) F1 기반 파라미터
+# V3 모델 설정 (기존 값 유지)
 MODEL_SETTINGS = {
-    "target1":  {"lb": 21, "thr": 0.5108, "weight": 0.1962},
-    "target5":  {"lb": 50, "thr": 0.6555, "weight": 0.4234},
-    "target20": {"lb": 60, "thr": 0.3291, "weight": 0.3804},
-    "drop1":    {"lb": 10, "thr": 0.4512, "weight": 0.2369},
-    "drop5":    {"lb": 94, "thr": 0.3431, "weight": 0.3537},
-    "drop20":   {"lb": 98, "thr": 0.5445, "weight": 0.4095},
+    "target1": {"lb": 21, "thr": 0.4974, "weight": 0.1384},
+    "target5": {"lb": 50, "thr": 0.6327, "weight": 0.3099},
+    "target20": {"lb": 60, "thr": 0.9046, "weight": 0.5517},
+    "drop1": {"lb": 10, "thr": 0.4349, "weight": 0.2411},
+    "drop5": {"lb": 94, "thr": 0.4314, "weight": 0.3714},
+    "drop20": {"lb": 98, "thr": 0.4686, "weight": 0.3875}
 }
 
 V3_FEATURES = [
@@ -55,9 +55,13 @@ V3_FEATURES = [
 ]
 
 
-# 매수 신호 여부 반환 — Exp-01 최적: score >= 0.55
+# 점수 구간(tier) 반환 — None이면 0.5 미만
 def get_score_tier(score):
-    return score if score >= 0.55 else None
+    if score >= 0.8: return 0.8
+    elif score >= 0.7: return 0.7
+    elif score >= 0.6: return 0.6
+    elif score >= 0.5: return 0.5
+    return None
 
 
 # 텔레그램 알림
@@ -408,12 +412,19 @@ if __name__ == "__main__":
                     # 3. 알림 조건 체크 — 점수 구간(tier)이 바뀔 때마다 재알림
                     score = res['score_total']
                     tier = get_score_tier(score)
-                    if tier is not None and sent_tiers.get(code) != round(tier, 2):
-                        label = "[포착-10%매수추천]"
+                    if tier is not None and sent_tiers.get(code) != tier:
+                        if score >= 0.8:
+                            label = "[포착-15%매수추천]"
+                        elif score >= 0.7:
+                            label = "[포착-10%매수추천]"
+                        elif score >= 0.6:
+                            label = "[포착-5%매수추천]"
+                        else:
+                            label = "[포착]"
                         msg = f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n현재가: {res['close_price']:,}"
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
-                        sent_tiers[code] = round(tier, 2)
+                        sent_tiers[code] = tier
 
                 # 4. 진행상황 출력 및 중간 저장 (50종목마다)
                 if idx % 50 == 0:
