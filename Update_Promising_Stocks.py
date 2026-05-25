@@ -28,8 +28,8 @@ LAST_SCORES_FILE = os.path.join(LOG_DIR, "last_scores.json")
 TARGET_SCORE   = 0.2
 CYCLE_DELAY    = 30
 
-# 매도 시그널 임계값 (SELL_TIERS 와 동일: 0.40→15%보유, 0.35→10%, 0.30→5%, 0.25→전량)
-DROP_THRESHOLDS = [0.40, 0.35, 0.30, 0.25]
+# 매도 시그널 임계값 — Exp-01 최적: score < 0.50 → 전량매도
+DROP_THRESHOLDS = [0.50]
 
 # ✅ [추가] NXT 시간대 API 타임아웃 제한
 #    NXT 데이터가 없는 종목은 call_api가 재시도하며 오래 걸림
@@ -108,7 +108,7 @@ def load_v3_models():
         try:
             m_path = os.path.join(MODEL_DIR, f"{m_name}_lstm_v3.h5")
             s_path = os.path.join(MODEL_DIR, f"{m_name}_lstm_v3.scaler")
-            l_path = os.path.join(MODEL_DIR, f"log_{m_name}_v3_v3_unified.csv")
+            l_path = os.path.join(MODEL_DIR, f"log_{m_name}_v3.csv")
             if os.path.exists(m_path) and os.path.exists(s_path):
                 model     = load_model(m_path, compile=False)
                 actual_lb = model.input_shape[1]
@@ -314,7 +314,7 @@ def run_updater():
     print(f"\n🚀 [Promising Updater] 시작 (마켓 모드: {market_mode})")
     print(f"   - 자동발굴 : 점수 {TARGET_SCORE}점 이상만 추적")
     print(f"   - 검색기록 : 점수 무관 무조건 추적")
-    print(f"   - 매도시그널: 0.40→15%보유 / 0.35→10%보유 / 0.30→5%보유 / 0.25→전량매도")
+    print(f"   - 매도시그널: score < 0.50 → 전량매도")
     print(f"   - 주기      : {CYCLE_DELAY}초\n")
 
     last_scores         = load_last_scores()   # 재시작 후에도 이전 점수 복원
@@ -485,14 +485,7 @@ def run_updater():
                             crossed = [thr for thr in DROP_THRESHOLDS if prev_score > thr and total_score <= thr]
                             if crossed:
                                 thr = min(crossed)
-                                if thr >= 0.40:
-                                    signal_label = "[매도 시그널-15%보유]"
-                                elif thr >= 0.35:
-                                    signal_label = "[매도 시그널-10%보유]"
-                                elif thr >= 0.30:
-                                    signal_label = "[매도 시그널-5%보유]"
-                                else:
-                                    signal_label = "[매도 시그널-전량매도]"
+                                signal_label = "[매도 시그널-전량매도]"
                                 msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
                                        f"점수가 {thr * 100:.0f}점 이하로 하락!\n"
                                        f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
