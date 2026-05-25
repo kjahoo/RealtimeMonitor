@@ -499,15 +499,13 @@ def format_result(result: dict) -> str:
     score_100 = score * 100
     probs     = result["probs"]
 
-    # 매수 등급
-    if score >= 0.8:
-        grade = "⭐⭐⭐ 강력매수 (80점+)"
-    elif score >= 0.7:
-        grade = "⭐⭐ 매수우세 (70점+)"
-    elif score >= 0.6:
-        grade = "⭐ 관심 (60점+)"
-    elif score >= 0.5:
-        grade = "👀 주시 (50점+)"
+    # 매수 등급 — Exp-01 기준: 55점 이상 매수, 50점 미만 매도
+    if score >= 0.70:
+        grade = "⭐⭐⭐ 강력매수 (70점+)"
+    elif score >= 0.55:
+        grade = "⭐⭐ 매수 (55점+)"
+    elif score >= 0.50:
+        grade = "👀 경계 (50~55점)"
     elif score <= 0:
         grade = "🔴 매도우세"
     else:
@@ -628,10 +626,8 @@ def run():
                         "  ※ 종목명은 정확히 입력해야 합니다\n"
                         "\n"
                         "🚨 자동 알림 기준\n"
-                        "  점수 40점 이하 → 15% 보유 권고\n"
-                        "  점수 35점 이하 → 10% 보유 권고\n"
-                        "  점수 30점 이하 → 5% 보유 권고\n"
-                        "  점수 25점 이하 → 전량 매도 권고\n"
+                        "  점수 55점 이상 → 매수 추천 (10% 비중)\n"
+                        "  점수 50점 미만 → 전량 매도 시그널\n"
                         "\n"
                         "👥 /users\n"
                         "  봇 방문자 목록 조회"
