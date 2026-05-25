@@ -15,22 +15,21 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings("ignore")
 
 from config import secrets
-from kis_api import auth, inquiry, indicators
+from kis_api import auth, inquiry, indicators, trading
 from tensorflow.keras.models import load_model
 import pickle
 
 # ====== [환경 설정] ======
 MODEL_DIR        = secrets.V3_MODEL_DIR
 DATA_DIR_STOCK   = r"C:\Projects\RealtimeMonitor\Data\Stock"
-DATA_DIR_ETF     = r"C:\Projects\RealtimeMonitor\Data\ETF"
 LOG_DIR          = r"C:\Projects\RealtimeMonitor\logs"
 LAST_SCORES_FILE = os.path.join(LOG_DIR, "last_scores.json")
 
 TARGET_SCORE   = 0.2
 CYCLE_DELAY    = 30
 
-# 매도 시그널 임계값
-DROP_THRESHOLDS = [0.40, 0.35, 0.30, 0.25, 0.20, 0]
+# 매도 시그널 임계값 (SELL_TIERS 와 동일: 0.40→15%보유, 0.35→10%, 0.30→5%, 0.25→전량)
+DROP_THRESHOLDS = [0.40, 0.35, 0.30, 0.25]
 
 # ✅ [추가] NXT 시간대 API 타임아웃 제한
 #    NXT 데이터가 없는 종목은 call_api가 재시도하며 오래 걸림
@@ -38,13 +37,14 @@ DROP_THRESHOLDS = [0.40, 0.35, 0.30, 0.25, 0.20, 0]
 API_TIMEOUT_SEC = 4   # 단건 API 호출 타임아웃 (초)
 MAX_FAIL_SKIP   = 3   # 연속 실패 N회면 해당 종목 이번 사이클 건너뜀
 
+# Exp-01 (fold_01) F1 기반 파라미터
 MODEL_SETTINGS = {
-    "target1":  {"lb": 21, "thr": 0.4974, "weight": 0.1384},
-    "target5":  {"lb": 50, "thr": 0.6327, "weight": 0.3099},
-    "target20": {"lb": 60, "thr": 0.9046, "weight": 0.5517},
-    "drop1":    {"lb": 10, "thr": 0.4349, "weight": 0.2411},
-    "drop5":    {"lb": 94, "thr": 0.4314, "weight": 0.3714},
-    "drop20":   {"lb": 98, "thr": 0.4686, "weight": 0.3875}
+    "target1":  {"lb": 21, "thr": 0.5108, "weight": 0.1962, "type": "surge"},
+    "target5":  {"lb": 50, "thr": 0.6555, "weight": 0.4234, "type": "surge"},
+    "target20": {"lb": 60, "thr": 0.3291, "weight": 0.3804, "type": "surge"},
+    "drop1":    {"lb": 10, "thr": 0.4512, "weight": 0.2369, "type": "drop"},
+    "drop5":    {"lb": 94, "thr": 0.3431, "weight": 0.3537, "type": "drop"},
+    "drop20":   {"lb": 98, "thr": 0.5445, "weight": 0.4095, "type": "drop"},
 }
 
 V3_FEATURES = [
@@ -101,35 +101,49 @@ def save_last_scores(last_scores):
 # 📂 모델 로드
 # ====================================================
 def load_v3_models():
-    models = {}
+    models  = {}
+    best_f1 = {}
     print(f"📂 [Tracker] 모델 로딩 중...")
-    for m_name, settings in MODEL_SETTINGS.items():
+    for m_name, cfg in MODEL_SETTINGS.items():
         try:
             m_path = os.path.join(MODEL_DIR, f"{m_name}_lstm_v3.h5")
             s_path = os.path.join(MODEL_DIR, f"{m_name}_lstm_v3.scaler")
+            l_path = os.path.join(MODEL_DIR, f"log_{m_name}_v3_v3_unified.csv")
             if os.path.exists(m_path) and os.path.exists(s_path):
-                model = load_model(m_path)
+                model     = load_model(m_path, compile=False)
+                actual_lb = model.input_shape[1]
                 with open(s_path, 'rb') as f:
                     scaler = pickle.load(f)
+                if os.path.exists(l_path):
+                    log_df          = pd.read_csv(l_path)
+                    best_row        = log_df.loc[log_df['f1'].idxmax()]
+                    threshold       = float(best_row['threshold'])
+                    best_f1[m_name] = float(best_row['f1'])
+                else:
+                    threshold = cfg['thr']
                 models[m_name] = {
                     "model": model, "scaler": scaler,
-                    "lookback": settings['lb'], "threshold": settings['thr'],
-                    "weight": settings['weight'],
+                    "lookback": actual_lb, "threshold": threshold,
+                    "weight": cfg['weight'],   # 아래에서 동적 갱신
                     "type": "surge" if "target" in m_name else "drop"
                 }
         except Exception as e:
             print(f"   ⚠️ {m_name} 로드 실패: {e}")
+
+    # F1 비례 가중치: weight_Nd = f1_Nd / sum(f1 in group)
+    for group in ("surge", "drop"):
+        names = [n for n, c in MODEL_SETTINGS.items() if c["type"] == group and n in models]
+        f1s   = [best_f1.get(n) for n in names]
+        if all(f is not None for f in f1s):
+            total = sum(f1s)
+            for n, f in zip(names, f1s):
+                models[n]["weight"] = f / total
     return models
 
 
 # ====================================================
 # 🛠️ 헬퍼
 # ====================================================
-def check_is_etf(code):
-    if os.path.exists(os.path.join(DATA_DIR_ETF,   f"A{code}.csv")): return True
-    if os.path.exists(os.path.join(DATA_DIR_STOCK, f"A{code}.csv")): return False
-    return False
-
 
 def format_code(x):
     s = str(x).strip()
@@ -200,7 +214,7 @@ def get_all_targets_and_history(today_str):
                     c = format_code(row['code'])
                     history_set.add(c)
                     if c not in targets:
-                        targets[c] = check_is_etf(c)
+                        targets[c] = False
                     # chat_id 컬럼이 있으면 검색자 기록
                     cid = str(row.get('chat_id', '')).strip()
                     if cid:
@@ -214,39 +228,35 @@ def get_all_targets_and_history(today_str):
 # ====================================================
 # 💾 로그 저장
 # ====================================================
-def update_split_logs(stock_results, etf_results, today_str):
-    def _save_to_file(file_path, data_list):
-        if not data_list: return
-        fieldnames = [
-            'code', 'name', 'close_price', 'market_cap', 'score_total',
-            'net_hits', 'surge_hits', 'drop_hits', 'time',
-            'target1', 'target5', 'target20', 'drop1', 'drop5', 'drop20'
-        ]
-        if os.path.exists(file_path):
-            try:
-                df = pd.read_csv(file_path, encoding='utf-8-sig', dtype=str)
-                df['code'] = df['code'].apply(format_code)
-            except:
-                df = pd.DataFrame(columns=fieldnames)
-        else:
-            df = pd.DataFrame(columns=fieldnames)
-
-        for row in data_list:
-            code = row['code']
-            idx  = df.index[df['code'] == code].tolist()
-            if idx:
-                for col, val in row.items():
-                    if col in df.columns:
-                        df.at[idx[0], col] = val
-            else:
-                df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-
-        df.to_csv(file_path, index=False, encoding='utf-8-sig')
-
+def update_split_logs(stock_results, today_str):
+    if not stock_results:
+        return
+    fieldnames = [
+        'code', 'name', 'close_price', 'market_cap', 'score_total',
+        'net_hits', 'surge_hits', 'drop_hits', 'time',
+        'target1', 'target5', 'target20', 'drop1', 'drop5', 'drop20'
+    ]
     stock_path = os.path.join(LOG_DIR, f"{today_str}_Stock_V3.csv")
-    etf_path   = os.path.join(LOG_DIR, f"{today_str}_ETF_V3.csv")
-    if stock_results: _save_to_file(stock_path, stock_results)
-    if etf_results:   _save_to_file(etf_path,   etf_results)
+    if os.path.exists(stock_path):
+        try:
+            df = pd.read_csv(stock_path, encoding='utf-8-sig', dtype=str)
+            df['code'] = df['code'].apply(format_code)
+        except:
+            df = pd.DataFrame(columns=fieldnames)
+    else:
+        df = pd.DataFrame(columns=fieldnames)
+
+    for row in stock_results:
+        code = row['code']
+        idx  = df.index[df['code'] == code].tolist()
+        if idx:
+            for col, val in row.items():
+                if col in df.columns:
+                    df.at[idx[0], col] = val
+        else:
+            df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+
+    df.to_csv(stock_path, index=False, encoding='utf-8-sig')
 
 
 # ====================================================
@@ -304,11 +314,12 @@ def run_updater():
     print(f"\n🚀 [Promising Updater] 시작 (마켓 모드: {market_mode})")
     print(f"   - 자동발굴 : 점수 {TARGET_SCORE}점 이상만 추적")
     print(f"   - 검색기록 : 점수 무관 무조건 추적")
-    print(f"   - 매도시그널: {DROP_THRESHOLDS} 이하 하락 시 알림")
+    print(f"   - 매도시그널: 0.40→15%보유 / 0.35→10%보유 / 0.30→5%보유 / 0.25→전량매도")
     print(f"   - 주기      : {CYCLE_DELAY}초\n")
 
-    last_scores    = load_last_scores()   # 재시작 후에도 이전 점수 복원
-    nxt_skip_cache = set()
+    last_scores         = load_last_scores()   # 재시작 후에도 이전 점수 복원
+    nxt_skip_cache      = set()
+    pending_sell_orders = {}   # {order_no: {code, name, qty, price, keep_label}}
 
     while True:
         try:
@@ -319,7 +330,25 @@ def run_updater():
             if market_mode == "KRX":
                 nxt_skip_cache.clear()
 
-            # 1. 시장 지수
+            # 1. 미체결 매도 주문 체결 확인
+            if pending_sell_orders and market_mode == "KRX":
+                filled_nos = []
+                for order_no, info in list(pending_sell_orders.items()):
+                    exec_result = trading.fetch_execution(order_no, today_str)
+                    if exec_result and exec_result["filled_qty"] >= info["qty"]:
+                        filled_nos.append(order_no)
+                        fill_amt = exec_result["filled_qty"] * exec_result["avg_price"]
+                        order_type = info.get("order_type", "현금")
+                        exec_msg = (f"✅ 매도 체결 완료\n"
+                                    f"{info['name']}({info['code']})  [{info['keep_label']}] [{order_type}]\n"
+                                    f"체결: {exec_result['filled_qty']}주 × {exec_result['avg_price']:,.0f}원\n"
+                                    f"체결금액: {fill_amt:,.0f}원")
+                        print(f"   ✅ {exec_msg.replace(chr(10), ' | ')}")
+                        send_telegram(exec_msg, [secrets.TELEGRAM_CHAT_ID])
+                for no in filled_nos:
+                    del pending_sell_orders[no]
+
+            # 2. 시장 지수
             k_val  = inquiry.fetch_index_change("0001")
             kq_val = inquiry.fetch_index_change("1001")
 
@@ -339,10 +368,9 @@ def run_updater():
                   + (f" | NXT스킵: {nxt_skip_count}개" if nxt_skip_count else ""))
 
             results_stock   = []
-            results_etf     = []
             history_updates = {}   # {code: score 정보} — 사이클 끝에 Search_History 갱신용
 
-            for code, is_etf in targets.items():
+            for code in targets:
                 try:
                     # ✅ [핵심] NXT 스킵 캐시에 있으면 건너뜀
                     if code in nxt_skip_cache:
@@ -381,17 +409,10 @@ def run_updater():
                                 (inquiry.safe_int(prog.get("whol_smtn_shnu_vol")) +
                                  inquiry.safe_int(prog.get("whol_smtn_seln_vol"))) / p_tot, 4)
 
-                    # (3) 파일 읽기 (경로 자동 보정)
-                    base_dir  = DATA_DIR_ETF if is_etf else DATA_DIR_STOCK
-                    file_path = os.path.join(base_dir, f"A{code}.csv")
+                    # (3) 파일 읽기
+                    file_path = os.path.join(DATA_DIR_STOCK, f"A{code}.csv")
                     if not os.path.exists(file_path):
-                        alt_dir  = DATA_DIR_STOCK if is_etf else DATA_DIR_ETF
-                        alt_path = os.path.join(alt_dir, f"A{code}.csv")
-                        if os.path.exists(alt_path):
-                            file_path = alt_path
-                            is_etf    = not is_etf
-                        else:
-                            continue
+                        continue
 
                     df = pd.read_csv(file_path, encoding='utf-8-sig')
                     df['date']   = pd.to_datetime(df['date'])
@@ -450,8 +471,10 @@ def run_updater():
 
                     # (7) 검색기록 종목 출력 및 매도 시그널
                     if code in history_codes:
-                        print(f"   🔍 [{code}] {stock_name:<8} | "
-                              f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
+                        is_my_stock = secrets.TELEGRAM_CHAT_ID in history_chat.get(code, set())
+                        if is_my_stock:
+                            print(f"   🔍 [{code}] {stock_name:<8} | "
+                                  f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
                         prev_score = last_scores.get(code)
                         if prev_score is None:
@@ -463,8 +486,10 @@ def run_updater():
                             if crossed:
                                 thr = min(crossed)
                                 if thr >= 0.40:
-                                    signal_label = "[매도 시그널-10%보유]"
+                                    signal_label = "[매도 시그널-15%보유]"
                                 elif thr >= 0.35:
+                                    signal_label = "[매도 시그널-10%보유]"
+                                elif thr >= 0.30:
                                     signal_label = "[매도 시그널-5%보유]"
                                 else:
                                     signal_label = "[매도 시그널-전량매도]"
@@ -472,9 +497,29 @@ def run_updater():
                                        f"점수가 {thr * 100:.0f}점 이하로 하락!\n"
                                        f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
                                        f"현재가: {curr:,}원")
-                                print(f"   🔔 {msg.replace(chr(10), '  ')}")
+                                if is_my_stock:
+                                    print(f"   🔔 {msg.replace(chr(10), '  ')}")
+
                                 notify_ids = history_chat.get(code) or secrets.TELEGRAM_NOTIFY_IDS
                                 send_telegram(msg, notify_ids)
+
+                                # ✅ 자동 매도 — 내 종목 + 정규장 시간에만 실행
+                                if is_my_stock and market_mode == "KRX":
+                                    sell_info = trading.auto_sell(
+                                        code, stock_name, total_score, curr)
+                                    if sell_info:
+                                        print(f"   📤 {sell_info['msg'].replace(chr(10), ' | ')}")
+                                        send_telegram(sell_info["msg"], [secrets.TELEGRAM_CHAT_ID])
+                                        if sell_info["status"] == "ordered":
+                                            for o in sell_info["placed_orders"]:
+                                                pending_sell_orders[o["order_no"]] = {
+                                                    "code":       code,
+                                                    "name":       stock_name,
+                                                    "qty":        o["qty"],
+                                                    "price":      o["price"],
+                                                    "order_type": o["order_type"],
+                                                    "keep_label": sell_info["keep_label"],
+                                                }
                             last_scores[code] = total_score
 
                     # (8) history 종목이면 업데이트 수집
@@ -503,15 +548,14 @@ def run_updater():
                         'drop20':   res_probs.get('drop20',   0)
                     }
 
-                    if is_etf: results_etf.append(result_row)
-                    else:      results_stock.append(result_row)
+                    results_stock.append(result_row)
 
                 except Exception as e:
                     print(f"   ❌ [{code}] 오류: {e}")
                     continue
 
             # 3. 로그 저장
-            update_split_logs(results_stock, results_etf, today_str)
+            update_split_logs(results_stock, today_str)
             update_search_history_scores(history_updates, today_str)
             save_last_scores(last_scores)
             time.sleep(CYCLE_DELAY)

@@ -42,13 +42,14 @@ DATA_DIR_STOCK = os.path.join(PROJECT_DIR, "Data", "Stock")
 DATA_DIR_ETF   = os.path.join(PROJECT_DIR, "Data", "ETF")
 LOG_DIR        = os.path.join(PROJECT_DIR, "logs")
 
+# Exp-01 (fold_01) F1 기반 파라미터
 MODEL_SETTINGS = {
-    "target1":  {"lb": 21,  "thr": 0.4974, "weight": 0.1384},
-    "target5":  {"lb": 50,  "thr": 0.6327, "weight": 0.3099},
-    "target20": {"lb": 60,  "thr": 0.9046, "weight": 0.5517},
-    "drop1":    {"lb": 10,  "thr": 0.4349, "weight": 0.2411},
-    "drop5":    {"lb": 94,  "thr": 0.4314, "weight": 0.3714},
-    "drop20":   {"lb": 98,  "thr": 0.4686, "weight": 0.3875},
+    "target1":  {"lb": 21,  "thr": 0.5108, "weight": 0.1962},
+    "target5":  {"lb": 50,  "thr": 0.6555, "weight": 0.4234},
+    "target20": {"lb": 60,  "thr": 0.3291, "weight": 0.3804},
+    "drop1":    {"lb": 10,  "thr": 0.4512, "weight": 0.2369},
+    "drop5":    {"lb": 94,  "thr": 0.3431, "weight": 0.3537},
+    "drop20":   {"lb": 98,  "thr": 0.5445, "weight": 0.4095},
 }
 
 V3_FEATURES = [
@@ -426,6 +427,45 @@ def get_my_watchlist(chat_id, today_str):
         return []
 
 
+def get_top_stocks(n, today_str):
+    """오늘 V3 CSV에서 score_total 기준 상위 N개 종목 반환."""
+    v3_path = os.path.join(LOG_DIR, f"{today_str}_Stock_V3.csv")
+    if not os.path.exists(v3_path):
+        return []
+    try:
+        df = pd.read_csv(v3_path, encoding="utf-8-sig", dtype=str)
+    except Exception:
+        return []
+    df["score_total"] = pd.to_numeric(df["score_total"], errors="coerce").fillna(0)
+    if "time" in df.columns:
+        df = df.sort_values("time").drop_duplicates(subset="code", keep="last")
+    return df.sort_values("score_total", ascending=False).head(n).to_dict("records")
+
+
+
+def format_top_stocks(rows, n):
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [f"🏆 TODAY TOP {n}  ({now_str})\n"]
+    for i, row in enumerate(rows, 1):
+        score = float(row["score_total"]) * 100
+        name  = row.get("name", "")
+        code  = row.get("code", "")
+        price = row.get("close_price", "-")
+        s_hits = row.get("surge_hits", "0")
+        d_hits = row.get("drop_hits", "0")
+        t     = row.get("time", "")
+        try:
+            price_str = f"{int(float(price)):,}원"
+        except (ValueError, TypeError):
+            price_str = str(price)
+        lines.append(
+            f"{i:2}. {name} ({code})\n"
+            f"     점수: {score:.1f}점  |  가격: {price_str}\n"
+            f"     매수:{s_hits} 매도:{d_hits}  [{t}]"
+        )
+    return "\n\n".join([lines[0]] + lines[1:])
+
+
 def get_all_watchlists(today_str):
     """오늘 Search_History 전체를 chat_id별로 묶어 반환. {chat_id: [(code, name, score, ts), ...]}"""
     hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
@@ -574,6 +614,10 @@ def run():
                         "  → 현재가·시총·종합점수·매수/매도 시그널 표시\n"
                         "  → 분석한 종목은 자동으로 추적 목록에 추가됨\n"
                         "\n"
+                        "🏆 /top5  /top10  /top20\n"
+                        "  오늘 분석된 종목 중 점수 상위 N개 조회\n"
+                        "  예) /top10 → 상위 10개 종목 점수순 표시\n"
+                        "\n"
                         "📋 /list\n"
                         "  내가 추적 중인 종목 목록 조회\n"
                         "  점수가 특정 구간 이하로 하락하면 자동 알림 발송\n"
@@ -584,9 +628,10 @@ def run():
                         "  ※ 종목명은 정확히 입력해야 합니다\n"
                         "\n"
                         "🚨 자동 알림 기준\n"
-                        "  점수 40점 이하 → 10% 보유 권고\n"
-                        "  점수 35점 이하 → 5% 보유 권고\n"
-                        "  점수 30점 이하 → 전량 매도 권고\n"
+                        "  점수 40점 이하 → 15% 보유 권고\n"
+                        "  점수 35점 이하 → 10% 보유 권고\n"
+                        "  점수 30점 이하 → 5% 보유 권고\n"
+                        "  점수 25점 이하 → 전량 매도 권고\n"
                         "\n"
                         "👥 /users\n"
                         "  봇 방문자 목록 조회"
@@ -594,7 +639,7 @@ def run():
                     continue
 
                 # 그 외 슬래시 커맨드
-                if text.startswith("/") and text.split()[0] not in ("/users", "/del", "/list"):
+                if text.startswith("/") and text.split()[0] not in ("/users", "/del", "/list", "/top5", "/top10", "/top20"):
                     send_message(chat_id, "알 수 없는 명령어입니다. /help 를 입력하면 사용법을 확인할 수 있습니다.")
                     continue
 
@@ -662,6 +707,17 @@ def run():
                         send_message(chat_id, f"⚠️ {del_code} 종목이 내 추적 목록에 없습니다.")
                     else:
                         send_message(chat_id, "❌ 삭제 중 오류가 발생했습니다.")
+                    continue
+
+                # /top5, /top10, /top20 — 점수 상위 종목
+                if text in ("/top5", "/top10", "/top20"):
+                    n = int(text[4:])
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    rows = get_top_stocks(n, today_str_now)
+                    if not rows:
+                        send_message(chat_id, f"📭 오늘 분석된 종목 데이터가 없습니다.\n종목을 먼저 검색하면 목록에 쌓입니다.")
+                    else:
+                        send_message(chat_id, format_top_stocks(rows, n))
                     continue
 
                 # /users — 방문자 목록 (등록 사용자만 조회 가능)
