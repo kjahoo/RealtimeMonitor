@@ -335,37 +335,43 @@ def run_updater():
                     total_score = round(s_sum - d_sum, 4)
 
                     # (6) 출력 및 알림
-                    if code in history_codes:
+                    # 콘솔 출력은 본인(TELEGRAM_CHAT_ID)이 등록한 종목만
+                    is_my_code = (code in history_codes and
+                                  secrets.TELEGRAM_CHAT_ID in history_chat.get(code, set()))
+
+                    if is_my_code:
                         print(f"   🧪 [{code}] {stock_name:<8} | "
                               f"Exp-01 점수: {total_score:.4f} ({total_score*100:.1f}점) | "
                               f"현재가: {curr:,}원")
 
-                    prev_score = last_scores.get(code)
-                    if prev_score is None:
-                        last_scores[code] = total_score
-                    else:
-                        # 매도 시그널: prev >= SELL_THRESH → total < SELL_THRESH
-                        if prev_score >= SELL_THRESH and total_score < SELL_THRESH:
-                            msg = (f"🧪 [Exp-01 매도 시그널] {stock_name} ({code})\n"
-                                   f"점수: {prev_score*100:.1f} → {total_score*100:.1f}점 (0.50선 이탈)\n"
-                                   f"전량 매도 시그널 (알림만 / 자동주문 없음)\n"
-                                   f"현재가: {curr:,}원")
-                            print(f"   🔔 {msg.replace(chr(10), '  ')}")
-                            notify_ids = history_chat.get(code) or secrets.TELEGRAM_NOTIFY_IDS
-                            send_telegram(msg, notify_ids)
+                    if code in history_codes:
+                        prev_score = last_scores.get(code)
+                        if prev_score is None:
+                            last_scores[code] = total_score
+                        else:
+                            notify_ids = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
 
-                        # 매수 신호 복귀: prev < BUY_THRESH → total >= BUY_THRESH
-                        elif prev_score < BUY_THRESH and total_score >= BUY_THRESH:
-                            if code in history_codes:
+                            # 매도 시그널: prev >= SELL_THRESH → total < SELL_THRESH
+                            if prev_score >= SELL_THRESH and total_score < SELL_THRESH:
+                                msg = (f"🧪 [Exp-01 매도 시그널] {stock_name} ({code})\n"
+                                       f"점수: {prev_score*100:.1f} → {total_score*100:.1f}점 (0.50선 이탈)\n"
+                                       f"전량 매도 시그널 (알림만 / 자동주문 없음)\n"
+                                       f"현재가: {curr:,}원")
+                                if is_my_code:
+                                    print(f"   🔔 {msg.replace(chr(10), '  ')}")
+                                send_telegram(msg, notify_ids)
+
+                            # 매수 신호 복귀: prev < BUY_THRESH → total >= BUY_THRESH
+                            elif prev_score < BUY_THRESH and total_score >= BUY_THRESH:
                                 msg = (f"🧪 [Exp-01 매수 신호] {stock_name} ({code})\n"
                                        f"점수: {prev_score*100:.1f} → {total_score*100:.1f}점 (0.55선 돌파)\n"
                                        f"추천 비중: 10% (알림만 / 자동주문 없음)\n"
                                        f"현재가: {curr:,}원")
-                                print(f"   🔔 {msg.replace(chr(10), '  ')}")
-                                notify_ids = history_chat.get(code) or secrets.TELEGRAM_NOTIFY_IDS
+                                if is_my_code:
+                                    print(f"   🔔 {msg.replace(chr(10), '  ')}")
                                 send_telegram(msg, notify_ids)
 
-                        last_scores[code] = total_score
+                            last_scores[code] = total_score
 
                 except Exception as e:
                     print(f"   ❌ [Exp-01] [{code}] 오류: {e}")
