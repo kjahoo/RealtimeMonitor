@@ -458,42 +458,52 @@ def run_updater():
                               f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
                     if code in history_codes:
-                        prev_score = last_scores.get(code)
-                        if prev_score is None:
-                            # 첫 관측 — 기준점만 기록, 알림 없음
-                            last_scores[code] = total_score
+                        # 이전 상태 로드 — 구형(float) 호환
+                        entry = last_scores.get(code)
+                        if isinstance(entry, (int, float)):
+                            entry = {"score": float(entry), "sell_level": None}
+                        elif not isinstance(entry, dict):
+                            entry = {"score": None, "sell_level": None}
+
+                        prev_score    = entry.get("score")
+                        prev_sell_lvl = entry.get("sell_level")  # 마지막으로 처리한 keep_amount
+
+                        # 현재 점수에 대응하는 매도 레벨 계산
+                        keep_amount = trading.get_keep_amount(total_score)
+
+                        if keep_amount is not None and keep_amount != prev_sell_lvl:
+                            # 새로운(또는 아직 미처리) 매도 레벨 → 잔고 확인 + 주문
+                            if keep_amount == 0:
+                                signal_label = "[매도 시그널-전량매도]"
+                            else:
+                                signal_label = f"[매도 시그널-{keep_amount // 10_000:,}만원 보유]"
+
+                            sell_result = trading.auto_sell(code, stock_name, total_score, curr)
+                            notify_ids  = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
+
+                            if sell_result and sell_result.get("status") == "ordered":
+                                alert_msg = sell_result["msg"]
+                            else:
+                                prev_str  = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
+                                alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
+                                             f"점수: {prev_str}{total_score * 100:.1f}점\n"
+                                             f"현재가: {curr:,}원")
+                                if sell_result and sell_result.get("status") == "failed":
+                                    alert_msg += f"\n{sell_result['msg']}"
+
+                            if is_my_code:
+                                print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
+                            send_telegram(alert_msg, notify_ids)
+
+                            last_scores[code] = {"score": total_score, "sell_level": keep_amount}
+
+                        elif keep_amount is None:
+                            # 매도 불필요 구간 복귀 — sell_level 초기화
+                            last_scores[code] = {"score": total_score, "sell_level": None}
+
                         else:
-                            # 이번 사이클에 넘어선 임계값 전부 수집 → 가장 낮은(심각한) 값으로 알림 1회
-                            crossed = [thr for thr in DROP_THRESHOLDS if prev_score > thr and total_score <= thr]
-                            if crossed:
-                                thr = min(crossed)
-                                if thr >= 0.40:
-                                    signal_label = "[매도 시그널-10%보유]"
-                                elif thr >= 0.35:
-                                    signal_label = "[매도 시그널-5%보유]"
-                                else:
-                                    signal_label = "[매도 시그널-전량매도]"
-
-                                # 자동매도 실행 (본인 계좌)
-                                sell_result = trading.auto_sell(code, stock_name, total_score, curr)
-
-                                # 텔레그램 알림 대상: 검색한 사람 / 없으면 본인만
-                                notify_ids = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
-
-                                if sell_result and sell_result.get("status") == "ordered":
-                                    alert_msg = sell_result["msg"]
-                                else:
-                                    alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
-                                                 f"점수가 {thr * 100:.0f}점 이하로 하락!\n"
-                                                 f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
-                                                 f"현재가: {curr:,}원")
-                                    if sell_result and sell_result.get("status") == "failed":
-                                        alert_msg += f"\n{sell_result['msg']}"
-
-                                if is_my_code:
-                                    print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
-                                send_telegram(alert_msg, notify_ids)
-                            last_scores[code] = total_score
+                            # 동일 레벨 유지 — 점수만 갱신
+                            last_scores[code] = {"score": total_score, "sell_level": prev_sell_lvl}
 
                     # (8) history 종목이면 업데이트 수집
                     if code in history_codes:
