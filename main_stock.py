@@ -215,6 +215,11 @@ def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
         # 10. 예측 진행
         if len(df) < max_lb: return None
 
+        # 최근 20일 일평균 거래대금 10억 미만 제외
+        avg_trade_val = (df['close'] * df['volume']).tail(20).mean()
+        if avg_trade_val < 1_000_000_000:
+            return None
+
         s_sum, d_sum = 0.0, 0.0
         s_hits, d_hits = 0, 0
         results = {}
