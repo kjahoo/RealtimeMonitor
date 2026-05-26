@@ -15,7 +15,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings("ignore")
 
 from config import secrets
-from kis_api import auth, inquiry, indicators
+from kis_api import auth, inquiry, indicators, trading
 from tensorflow.keras.models import load_model
 import pickle
 
@@ -468,13 +468,27 @@ def run_updater():
                                     signal_label = "[매도 시그널-5%보유]"
                                 else:
                                     signal_label = "[매도 시그널-전량매도]"
-                                msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
-                                       f"점수가 {thr * 100:.0f}점 이하로 하락!\n"
-                                       f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
-                                       f"현재가: {curr:,}원")
-                                print(f"   🔔 {msg.replace(chr(10), '  ')}")
-                                notify_ids = history_chat.get(code) or secrets.TELEGRAM_NOTIFY_IDS
-                                send_telegram(msg, notify_ids)
+
+                                # 자동매도 실행 (본인 계좌)
+                                sell_result = trading.auto_sell(code, stock_name, total_score, curr)
+
+                                # 알림 대상: 검색한 사람 / 없으면 본인만
+                                notify_ids = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
+
+                                if sell_result and sell_result.get("status") == "ordered":
+                                    # 주문 성공 — 자동매도 메시지 발송
+                                    alert_msg = sell_result["msg"]
+                                else:
+                                    # 잔고 없음 또는 주문 실패 — 기존 알림 메시지
+                                    alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
+                                                 f"점수가 {thr * 100:.0f}점 이하로 하락!\n"
+                                                 f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
+                                                 f"현재가: {curr:,}원")
+                                    if sell_result and sell_result.get("status") == "failed":
+                                        alert_msg += f"\n{sell_result['msg']}"
+
+                                print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
+                                send_telegram(alert_msg, notify_ids)
                             last_scores[code] = total_score
 
                     # (8) history 종목이면 업데이트 수집
