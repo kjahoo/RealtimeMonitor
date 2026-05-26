@@ -309,6 +309,7 @@ def run_updater():
 
     last_scores    = load_last_scores()   # 재시작 후에도 이전 점수 복원
     nxt_skip_cache = set()
+    session_notified = set()  # 이번 실행에서 첫 관측 완료한 코드 (재실행 알림용)
 
     while True:
         try:
@@ -458,6 +459,16 @@ def run_updater():
                               f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
                     if code in history_codes:
+                        # ── 첫 관측 알림 (당일 첫 스코어 or 재실행) ──────────
+                        if is_my_code and code not in session_notified:
+                            session_notified.add(code)
+                            # 매도 구간이면 아래 sell 로직이 알림을 보내므로 정상 구간만 여기서 알림
+                            if trading.get_keep_amount(total_score) is None:
+                                notify_ids_first = [secrets.TELEGRAM_CHAT_ID]
+                                first_msg = (f"📌 {stock_name} ({code}) 모니터링\n"
+                                             f"점수: {total_score*100:.1f}점  현재가: {curr:,}원")
+                                send_telegram(first_msg, notify_ids_first)
+
                         # 이전 상태 로드 — 구형(float) 호환
                         entry = last_scores.get(code)
                         if isinstance(entry, (int, float)):
