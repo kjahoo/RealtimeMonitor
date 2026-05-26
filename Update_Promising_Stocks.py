@@ -449,10 +449,15 @@ def run_updater():
                     cap = inquiry.safe_int(rt.get("hts_avls", "0"))
 
                     # (7) 검색기록 종목 출력 및 매도 시그널
-                    if code in history_codes:
+                    # 콘솔 출력은 본인(TELEGRAM_CHAT_ID)이 등록한 종목만
+                    is_my_code = (code in history_codes and
+                                  secrets.TELEGRAM_CHAT_ID in history_chat.get(code, set()))
+
+                    if is_my_code:
                         print(f"   🔍 [{code}] {stock_name:<8} | "
                               f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
+                    if code in history_codes:
                         prev_score = last_scores.get(code)
                         if prev_score is None:
                             # 첫 관측 — 기준점만 기록, 알림 없음
@@ -472,14 +477,12 @@ def run_updater():
                                 # 자동매도 실행 (본인 계좌)
                                 sell_result = trading.auto_sell(code, stock_name, total_score, curr)
 
-                                # 알림 대상: 검색한 사람 / 없으면 본인만
+                                # 텔레그램 알림 대상: 검색한 사람 / 없으면 본인만
                                 notify_ids = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
 
                                 if sell_result and sell_result.get("status") == "ordered":
-                                    # 주문 성공 — 자동매도 메시지 발송
                                     alert_msg = sell_result["msg"]
                                 else:
-                                    # 잔고 없음 또는 주문 실패 — 기존 알림 메시지
                                     alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
                                                  f"점수가 {thr * 100:.0f}점 이하로 하락!\n"
                                                  f"점수 변화: {prev_score * 100:.1f} → {total_score * 100:.1f}\n"
@@ -487,7 +490,8 @@ def run_updater():
                                     if sell_result and sell_result.get("status") == "failed":
                                         alert_msg += f"\n{sell_result['msg']}"
 
-                                print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
+                                if is_my_code:
+                                    print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
                                 send_telegram(alert_msg, notify_ids)
                             last_scores[code] = total_score
 
