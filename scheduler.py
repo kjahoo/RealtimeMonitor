@@ -177,10 +177,12 @@ def start_bots(mode):
     env["MARKET_MODE"] = mode  # inquiry.py 에서 KRX/NXT 분기에 사용
 
     scripts = {
-        "stock":  "main_stock.py",
-        "update": "Update_Promising_Stocks.py",
+        "stock":       "main_stock.py",
+        "update":      "Update_Promising_Stocks.py",
+        "exp01_stock":  "main_stock_exp01.py",
+        "exp01_update": "Update_Promising_Stocks_exp01.py",
     }
-    log(f"🚀 봇 시작 (모드: {mode}) — stock + update 2개")
+    log(f"🚀 봇 시작 (모드: {mode}) — 프로덕션 2개 + Exp-01 섀도 2개")
 
     for key, script in scripts.items():
         script_path = os.path.join(PROJECT_DIR, script)
@@ -202,7 +204,7 @@ def stop_market_bots():
     """시장 연동 봇(stock, update)만 종료합니다. search 봇은 건드리지 않습니다."""
     global running_procs
 
-    market_keys = [k for k in ("stock", "update") if k in running_procs]
+    market_keys = [k for k in ("stock", "update", "exp01_stock", "exp01_update") if k in running_procs]
     if not market_keys:
         return
 
@@ -252,8 +254,10 @@ def check_market_bots_alive():
         return
 
     script_map = {
-        "stock":  "main_stock.py",
-        "update": "Update_Promising_Stocks.py",
+        "stock":        "main_stock.py",
+        "update":       "Update_Promising_Stocks.py",
+        "exp01_stock":  "main_stock_exp01.py",
+        "exp01_update": "Update_Promising_Stocks_exp01.py",
     }
 
     for key in list(script_map.keys()):
@@ -429,6 +433,10 @@ def main():
                     1 for k in ("stock", "update")
                     if running_procs.get(k) and running_procs[k].poll() is None
                 )
+                exp01_alive = sum(
+                    1 for k in ("exp01_stock", "exp01_update")
+                    if running_procs.get(k) and running_procs[k].poll() is None
+                )
                 search_alive = (
                     running_procs.get("search") and
                     running_procs["search"].poll() is None
@@ -437,7 +445,7 @@ def main():
                     running_procs.get("telegram") and
                     running_procs["telegram"].poll() is None
                 )
-                log(f"💓 [{mode}] 시장봇: {market_alive}/2 | 검색봇: {'✅' if search_alive else '❌'} | 텔레봇: {'✅' if tg_alive else '❌'}")
+                log(f"💓 [{mode}] 프로덕션: {market_alive}/2 | Exp-01: {exp01_alive}/2 | 검색봇: {'✅' if search_alive else '❌'} | 텔레봇: {'✅' if tg_alive else '❌'}")
 
         time.sleep(POLL_INTERVAL)
 
