@@ -489,18 +489,13 @@ def run_updater():
                             else:
                                 signal_label = f"[매도 시그널-{keep_amount // 10_000:,}만원 보유]"
 
-                            sell_result = trading.auto_sell(code, stock_name, total_score, curr)
+                            # sell_result = trading.auto_sell(code, stock_name, total_score, curr)  # 자동매도 비활성화
                             notify_ids  = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
 
-                            if sell_result and sell_result.get("status") == "ordered":
-                                alert_msg = sell_result["msg"]
-                            else:
-                                prev_str  = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
-                                alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
-                                             f"점수: {prev_str}{total_score * 100:.1f}점\n"
-                                             f"현재가: {curr:,}원")
-                                if sell_result and sell_result.get("status") == "failed":
-                                    alert_msg += f"\n{sell_result['msg']}"
+                            prev_str  = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
+                            alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
+                                         f"점수: {prev_str}{total_score * 100:.1f}점\n"
+                                         f"현재가: {curr:,}원")
 
                             if is_my_code:
                                 print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
