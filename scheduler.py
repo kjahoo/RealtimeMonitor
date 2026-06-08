@@ -106,6 +106,36 @@ def next_weekday_start():
 
 
 # ====================================================
+# 📴 공휴일 감지 — 삼성전자(005930) 시세 조회
+# ====================================================
+def is_market_open_today():
+    """
+    NXT 아침 개장(08:00) 시 삼성전자 시세로 공휴일 여부 판단.
+    30초 간격 3회 시도 후에도 시세 없으면 False(공휴일) 반환.
+    API 오류 / 토큰 실패는 True(장 열림)로 처리해 오탐 방지.
+    """
+    try:
+        from kis_api import auth, inquiry
+        if not auth.get_access_token():
+            log("   ⚠️ 공휴일 체크: 토큰 발급 실패 → 장 열린 것으로 처리")
+            return True
+        for attempt in range(3):
+            rt = inquiry.fetch_realtime_price("005930")
+            price = inquiry.safe_int(rt.get("stck_prpr", 0)) if rt else 0
+            if price > 0:
+                log(f"   ✅ 삼성전자 현재가 {price:,}원 확인 → 장 열림")
+                return True
+            if attempt < 2:
+                log(f"   ⏳ 삼성전자 시세 없음 (시도 {attempt + 1}/3) — 30초 후 재시도")
+                time.sleep(30)
+        log("   📴 삼성전자 시세 없음 (3회 시도) → 공휴일 판단")
+        return False
+    except Exception as e:
+        log(f"   ⚠️ 공휴일 체크 오류: {e} → 장 열린 것으로 처리")
+        return True
+
+
+# ====================================================
 # 🔍 Search_Stock_V3 상시 실행 관리
 # ====================================================
 def start_search_bot():
@@ -177,12 +207,10 @@ def start_bots(mode):
     env["MARKET_MODE"] = mode  # inquiry.py 에서 KRX/NXT 분기에 사용
 
     scripts = {
-        "stock":       "main_stock.py",
-        "update":      "Update_Promising_Stocks.py",
-        "exp01_stock":  "main_stock_exp01.py",
-        "exp01_update": "Update_Promising_Stocks_exp01.py",
+        "stock":  "main_stock.py",
+        "update": "Update_Promising_Stocks.py",
     }
-    log(f"🚀 봇 시작 (모드: {mode}) — 프로덕션 2개 + Exp-01 섀도 2개")
+    log(f"🚀 봇 시작 (모드: {mode}) — 프로덕션 2개")
 
     for key, script in scripts.items():
         script_path = os.path.join(PROJECT_DIR, script)
@@ -204,7 +232,7 @@ def stop_market_bots():
     """시장 연동 봇(stock, update)만 종료합니다. search 봇은 건드리지 않습니다."""
     global running_procs
 
-    market_keys = [k for k in ("stock", "update", "exp01_stock", "exp01_update") if k in running_procs]
+    market_keys = [k for k in ("stock", "update") if k in running_procs]
     if not market_keys:
         return
 
@@ -254,10 +282,8 @@ def check_market_bots_alive():
         return
 
     script_map = {
-        "stock":        "main_stock.py",
-        "update":       "Update_Promising_Stocks.py",
-        "exp01_stock":  "main_stock_exp01.py",
-        "exp01_update": "Update_Promising_Stocks_exp01.py",
+        "stock":  "main_stock.py",
+        "update": "Update_Promising_Stocks.py",
     }
 
     for key in list(script_map.keys()):
@@ -389,6 +415,7 @@ def main():
     start_telegram_bot()
 
     data_updated_today = False  # 하루에 1번만 Update_Data_All 실행
+    holiday_today      = False  # 공휴일 플래그 — WAITING/WEEKEND 복귀 시 해제
 
     while True:
         mode = get_market_mode()
@@ -397,12 +424,35 @@ def main():
         if mode in ("NXT", "KRX") and data_updated_today:
             data_updated_today = False
 
+        # ── 공휴일 대기 중: search/telegram 봇만 유지, 시장봇 건드리지 않음
+        #    WAITING(자정~08시) 또는 WEEKEND 복귀 시 플래그 해제
+        if holiday_today:
+            if mode in ("WAITING", "WEEKEND"):
+                holiday_today  = False
+                current_mode   = mode
+                log(f"📌 공휴일 종료 → 모드 복귀: {mode}")
+            ensure_search_bot_alive()
+            ensure_telegram_bot_alive()
+            time.sleep(POLL_INTERVAL)
+            continue
+
         # ── 모드가 바뀔 때만 시장 연동 봇을 재시작
         if mode != current_mode:
             log(f"📌 모드 전환: {current_mode} → {mode}")
             current_mode = mode
 
             if mode in ("NXT", "KRX"):
+                # NXT 아침 첫 전환(08:00)이면 공휴일 체크
+                if mode == "NXT" and datetime.now().time() < TIME_KRX_START:
+                    log("🔍 NXT 개장 — 삼성전자 시세로 공휴일 여부 확인 중...")
+                    if not is_market_open_today():
+                        holiday_today = True
+                        stop_market_bots()
+                        secs = next_weekday_start()
+                        h, m = divmod(int(secs) // 60, 60)
+                        log(f"📴 공휴일 — 다음 평일 08:00까지 대기 ({h}시간 {m}분)")
+                        time.sleep(POLL_INTERVAL)
+                        continue
                 start_bots(mode)
 
             elif mode == "CLOSED":
@@ -433,10 +483,6 @@ def main():
                     1 for k in ("stock", "update")
                     if running_procs.get(k) and running_procs[k].poll() is None
                 )
-                exp01_alive = sum(
-                    1 for k in ("exp01_stock", "exp01_update")
-                    if running_procs.get(k) and running_procs[k].poll() is None
-                )
                 search_alive = (
                     running_procs.get("search") and
                     running_procs["search"].poll() is None
@@ -445,7 +491,7 @@ def main():
                     running_procs.get("telegram") and
                     running_procs["telegram"].poll() is None
                 )
-                log(f"💓 [{mode}] 프로덕션: {market_alive}/2 | Exp-01: {exp01_alive}/2 | 검색봇: {'✅' if search_alive else '❌'} | 텔레봇: {'✅' if tg_alive else '❌'}")
+                log(f"💓 [{mode}] 프로덕션: {market_alive}/2 | 검색봇: {'✅' if search_alive else '❌'} | 텔레봇: {'✅' if tg_alive else '❌'}")
 
         time.sleep(POLL_INTERVAL)
 

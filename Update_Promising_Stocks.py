@@ -6,7 +6,8 @@ import requests
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-from datetime import datetime
+from datetime import datetime, timedelta
+from datetime import time as dtime
 import csv
 import warnings
 
@@ -15,7 +16,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings("ignore")
 
 from config import secrets
-from kis_api import auth, inquiry, indicators, trading
+from kis_api import auth, inquiry, indicators, kiwoom_trading as trading
 from tensorflow.keras.models import load_model
 import pickle
 
@@ -307,18 +308,47 @@ def run_updater():
     print(f"   - 매도시그널: {DROP_THRESHOLDS} 이하 하락 시 알림")
     print(f"   - 주기      : {CYCLE_DELAY}초\n")
 
-    last_scores    = load_last_scores()   # 재시작 후에도 이전 점수 복원
-    nxt_skip_cache = set()
+    last_scores      = load_last_scores()   # 재시작 후에도 이전 점수 복원
+    nxt_skip_cache   = set()
     session_notified = set()  # 이번 실행에서 첫 관측 완료한 코드 (재실행 알림용)
+    sell_alert_sent  = {}     # {code: keep_amount} — 이미 알림 보낸 매도 레벨 추적
+    corr_notified    = {}     # {code: order_price} — 정정요망 알림 중복 방지
+    prev_market_mode = None   # 모드 전환 감지용
 
     while True:
         try:
-            today_str   = datetime.now().strftime("%Y%m%d")
+            now = datetime.now()
+
+            # 장 운영 시간(평일 08:00~20:00) 외에는 대기
+            if now.weekday() >= 5 or not (dtime(8, 0) <= now.time() < dtime(20, 0)):
+                next_open = now.replace(hour=8, minute=0, second=0, microsecond=0)
+                if now.time() >= dtime(20, 0) or now.weekday() >= 5:
+                    next_open += timedelta(days=1)
+                    while next_open.weekday() >= 5:
+                        next_open += timedelta(days=1)
+                wait_sec = max(0, int((next_open - now).total_seconds()))
+                h, m = divmod(wait_sec // 60, 60)
+                print(f"   😴 [{now.strftime('%H:%M:%S')}] 장 시간 외 — 다음 개장({next_open.strftime('%m/%d %H:%M')})까지 대기 ({h}시간 {m}분)")
+                time.sleep(min(wait_sec, 600))  # 최대 10분 단위로 나눠서 대기
+                continue
+
+            today_str   = now.strftime("%Y%m%d")
             market_mode = os.environ.get("MARKET_MODE", "KRX")
 
             # 모드가 바뀌면 스킵 캐시 초기화
-            if market_mode == "KRX":
+            # 모드 전환 시에만 캐시 초기화 (매 사이클이 아님)
+            if market_mode != prev_market_mode:
+                prev_market_mode = market_mode
                 nxt_skip_cache.clear()
+                sell_alert_sent.clear()
+                corr_notified.clear()
+                if market_mode == "KRX":
+                    # NXT 주문은 정규장 개시 시 만료 → sell_level·open_orders 초기화
+                    for _code in list(last_scores.keys()):
+                        e = last_scores[_code]
+                        if isinstance(e, dict):
+                            e["sell_level"] = None
+                            e.pop("open_orders", None)
 
             # 1. 시장 지수
             k_val  = inquiry.fetch_index_change("0001")
@@ -394,8 +424,9 @@ def run_updater():
                         else:
                             continue
 
-                    df = pd.read_csv(file_path, encoding='utf-8-sig')
-                    df['date']   = pd.to_datetime(df['date'])
+                    df = pd.read_csv(file_path, encoding='utf-8-sig', dtype={'code': str, 'name': str})
+                    df['date']   = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
+                    df = df.dropna(subset=['date'])
                     stock_name   = df['name'].iloc[0] if 'name' in df.columns else code
 
                     # (4) 오늘 데이터 병합
@@ -420,9 +451,12 @@ def run_updater():
                             lambda x: x['prog_net_qty'] / x['volume'] if x['volume'] > 0 else 0, axis=1)
                     for col in V3_FEATURES:
                         if col not in df.columns: df[col] = 0.0
-                    df = df.fillna(0)
+                    _non_date = [c for c in df.columns if c != 'date']
+                    df[_non_date] = df[_non_date].fillna(0)
 
-                    # (5) 파일 저장
+                    # (5) 파일 저장 — date: YYYY-MM-DD, code: 6자리 문자열
+                    df['date'] = df['date'].dt.strftime('%Y-%m-%d')
+                    df['code'] = df['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
                     df.to_csv(file_path, index=False, encoding='utf-8-sig')
 
                     # (6) 예측
@@ -476,8 +510,9 @@ def run_updater():
                         elif not isinstance(entry, dict):
                             entry = {"score": None, "sell_level": None}
 
-                        prev_score    = entry.get("score")
-                        prev_sell_lvl = entry.get("sell_level")  # 마지막으로 처리한 keep_amount
+                        prev_score     = entry.get("score")
+                        prev_sell_lvl  = entry.get("sell_level")
+                        prev_open_ords = entry.get("open_orders", [])  # 저장된 주문 정보
 
                         # 현재 점수에 대응하는 매도 레벨 계산
                         keep_amount = trading.get_keep_amount(total_score)
@@ -489,27 +524,133 @@ def run_updater():
                             else:
                                 signal_label = f"[매도 시그널-{keep_amount // 10_000:,}만원 보유]"
 
-                            # sell_result = trading.auto_sell(code, stock_name, total_score, curr)  # 자동매도 비활성화
-                            notify_ids  = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
+                            notify_ids = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
 
                             prev_str  = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
                             alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
                                          f"점수: {prev_str}{total_score * 100:.1f}점\n"
                                          f"현재가: {curr:,}원")
 
-                            if is_my_code:
-                                print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
-                            send_telegram(alert_msg, notify_ids)
+                            already_alerted = sell_alert_sent.get(code) == keep_amount
+                            if not already_alerted:
+                                if is_my_code:
+                                    print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
+                                send_telegram(alert_msg, notify_ids)
 
-                            last_scores[code] = {"score": total_score, "sell_level": keep_amount}
+                            # 레벨 변경 시 이전 주문 취소 후 재주문
+                            sell_result = trading.auto_sell(
+                                code, stock_name, total_score, curr, prev_open_ords
+                            )
+
+                            if sell_result and sell_result.get("placed_orders"):
+                                # 주문 접수 성공 — sell_level 진행, 주문 정보 저장
+                                last_scores[code] = {
+                                    "score": total_score, "sell_level": keep_amount,
+                                    "open_orders": sell_result["placed_orders"],
+                                }
+                                sell_alert_sent.pop(code, None)
+                                corr_notified.pop(code, None)
+                                if sell_result.get("msg"):
+                                    if is_my_code:
+                                        print(f"   📤 {sell_result['msg'].replace(chr(10), '  ')}")
+                                    send_telegram(sell_result["msg"], notify_ids)
+                            elif sell_result and sell_result.get("status") == "already_pending":
+                                # 기존 주문이 수량을 잠근 상태 — sell_level만 진행 (중복 알림 방지)
+                                last_scores[code] = {
+                                    "score": total_score, "sell_level": keep_amount,
+                                    "open_orders": prev_open_ords,
+                                }
+                                sell_alert_sent.pop(code, None)
+                            elif sell_result and sell_result.get("status") == "collateral_blocked":
+                                # 담보대출 종목 — REST API 매도 불가, HTS 수동 매도 필요
+                                # sell_level을 keep_amount로 진행시켜 재시도 루프 방지
+                                last_scores[code] = {
+                                    "score": total_score, "sell_level": keep_amount,
+                                    "open_orders": [],
+                                    "collateral": True,
+                                }
+                                if not already_alerted:
+                                    sell_alert_sent[code] = keep_amount
+                                    if sell_result.get("msg"):
+                                        if is_my_code:
+                                            print(f"   ⚠️ {sell_result['msg'].replace(chr(10), '  ')}")
+                                        send_telegram(sell_result["msg"], notify_ids)
+                            else:
+                                # 실패 — sell_level 유지, 다음 사이클 재시도
+                                last_scores[code] = {
+                                    "score": total_score, "sell_level": prev_sell_lvl,
+                                    "open_orders": prev_open_ords,
+                                }
+                                if not already_alerted:
+                                    sell_alert_sent[code] = keep_amount
+                                    if sell_result and sell_result.get("msg"):
+                                        if is_my_code:
+                                            print(f"   📤 {sell_result['msg'].replace(chr(10), '  ')}")
+                                        send_telegram(sell_result["msg"], notify_ids)
 
                         elif keep_amount is None:
-                            # 매도 불필요 구간 복귀 — sell_level 초기화
-                            last_scores[code] = {"score": total_score, "sell_level": None}
+                            # 매도 불필요 구간 복귀 — 저장된 주문 취소 후 sell_level 초기화
+                            sell_alert_sent.pop(code, None)
+                            corr_notified.pop(code, None)
+                            if prev_sell_lvl is not None and prev_open_ords:
+                                _notify = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
+                                _clines = []
+                                for _o in prev_open_ords:
+                                    _ok = trading.cancel_order(
+                                        _o["order_no"], code, _o["qty"], _o.get("loan_dt", "")
+                                    )
+                                    _clines.append(
+                                        f"  {'✅' if _ok else '❌'} {_o['qty']}주×{_o['price']:,}원"
+                                    )
+                                _msg = (f"🔄 매도 주문 취소 (점수 회복)\n"
+                                        f"{stock_name}({code})\n" + "\n".join(_clines))
+                                if is_my_code:
+                                    print(f"   🔄 {_msg.replace(chr(10), '  ')}")
+                                send_telegram(_msg, _notify)
+                            last_scores[code] = {"score": total_score, "sell_level": None,
+                                                 "open_orders": []}
 
                         else:
-                            # 동일 레벨 유지 — 점수만 갱신
-                            last_scores[code] = {"score": total_score, "sell_level": prev_sell_lvl}
+                            # 동일 레벨 유지 — 주문가 > 현재가이면 자동 정정
+                            updated_orders = list(prev_open_ords)
+                            if prev_sell_lvl is not None and prev_open_ords:
+                                _max_p = max(o["price"] for o in prev_open_ords)
+                                if _max_p > curr:
+                                    _notify = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
+                                    amend_ok_lines  = []
+                                    amend_err_lines = []
+                                    for i, o in enumerate(updated_orders):
+                                        if o["price"] > curr:
+                                            ok = trading.amend_sell_order(
+                                                o["order_no"], code, curr, o.get("loan_dt", ""))
+                                            if ok:
+                                                amend_ok_lines.append(
+                                                    f"  ✅ {o['qty']}주 {o['price']:,}→{curr:,}원")
+                                                updated_orders[i] = {**o, "price": curr}
+                                            else:
+                                                amend_err_lines.append(
+                                                    f"  ❌ {o['qty']}주 @{o['price']:,}원 정정실패")
+                                    if amend_ok_lines:
+                                        _msg = (f"✏️ 매도 정정\n{stock_name}({code})\n"
+                                                + "\n".join(amend_ok_lines))
+                                        if is_my_code:
+                                            print(f"   ✏️ {_msg.replace(chr(10), '  ')}")
+                                        send_telegram(_msg, _notify)
+                                        corr_notified.pop(code, None)
+                                    elif amend_err_lines:
+                                        if corr_notified.get(code) != _max_p:
+                                            corr_notified[code] = _max_p
+                                            _msg = (f"⚠️ 정정 실패\n{stock_name}({code})\n"
+                                                    + "\n".join(amend_err_lines))
+                                            if is_my_code:
+                                                print(f"   ⚠️ {_msg.replace(chr(10), '  ')}")
+                                            send_telegram(_msg, _notify)
+                                else:
+                                    corr_notified.pop(code, None)
+                            elif prev_sell_lvl is not None and not prev_open_ords:
+                                corr_notified.pop(code, None)
+                            last_scores[code] = {"score": total_score, "sell_level": prev_sell_lvl,
+                                                 "open_orders": updated_orders}
 
                     # (8) history 종목이면 업데이트 수집
                     if code in history_codes:

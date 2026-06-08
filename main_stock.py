@@ -134,8 +134,9 @@ FINAL_COLUMNS = [
 def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
     try:
         # 1. 파일 읽기
-        df = pd.read_csv(file_path, encoding='utf-8-sig')
-        df['date'] = pd.to_datetime(df['date'])
+        df = pd.read_csv(file_path, encoding='utf-8-sig', dtype={'code': str, 'name': str})
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
+        df = df.dropna(subset=['date'])
         stock_name = df['name'].iloc[0] if 'name' in df.columns else ""
 
         # 2. 실시간 데이터 수집
@@ -185,17 +186,21 @@ def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
         for t in ['target1', 'target5', 'target20']:
             if t not in df.columns: df[t] = 0.0
 
-        # 결측치 채우기
-        df = df.fillna(0)
+        # 결측치 채우기 (date 컬럼 제외)
+        _non_date = [c for c in df.columns if c != 'date']
+        df[_non_date] = df[_non_date].fillna(0)
 
         # 8. [핵심] 컬럼 순서 강제 적용 (30개)
         for col in FINAL_COLUMNS:
             if col not in df.columns: df[col] = 0
         df = df[FINAL_COLUMNS]  # 순서 재배열
 
+        # 저장 전 date: YYYY-MM-DD, code: 6자리 문자열 통일
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+        df['code'] = df['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
+        df = df.dropna(subset=['date'])
+
         # 9. [수정] 안전한 저장 (Atomic Write)
-        # 파일을 직접 덮어쓰지 않고 .tmp 파일에 쓴 뒤 교체합니다.
-        # 이렇게 하면 쓰기 도중 프로그램이 종료되어도 원본 파일이 손상되지 않습니다.
         temp_file_path = file_path + ".tmp"
 
         try:

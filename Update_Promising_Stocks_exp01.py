@@ -44,7 +44,7 @@ LAST_SCORES_FILE = os.path.join(LOG_DIR, "last_scores_exp01.json")
 
 # ── 전략 파라미터 ───────────────────────────────────────────────────────────
 BUY_THRESH   = 0.55   # score >= 0.55 → 매수 신호
-SELL_THRESH  = 0.50   # score <  0.50 → 매도 시그널
+SELL_THRESH  = 0.15   # score <  0.15 → 매도 시그널
 TARGET_SCORE = 0.55   # Exp01 결과 파일에서 추적할 최소 점수
 CYCLE_DELAY  = 30
 

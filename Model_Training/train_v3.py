@@ -17,6 +17,7 @@ except Exception:
 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
 import gc
 import json
@@ -144,21 +145,22 @@ def add_indicators_v3(df):
 # ==========================================
 # 3. [공통] 전역 캐싱 함수 (폴더 구조 반영 수정)
 # ==========================================
-def run_global_caching(data_dir, prep_dir, feature_cols):
+def run_global_caching(data_dir, prep_dir, feature_cols, train_start=None, train_end=None):
     # 🔥 [필터 기준]
-    START_DT = pd.Timestamp("2021-01-04")
-    END_DT = pd.Timestamp("2025-12-31")  # 2025년 데이터까지 포함
+    START_DT = pd.Timestamp(train_start) if train_start else pd.Timestamp("2021-01-04")
+    END_DT   = pd.Timestamp(train_end)   if train_end   else pd.Timestamp("2025-12-31")
     REQUIRED_DAYS = 200  # 최소 데이터 개수 (완화)
     MIN_AVG_AMOUNT = 500_000_000  # 평균 거래대금 5억 이상 (완화)
 
     print(f"\n🔍 [Global Cache] 데이터 전처리 시작")
-    print(f"   - 대상 폴더: {data_dir}")
+    stock_dir = data_dir / "Stock"
+    print(f"   - 대상 폴더: {stock_dir}")
     print(f"   - 조건: {REQUIRED_DAYS}일 이상 & 거래대금 {MIN_AVG_AMOUNT // 100000000}억 이상")
 
     if not prep_dir.exists(): prep_dir.mkdir(parents=True)
 
-    # 🔴 [수정] Stock과 ETF 폴더를 모두 뒤지도록 '**/*.csv' 사용
-    all_csv = list(data_dir.glob("**/*.csv"))
+    # Stock 폴더의 A*.csv 만 (ETF 제외)
+    all_csv = list(stock_dir.glob("A*.csv"))
 
     print(f"   - 발견된 파일: {len(all_csv)}개")
     cached_files = []
@@ -231,10 +233,12 @@ def run_global_caching(data_dir, prep_dir, feature_cols):
 # ==========================================
 # 4. 샘플 추출 및 트레이너
 # ==========================================
-def extract_samples_v3(trainer_type, feather_path, target_name, lookback, feature_cols, thresholds):
+def extract_samples_v3(trainer_type, feather_path, target_name, lookback, feature_cols, thresholds, train_end=None):
     try:
         df = _get_df_cached(feather_path)
         if df.empty: return [], []
+        if train_end is not None:
+            df = df[df['date'] <= pd.Timestamp(train_end)].copy()
 
         for col in feature_cols:
             if col not in df.columns: df[col] = 0.0
@@ -286,13 +290,14 @@ def extract_samples_v3(trainer_type, feather_path, target_name, lookback, featur
 
 
 class EnhancedTrainerV3:
-    def __init__(self, model_spec, asof_tag, cached_files):
+    def __init__(self, model_spec, asof_tag, cached_files, output_dir=None, train_end=None):
         self.spec = model_spec
         self.asof_tag = asof_tag
         self.cached_files = cached_files
         self.target_name = model_spec['name']
+        self.train_end = train_end
 
-        self.model_dir = settings.OUTPUT_DIR
+        self.model_dir = Path(output_dir) if output_dir else settings.OUTPUT_DIR
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
         self.model_name = f"{self.target_name}_lstm_v3.h5"
@@ -359,23 +364,27 @@ class EnhancedTrainerV3:
     def _execute_step(self, lb):
         X_all, y_all = [], []
         for fp in self.cached_files:
-            Xp, yp = extract_samples_v3(self.trainer_type, fp, self.target_name, lb, self.feature_cols, self.thresholds)
+            Xp, yp = extract_samples_v3(self.trainer_type, fp, self.target_name, lb, self.feature_cols, self.thresholds, train_end=self.train_end)
             X_all.extend(Xp);
             y_all.extend(yp)
 
         if len(X_all) < 1000 or np.sum(y_all) / len(y_all) < 0.005: return None
         X, y = np.array(X_all, dtype=np.float32), np.array(y_all, dtype=np.int8)
+        del X_all, y_all  # 원본 리스트 즉시 해제
 
         try:
             f1, thr, p, r, model, scaler = self._train_one(X, y, lb)
             pd.DataFrame([{"lookback": lb, "f1": f1, "precision": p, "recall": r, "threshold": thr}]).to_csv(
                 self.log_path, mode='a', header=not self.log_path.exists(), index=False)
             return f1, thr, p, r, model, scaler
-        except:
+        except Exception as e:
+            print(f"   ⚠️  LB={lb} 학습 실패: {type(e).__name__}: {e}")
             return None
         finally:
-            tf.keras.backend.clear_session();
+            del X, y  # 학습 데이터 즉시 해제
+            tf.keras.backend.clear_session()
             gc.collect()
+            gc.collect()  # 순환참조까지 2회 GC
 
     def _train_one(self, X, y, lb):
         N, T, F = X.shape

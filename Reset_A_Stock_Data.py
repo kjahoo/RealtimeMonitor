@@ -315,7 +315,13 @@ def run_reset_tool():
             for col in FINAL_COLUMNS:
                 if col not in df.columns: df[col] = 0
 
-            df_final = df[FINAL_COLUMNS]
+            df_final = df[FINAL_COLUMNS].copy()
+            # date: YYYY-MM-DD, code: 6자리 문자열 통일
+            df_final['date'] = pd.to_datetime(df_final['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+            df_final['code'] = df_final['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
+            df_final = df_final.dropna(subset=['date'])
+            _non_date = [c for c in df_final.columns if c != 'date']
+            df_final[_non_date] = df_final[_non_date].fillna(0)
 
             if not os.path.exists(save_dir): os.makedirs(save_dir)
             file_path = os.path.join(save_dir, f"A{code}.csv")

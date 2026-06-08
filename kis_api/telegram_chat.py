@@ -578,6 +578,9 @@ def run():
                         "  내가 추적 중인 종목 목록 조회\n"
                         "  점수가 특정 구간 이하로 하락하면 자동 알림 발송\n"
                         "\n"
+                        "🏆 /top5  /top10  /top20\n"
+                        "  오늘 추적된 전체 종목 중 점수 상위 N개 조회\n"
+                        "\n"
                         "🗑️ /del <종목>\n"
                         "  추적 목록에서 종목 삭제\n"
                         "  예) /del 005930  /  /del 삼성전자\n"
@@ -594,8 +597,46 @@ def run():
                     continue
 
                 # 그 외 슬래시 커맨드
-                if text.startswith("/") and text.split()[0] not in ("/users", "/del", "/list"):
+                if text.startswith("/") and text.split()[0] not in ("/users", "/del", "/list", "/top5", "/top10", "/top20", "/top"):
                     send_message(chat_id, "알 수 없는 명령어입니다. /help 를 입력하면 사용법을 확인할 수 있습니다.")
+                    continue
+
+                # /top5 /top10 /top20 /top N — 점수 상위 N종목
+                _top_n = 0
+                _cmd = text.split()[0].lower()
+                if _cmd in ("/top5", "/top10", "/top20"):
+                    _top_n = int(_cmd[4:])
+                elif _cmd == "/top" and len(text.split()) > 1:
+                    try:
+                        _top_n = int(text.split()[1])
+                    except ValueError:
+                        pass
+
+                if _top_n > 0:
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    stock_path = os.path.join(LOG_DIR, f"{today_str_now}_Stock_V3.csv")
+                    if not os.path.exists(stock_path):
+                        send_message(chat_id, "📭 오늘 집계된 종목이 없습니다.")
+                    else:
+                        try:
+                            df_v = pd.read_csv(stock_path, encoding="utf-8-sig", dtype=str)
+                            df_v["score_total"] = pd.to_numeric(df_v["score_total"], errors="coerce").fillna(0)
+                            df_v = df_v.sort_values("score_total", ascending=False).head(_top_n)
+                            if df_v.empty:
+                                send_message(chat_id, "📭 오늘 집계된 종목이 없습니다.")
+                            else:
+                                lines = [f"🏆 점수 상위 {_top_n}종목 ({today_str_now})\n"]
+                                for rank, (_, row) in enumerate(df_v.iterrows(), 1):
+                                    score = float(row["score_total"]) * 100
+                                    price = row.get("close_price", "-")
+                                    time_str = row.get("time", "")
+                                    lines.append(
+                                        f"{rank:2d}. {row.get('name','')} ({row['code']})\n"
+                                        f"    점수: {score:.1f}점  현재가: {price}원  {time_str}"
+                                    )
+                                send_message(chat_id, "\n".join(lines))
+                        except Exception as e:
+                            send_message(chat_id, f"❌ top 조회 중 오류: {e}")
                     continue
 
                 # /list — 추적 종목 목록

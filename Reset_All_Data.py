@@ -284,11 +284,17 @@ def run_reset_all():
                 if 'disparity_60' not in df.columns: df['disparity_60'] = (df['close'] / df['ma60'] - 1).fillna(0)
                 if 'bb_pos' not in df.columns: df['bb_pos'] = 0.0
 
-                # (5) 저장
+                # (5) 저장 — date: YYYY-MM-DD, code: 6자리 문자열 통일
                 for col in FINAL_COLUMNS:
                     if col not in df.columns: df[col] = 0.0
 
-                df[FINAL_COLUMNS].fillna(0).to_csv(file_path, index=False, encoding='utf-8-sig')
+                df_save = df[FINAL_COLUMNS].copy()
+                df_save['date'] = pd.to_datetime(df_save['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+                df_save['code'] = df_save['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
+                df_save = df_save.dropna(subset=['date'])
+                _non_date = [c for c in df_save.columns if c != 'date']
+                df_save[_non_date] = df_save[_non_date].fillna(0)
+                df_save.to_csv(file_path, index=False, encoding='utf-8-sig')
                 success_cnt += 1
 
             except Exception:
