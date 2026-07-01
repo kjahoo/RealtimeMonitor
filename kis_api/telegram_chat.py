@@ -31,7 +31,7 @@ if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
 from config import secrets
-from kis_api import auth, inquiry, indicators
+from kis_api import auth, inquiry, indicators, kiwoom_trading
 from tensorflow.keras.models import load_model
 
 # ====================================================
@@ -43,12 +43,12 @@ DATA_DIR_ETF   = os.path.join(PROJECT_DIR, "Data", "ETF")
 LOG_DIR        = os.path.join(PROJECT_DIR, "logs")
 
 MODEL_SETTINGS = {
-    "target1":  {"lb": 21,  "thr": 0.4974, "weight": 0.1384},
-    "target5":  {"lb": 50,  "thr": 0.6327, "weight": 0.3099},
-    "target20": {"lb": 60,  "thr": 0.9046, "weight": 0.5517},
-    "drop1":    {"lb": 10,  "thr": 0.4349, "weight": 0.2411},
-    "drop5":    {"lb": 94,  "thr": 0.4314, "weight": 0.3714},
-    "drop20":   {"lb": 98,  "thr": 0.4686, "weight": 0.3875},
+    "target1":  {"lb": 65,  "thr": 0.5256, "weight": 0.1775},
+    "target5":  {"lb": 55,  "thr": 0.6484, "weight": 0.3639},
+    "target20": {"lb": 95,  "thr": 0.9197, "weight": 0.4586},
+    "drop1":    {"lb": 80,  "thr": 0.4018, "weight": 0.2544},
+    "drop5":    {"lb": 85,  "thr": 0.5041, "weight": 0.3376},
+    "drop20":   {"lb": 85,  "thr": 0.5723, "weight": 0.4079},
 }
 
 V3_FEATURES = [
@@ -90,6 +90,43 @@ def get_updates(offset):
         return res.json().get("result", [])
     except Exception:
         return []
+
+
+# ====================================================
+# 📋 명령어 메뉴 등록 (입력란 '/' 드롭다운 + 메뉴 버튼)
+#    ⚠️ 명령어 이름은 소문자 영문/숫자/_ 만 허용 → 한글 명령(/보유종목)은 메뉴 불가.
+#       영문 별칭(holdings/cleanup)을 등록하고 한글 명령도 그대로 동작하게 유지.
+# ====================================================
+def set_bot_commands():
+    # 공통(모든 사용자에게 노출) — 매매/보유 관련 명령 제외
+    common = [
+        {"command": "help",  "description": "📖 사용법 안내"},
+        {"command": "list",  "description": "📋 내 추적 종목 목록"},
+        {"command": "top5",  "description": "🏆 점수 상위 5종목"},
+        {"command": "top10", "description": "🏆 점수 상위 10종목"},
+        {"command": "top20", "description": "🏆 점수 상위 20종목"},
+        {"command": "del",   "description": "🗑️ 추적목록에서 종목 삭제 (예: /del 005930)"},
+        {"command": "users", "description": "👥 방문자 목록"},
+    ]
+    # 소유자 전용 — 키움 보유종목 관련 (친구 메뉴에는 표시하지 않음)
+    owner_only = [
+        {"command": "holdings", "description": "📥 키움 보유종목을 추적목록에 추가 (=/보유종목)"},
+        {"command": "cleanup",  "description": "🧹 키움 미보유 종목 정리 (=/종목정리)"},
+    ]
+    try:
+        # 1) 기본 스코프(모든 사용자): 공통 명령만
+        requests.post(_tg_url("setMyCommands"), json={"commands": common}, timeout=5)
+        # 2) 소유자 채팅 스코프: 공통 + 매매 명령
+        res = requests.post(_tg_url("setMyCommands"), json={
+            "commands": common + owner_only,
+            "scope": {"type": "chat", "chat_id": int(secrets.TELEGRAM_CHAT_ID)},
+        }, timeout=5)
+        if res.json().get("ok"):
+            print("   ✅ 텔레그램 명령어 메뉴 등록 완료 (소유자/공통 분리)", flush=True)
+        else:
+            print(f"   ⚠️ 명령어 메뉴 등록 실패: {res.text}", flush=True)
+    except Exception as e:
+        print(f"   ⚠️ 명령어 메뉴 등록 오류: {e}", flush=True)
 
 
 # ====================================================
@@ -266,7 +303,10 @@ def analyze(code, models, max_lb):
             df[col] = 0.0
     df = df.fillna(0)
 
-    df.to_csv(file_path, index=False, encoding="utf-8-sig")
+    # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
+    _tmp_path = file_path + ".tmp"
+    df.to_csv(_tmp_path, index=False, encoding="utf-8-sig")
+    os.replace(_tmp_path, file_path)
 
     if len(df) < max_lb:
         return None, f"데이터 부족 (필요: {max_lb}행, 현재: {len(df)}행)"
@@ -426,6 +466,88 @@ def get_my_watchlist(chat_id, today_str):
         return []
 
 
+def add_holdings_to_history(holdings, chat_id, today_str):
+    """키움 보유종목을 Search_History의 해당 chat_id 행으로 추가 (중복 code 건너뜀).
+       반환: (added: [(code,name)], skipped: [(code,name)])"""
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
+    hist_path   = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
+    hist_exists = os.path.exists(hist_path)
+    hist_fields = ["timestamp", "code", "name", "current_price", "market_cap",
+                   "change_pct", "total_score", "net_hits", "surge_hits", "drop_hits", "signal", "chat_id"]
+    cid = str(chat_id)
+
+    # 기존 내 종목 코드 집합
+    existing = set()
+    if hist_exists:
+        try:
+            df = _read_history_csv(hist_path)
+            if 'code' in df.columns and 'chat_id' in df.columns:
+                mine = df[df['chat_id'].fillna('') == cid]
+                existing = set(mine['code'].apply(
+                    lambda x: str(x).strip().zfill(6) if str(x).strip().isdigit() else str(x).strip()))
+        except Exception as e:
+            print(f"⚠️ 보유종목 추가-기존조회 실패: {e}")
+
+    added, skipped, rows_to_add = [], [], []
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for h in holdings:
+        code = str(h['code']).strip().zfill(6)
+        name = h.get('name', '')
+        if code in existing:
+            skipped.append((code, name))
+            continue
+        existing.add(code)
+        rows_to_add.append({
+            "timestamp": now_str, "code": code, "name": name,
+            "signal": "보유종목", "chat_id": cid,
+        })
+        added.append((code, name))
+
+    if rows_to_add:
+        try:
+            with open(hist_path, "a", newline="", encoding="utf-8-sig") as f:
+                w = csv.DictWriter(f, fieldnames=hist_fields, extrasaction="ignore")
+                if not hist_exists:
+                    w.writeheader()
+                for r in rows_to_add:
+                    w.writerow(r)
+        except Exception as e:
+            print(f"⚠️ 보유종목 추가 저장 실패: {e}")
+            return [], skipped
+    return added, skipped
+
+
+def cleanup_history_by_holdings(chat_id, today_str, holding_codes):
+    """내 Search_History 종목 중 키움 보유에 없는 종목 삭제.
+       반환: removed [(code,name)] (오류 시 None)"""
+    hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
+    if not os.path.exists(hist_path):
+        return []
+    try:
+        df = _read_history_csv(hist_path)
+        if 'code' not in df.columns or 'chat_id' not in df.columns:
+            return []
+        df['code'] = df['code'].apply(
+            lambda x: str(x).strip().zfill(6) if str(x).strip().isdigit() else str(x).strip())
+        cid = str(chat_id)
+        holding_set = set(str(c).strip().zfill(6) for c in holding_codes)
+        mask_mine   = df['chat_id'].fillna('') == cid
+        mask_remove = mask_mine & (~df['code'].isin(holding_set))
+
+        removed, seen = [], set()
+        for _, r in df[mask_remove].iterrows():
+            c = r['code']
+            if c not in seen:
+                seen.add(c)
+                removed.append((c, r.get('name', '')))
+        df[~mask_remove].to_csv(hist_path, index=False, encoding='utf-8-sig')
+        return removed
+    except Exception as e:
+        print(f"⚠️ 종목정리 실패: {e}")
+        return None
+
+
 def get_all_watchlists(today_str):
     """오늘 Search_History 전체를 chat_id별로 묶어 반환. {chat_id: [(code, name, score, ts), ...]}"""
     hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
@@ -507,6 +629,8 @@ def run():
         print("❌ 토큰 발급 실패")
         return
 
+    set_bot_commands()   # 입력란 '/' 드롭다운 메뉴 등록
+
     models = load_models()
     if not models:
         print("❌ 모델 로드 실패")
@@ -565,7 +689,7 @@ def run():
 
                 # /help
                 if text == "/help":
-                    send_message(chat_id,
+                    help_text = (
                         "📖 사용법 안내\n"
                         "━━━━━━━━━━━━━━━━━━━━\n"
                         "🔍 종목 분석\n"
@@ -576,7 +700,7 @@ def run():
                         "\n"
                         "📋 /list\n"
                         "  내가 추적 중인 종목 목록 조회\n"
-                        "  점수가 특정 구간 이하로 하락하면 자동 알림 발송\n"
+                        "  3일 평활점수가 0.20 아래로 떨어지면 매도 시그널 발송\n"
                         "\n"
                         "🏆 /top5  /top10  /top20\n"
                         "  오늘 추적된 전체 종목 중 점수 상위 N개 조회\n"
@@ -586,14 +710,72 @@ def run():
                         "  예) /del 005930  /  /del 삼성전자\n"
                         "  ※ 종목명은 정확히 입력해야 합니다\n"
                         "\n"
-                        "🚨 자동 알림 기준\n"
-                        "  점수 40점 이하 → 10% 보유 권고\n"
-                        "  점수 35점 이하 → 5% 보유 권고\n"
-                        "  점수 30점 이하 → 전량 매도 권고\n"
+                    )
+                    # 보유/매매 관련 명령은 소유자에게만 안내
+                    if str(chat_id) == secrets.TELEGRAM_CHAT_ID:
+                        help_text += (
+                            "📥 /보유종목 (또는 /holdings)\n"
+                            "  키움 계좌 보유종목을 내 추적 목록에 추가 (중복 제외)\n"
+                            "\n"
+                            "🧹 /종목정리 (또는 /cleanup)\n"
+                            "  내 추적 목록에서 키움 미보유 종목 삭제\n"
+                            "\n"
+                        )
+                    help_text += (
+                        "💡 입력란의 '/' 버튼을 누르면 명령어 메뉴가 표시됩니다.\n"
+                        "\n"
+                        "🚨 매도 시그널 기준 (B전략)\n"
+                        "  · 3일 평활점수 < 0.20 이 2거래일 연속 → 전량청산\n"
+                        "  · 현재가가 평단 대비 -12% 이하 → 즉시 손절\n"
+                        "  ※ 하루 급락만으로는 매도하지 않음 (휩쏘 방지)\n"
                         "\n"
                         "👥 /users\n"
                         "  봇 방문자 목록 조회"
                     )
+                    send_message(chat_id, help_text)
+                    continue
+
+                # /보유종목 (=/holdings) — 키움 보유종목을 내 추적목록(Search_History)에 추가 (중복 건너뜀)
+                if text in ("/보유종목", "/holdings"):
+                    if str(chat_id) != secrets.TELEGRAM_CHAT_ID:
+                        send_message(chat_id, "🔒 이 명령은 봇 소유자만 사용할 수 있습니다.")
+                        continue
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    holdings = kiwoom_trading.fetch_all_holdings()
+                    if not holdings:
+                        send_message(chat_id, "📭 키움 계좌에 보유종목이 없거나 조회에 실패했습니다.")
+                        continue
+                    added, skipped = add_holdings_to_history(holdings, chat_id, today_str_now)
+                    lines = [f"📥 키움 보유종목 {len(holdings)}개 → 추가 {len(added)}개 / 기존 {len(skipped)}개"]
+                    if added:
+                        lines.append("\n[추가됨]")
+                        lines += [f"• {n} ({c})" for c, n in added]
+                    send_message(chat_id, "\n".join(lines))
+                    print(f"   📥 [{chat_id}] 보유종목 추가 {len(added)}개 / 스킵 {len(skipped)}개", flush=True)
+                    continue
+
+                # /종목정리 (=/cleanup) — 내 추적목록 중 키움 미보유 종목 삭제
+                if text in ("/종목정리", "/cleanup"):
+                    if str(chat_id) != secrets.TELEGRAM_CHAT_ID:
+                        send_message(chat_id, "🔒 이 명령은 봇 소유자만 사용할 수 있습니다.")
+                        continue
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    holdings = kiwoom_trading.fetch_all_holdings()
+                    if holdings is None:
+                        # 조회 실패 → 전체 삭제 방지를 위해 중단
+                        send_message(chat_id, "❌ 키움 보유종목 조회에 실패했습니다. 정리를 중단합니다.")
+                        continue
+                    holding_codes = [h['code'] for h in holdings]
+                    removed = cleanup_history_by_holdings(chat_id, today_str_now, holding_codes)
+                    if removed is None:
+                        send_message(chat_id, "❌ 종목정리 중 오류가 발생했습니다.")
+                    elif not removed:
+                        send_message(chat_id, "✅ 정리할 종목이 없습니다. (추적목록이 모두 보유종목입니다)")
+                    else:
+                        lines = [f"🧹 키움 미보유 {len(removed)}개 종목을 추적목록에서 삭제했습니다.\n"]
+                        lines += [f"• {n} ({c})" for c, n in removed]
+                        send_message(chat_id, "\n".join(lines))
+                    print(f"   🧹 [{chat_id}] 종목정리 삭제 {0 if not removed else len(removed)}개", flush=True)
                     continue
 
                 # 그 외 슬래시 커맨드

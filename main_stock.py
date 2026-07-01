@@ -38,12 +38,12 @@ MODEL_DIR = secrets.V3_MODEL_DIR  # secrets.py에 설정된 모델 경로
 
 # V3 모델 설정 (기존 값 유지)
 MODEL_SETTINGS = {
-    "target1": {"lb": 21, "thr": 0.4974, "weight": 0.1384},
-    "target5": {"lb": 50, "thr": 0.6327, "weight": 0.3099},
-    "target20": {"lb": 60, "thr": 0.9046, "weight": 0.5517},
-    "drop1": {"lb": 10, "thr": 0.4349, "weight": 0.2411},
-    "drop5": {"lb": 94, "thr": 0.4314, "weight": 0.3714},
-    "drop20": {"lb": 98, "thr": 0.4686, "weight": 0.3875}
+    "target1": {"lb": 65, "thr": 0.5256, "weight": 0.1775},
+    "target5": {"lb": 55, "thr": 0.6484, "weight": 0.3639},
+    "target20": {"lb": 95, "thr": 0.9197, "weight": 0.4586},
+    "drop1": {"lb": 80, "thr": 0.4018, "weight": 0.2544},
+    "drop5": {"lb": 85, "thr": 0.5041, "weight": 0.3376},
+    "drop20": {"lb": 85, "thr": 0.5723, "weight": 0.4079}
 }
 
 V3_FEATURES = [
@@ -55,13 +55,21 @@ V3_FEATURES = [
 ]
 
 
-# 점수 구간(tier) 반환 — None이면 0.5 미만
+# 점수 구간(tier) 반환 — None이면 진입선(0.60) 미만 (알림 재발송 트리거용)
+# 0.6 이상부터 매수권장 알림, 0.9=고확신.  0.60 미만은 알림 없음
 def get_score_tier(score):
-    if score >= 0.8: return 0.8
+    if score >= 0.9: return 0.9
+    elif score >= 0.8: return 0.8
     elif score >= 0.7: return 0.7
     elif score >= 0.6: return 0.6
-    elif score >= 0.5: return 0.5
     return None
+
+
+# 매수 추천 라벨 — 시뮬 최적: 진입 0.60, 점수가중 선형 5%→25%
+#   alloc% = 5 + 50×(score-0.60), 상한 25%
+def get_buy_label(score):
+    alloc = min(25, round(5 + 50 * (score - 0.60)))
+    return f"[포착-{alloc}%매수추천]"
 
 
 # 텔레그램 알림
@@ -264,16 +272,40 @@ def save_and_backup_results(results, date_str, is_stock=True):
 
     df = pd.DataFrame(results)
 
-    # 1. 정렬: Total Score(score_total) 높은 순
-    if 'score_total' in df.columns:
-        df = df.sort_values(by='score_total', ascending=False)
-
-    # 2. 컬럼 순서 지정 (보내주신 파일 기준)
+    # 컬럼 순서 지정 (보내주신 파일 기준)
     columns_order = [
         'code', 'name', 'close_price', 'market_cap', 'score_total',
         'net_hits', 'surge_hits', 'drop_hits', 'time',
         'target1', 'target5', 'target20', 'drop1', 'drop5', 'drop20'
     ]
+
+    # 파일명 결정
+    type_str = "Stock" if is_stock else "ETF"
+    file_name = f"{date_str}_{type_str}_V3.csv"
+
+    local_path = os.path.join(secrets.LOCAL_DATA_PATH, file_name)
+    drive_path = os.path.join(secrets.G_DRIVE_PATH, file_name)
+
+    # 디스크 파일과 병합 — Search_Stock_V3/Update_Promising이 쓴 행을 지우지 않도록
+    # code별로 'time'(HH:MM:SS)이 더 늦은 행을 채택 (외부 갱신이 더 최신이면 그쪽 유지)
+    df = df.astype(str)
+    try:
+        if os.path.exists(local_path):
+            df_disk = pd.read_csv(local_path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
+            df = pd.concat([df_disk, df], ignore_index=True)
+    except Exception as e:
+        print(f"⚠️ 기존 결과 병합 실패 (메모리 결과만 저장): {e}")
+
+    df['code'] = df['code'].astype(str).str.split('.').str[0].str.zfill(6)
+    if 'time' not in df.columns: df['time'] = ''
+    df['time'] = df['time'].fillna('')
+    # HH:MM:SS 문자열은 사전순 정렬 = 시간순 정렬
+    df = df.sort_values('time', kind='stable').drop_duplicates(subset='code', keep='last')
+
+    # 정렬: Total Score(score_total) 높은 순
+    if 'score_total' in df.columns:
+        df['_score'] = pd.to_numeric(df['score_total'], errors='coerce').fillna(0)
+        df = df.sort_values(by='_score', ascending=False).drop(columns='_score')
 
     # 없는 컬럼은 0이나 공백으로 채움 (안전장치)
     for col in columns_order:
@@ -283,16 +315,11 @@ def save_and_backup_results(results, date_str, is_stock=True):
     # 최종 데이터프레임 완성
     df_final = df[columns_order]
 
-    # 파일명 결정
-    type_str = "Stock" if is_stock else "ETF"
-    file_name = f"{date_str}_{type_str}_V3.csv"
-
-    local_path = os.path.join(secrets.LOCAL_DATA_PATH, file_name)
-    drive_path = os.path.join(secrets.G_DRIVE_PATH, file_name)
-
     try:
-        # csv 저장
-        df_final.to_csv(local_path, index=False, encoding='utf-8-sig')
+        # 원자적 저장 (temp + os.replace) — 다른 프로세스가 읽는 중 깨진 파일 방지
+        tmp_path = local_path + ".tmp"
+        df_final.to_csv(tmp_path, index=False, encoding='utf-8-sig')
+        os.replace(tmp_path, local_path)
         shutil.copy2(local_path, drive_path)
     except Exception as e:
         print(f"⚠️ 저장 실패: {e}")
@@ -423,14 +450,7 @@ if __name__ == "__main__":
                     score = res['score_total']
                     tier = get_score_tier(score)
                     if tier is not None and sent_tiers.get(code) != tier:
-                        if score >= 0.8:
-                            label = "[포착-15%매수추천]"
-                        elif score >= 0.7:
-                            label = "[포착-10%매수추천]"
-                        elif score >= 0.6:
-                            label = "[포착-5%매수추천]"
-                        else:
-                            label = "[포착]"
+                        label = get_buy_label(score)
                         msg = f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n현재가: {res['close_price']:,}"
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
@@ -444,6 +464,8 @@ if __name__ == "__main__":
 
             # 모든 종목(한 사이클) 완료 후 최종 저장
             save_and_backup_results(list(today_results.values()), today_str)
+            # 참고: 60점+ Claude AI 평가는 main_stock 과 분리되어 30분 스케줄
+            #       (run_ai_eval.ps1)로 별도 실행된다. 여기서는 호출하지 않는다.
             print(f"✅ {datetime.now().strftime('%H:%M:%S')} 전 종목 분석 완료. 1분 대기.")
             time.sleep(60)
 

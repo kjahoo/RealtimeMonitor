@@ -17,6 +17,8 @@ warnings.filterwarnings("ignore")
 
 from config import secrets
 from kis_api import auth, inquiry, indicators, kiwoom_trading as trading
+from kis_api import kiwoom_inquiry  # 시세/지수/프로그램매매를 키움 REST로 수신 (한투 부하 분리·속도 개선)
+from kis_api import sell_strategy_b  # B 매도전략(3일 평활+2일 확인+-12% 손절 → 전량청산)
 from tensorflow.keras.models import load_model
 import pickle
 
@@ -30,6 +32,9 @@ LAST_SCORES_FILE = os.path.join(LOG_DIR, "last_scores.json")
 TARGET_SCORE   = 0.2
 CYCLE_DELAY    = 30
 
+# 실제 매매(주문 접수/취소/정정) 알림은 소유자(나)만 수신 — 친구는 시그널만
+OWNER_IDS = [secrets.TELEGRAM_CHAT_ID]
+
 # 매도 시그널 임계값
 DROP_THRESHOLDS = [0.40, 0.35, 0.30, 0.25, 0.20, 0]
 
@@ -40,12 +45,12 @@ API_TIMEOUT_SEC = 4   # 단건 API 호출 타임아웃 (초)
 MAX_FAIL_SKIP   = 3   # 연속 실패 N회면 해당 종목 이번 사이클 건너뜀
 
 MODEL_SETTINGS = {
-    "target1":  {"lb": 21, "thr": 0.4974, "weight": 0.1384},
-    "target5":  {"lb": 50, "thr": 0.6327, "weight": 0.3099},
-    "target20": {"lb": 60, "thr": 0.9046, "weight": 0.5517},
-    "drop1":    {"lb": 10, "thr": 0.4349, "weight": 0.2411},
-    "drop5":    {"lb": 94, "thr": 0.4314, "weight": 0.3714},
-    "drop20":   {"lb": 98, "thr": 0.4686, "weight": 0.3875}
+    "target1":  {"lb": 65, "thr": 0.5256, "weight": 0.1775},
+    "target5":  {"lb": 55, "thr": 0.6484, "weight": 0.3639},
+    "target20": {"lb": 95, "thr": 0.9197, "weight": 0.4586},
+    "drop1":    {"lb": 80, "thr": 0.4018, "weight": 0.2544},
+    "drop5":    {"lb": 85, "thr": 0.5041, "weight": 0.3376},
+    "drop20":   {"lb": 85, "thr": 0.5723, "weight": 0.4079}
 }
 
 V3_FEATURES = [
@@ -96,6 +101,45 @@ def save_last_scores(last_scores):
             json.dump({"date": today_str, "scores": last_scores}, f)
     except Exception as e:
         print(f"   ⚠️ last_scores 저장 실패: {e}")
+
+
+def save_sell_plan(targets, today_str):
+    """매도 sweep 계획을 logs/{날짜}_autosell_plan.json 에 원자적 기록.
+       execution_monitor 가 4초마다 읽어 '매수호가 sweep' 으로 전량청산 집행한다.
+       targets: {code: {name, sell_price, reason, score}}  (매 사이클 전체 재작성)"""
+    path = os.path.join(LOG_DIR, f"{today_str}_autosell_plan.json")
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({"date": today_str, "targets": targets}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        print(f"   ⚠️ autosell_plan 저장 실패: {e}")
+
+
+# ====================================================
+# 💰 평단가 하루 1회 캐시 (B 전략 -12% 손절용)
+# ====================================================
+_avg_price_cache = {}   # code -> (YYYYMMDD, avg_price or None)
+
+def get_cached_avg_price(code):
+    """보유 평단가를 하루 1회만 잔고조회로 캐시 (없으면 None)."""
+    today = datetime.now().strftime("%Y%m%d")
+    c = _avg_price_cache.get(code)
+    if c and c[0] == today:
+        return c[1]
+    avg = None
+    try:
+        hs = trading.fetch_stock_holdings(code)
+        if hs:
+            tq = sum(h["qty"] for h in hs)
+            ta = sum(h["purchase_amount"] for h in hs)
+            avg = (ta / tq) if tq > 0 else None
+    except Exception:
+        avg = None
+    _avg_price_cache[code] = (today, avg)
+    return avg
 
 
 # ====================================================
@@ -152,11 +196,11 @@ def format_code(x):
 def fetch_realtime_safe(code):
     """
     NXT 시간대에 데이터가 없는 종목은 빈 dict {}를 반환.
-    inquiry.fetch_realtime_price의 재시도 로직을 우회해
+    fetch_realtime_price의 재시도 로직을 우회해
     멈춤 현상을 방지합니다.
     """
     try:
-        rt = inquiry.fetch_realtime_price(code)
+        rt = kiwoom_inquiry.fetch_realtime_price(code)
         # 현재가가 0이거나 없으면 NXT 미지원 종목으로 판단
         if not rt or inquiry.safe_int(rt.get("stck_prpr", 0)) == 0:
             return None
@@ -242,7 +286,10 @@ def update_split_logs(stock_results, etf_results, today_str):
             else:
                 df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
 
-        df.to_csv(file_path, index=False, encoding='utf-8-sig')
+        # 원자적 저장 (temp + os.replace) — main_stock이 읽는 중 깨진 파일 방지
+        _tmp = file_path + ".tmp"
+        df.to_csv(_tmp, index=False, encoding='utf-8-sig')
+        os.replace(_tmp, file_path)
 
     stock_path = os.path.join(LOG_DIR, f"{today_str}_Stock_V3.csv")
     etf_path   = os.path.join(LOG_DIR, f"{today_str}_ETF_V3.csv")
@@ -276,12 +323,18 @@ def update_search_history_scores(updates, today_str):
                 continue
             df.loc[mask, 'total_score']   = str(vals.get('total_score', ''))
             df.loc[mask, 'current_price'] = str(vals.get('close_price', ''))
+            if 'market_cap' in vals:
+                df.loc[mask, 'market_cap'] = str(vals.get('market_cap', ''))
+            if 'change_pct' in vals:
+                df.loc[mask, 'change_pct'] = str(vals.get('change_pct', ''))
             df.loc[mask, 'net_hits']      = str(vals.get('net_hits', ''))
             df.loc[mask, 'surge_hits']    = str(vals.get('surge_hits', ''))
             df.loc[mask, 'drop_hits']     = str(vals.get('drop_hits', ''))
             df.loc[mask, 'signal']        = f"Target {vals.get('surge_hits',0)} / Drop {vals.get('drop_hits',0)}"
             df.loc[mask, 'timestamp']     = now_str
-        df.to_csv(hist_path, index=False, encoding='utf-8-sig')
+        _tmp = hist_path + ".tmp"
+        df.to_csv(_tmp, index=False, encoding='utf-8-sig')
+        os.replace(_tmp, hist_path)
     except Exception as e:
         print(f"   ⚠️ Search_History 점수 업데이트 실패: {e}")
 
@@ -311,7 +364,8 @@ def run_updater():
     last_scores      = load_last_scores()   # 재시작 후에도 이전 점수 복원
     nxt_skip_cache   = set()
     session_notified = set()  # 이번 실행에서 첫 관측 완료한 코드 (재실행 알림용)
-    sell_alert_sent  = {}     # {code: keep_amount} — 이미 알림 보낸 매도 레벨 추적
+    sell_alert_sent  = {}     # {code: keep_amount} — 소유자 자동매매 실행알림 중복 방지
+    user_sell_alert  = {}     # {(chat_id, code): keep_amount} — 등록자별 매도시그널 중복 방지
     corr_notified    = {}     # {code: order_price} — 정정요망 알림 중복 방지
     prev_market_mode = None   # 모드 전환 감지용
 
@@ -351,8 +405,8 @@ def run_updater():
                             e.pop("open_orders", None)
 
             # 1. 시장 지수
-            k_val  = inquiry.fetch_index_change("0001")
-            kq_val = inquiry.fetch_index_change("1001")
+            k_val  = kiwoom_inquiry.fetch_index_change("0001")
+            kq_val = kiwoom_inquiry.fetch_index_change("1001")
 
             # 2. 타겟 리스트
             targets, history_codes, history_chat = get_all_targets_and_history(today_str)
@@ -372,6 +426,7 @@ def run_updater():
             results_stock   = []
             results_etf     = []
             history_updates = {}   # {code: score 정보} — 사이클 끝에 Search_History 갱신용
+            sell_plan_targets = {} # {code: 매도 sweep 목표} — 사이클 끝에 autosell_plan 기록
 
             for code, is_etf in targets.items():
                 try:
@@ -402,7 +457,7 @@ def run_updater():
 
                     # (2) 프로그램 매매
                     target_date = pd.Timestamp.today().normalize()
-                    prog  = inquiry.fetch_program_today(code, target_date.strftime('%Y%m%d'))
+                    prog  = kiwoom_inquiry.fetch_program_today(code, target_date.strftime('%Y%m%d'))
                     p_net, p_ratio = 0, 0.0
                     if prog:
                         p_net  = inquiry.safe_int(prog.get("whol_smtn_ntby_qty"))
@@ -424,7 +479,7 @@ def run_updater():
                         else:
                             continue
 
-                    df = pd.read_csv(file_path, encoding='utf-8-sig', dtype={'code': str, 'name': str})
+                    df = pd.read_csv(file_path, encoding='utf-8-sig', dtype={'code': str, 'name': str}, on_bad_lines='skip')
                     df['date']   = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
                     df = df.dropna(subset=['date'])
                     stock_name   = df['name'].iloc[0] if 'name' in df.columns else code
@@ -457,7 +512,10 @@ def run_updater():
                     # (5) 파일 저장 — date: YYYY-MM-DD, code: 6자리 문자열
                     df['date'] = df['date'].dt.strftime('%Y-%m-%d')
                     df['code'] = df['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
-                    df.to_csv(file_path, index=False, encoding='utf-8-sig')
+                    # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
+                    _tmp_path = file_path + ".tmp"
+                    df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+                    os.replace(_tmp_path, file_path)
 
                     # (6) 예측
                     if len(df) < max_lb: continue
@@ -493,11 +551,18 @@ def run_updater():
                               f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
                     if code in history_codes:
+                        # ── B 매도전략 결정 (3일 평활 + 2일 확인 + -12% 손절 → 전량) ──
+                        _today_b = datetime.now().strftime("%Y%m%d")
+                        _avg_b   = get_cached_avg_price(code) if is_my_code else None
+                        _full_sell, _smoothed_b, _sell_reason = sell_strategy_b.decide(
+                            code, total_score, curr, _avg_b, _today_b)
+                        keep_amount_b = 0 if _full_sell else None
+
                         # ── 첫 관측 알림 (당일 첫 스코어 or 재실행) ──────────
                         if is_my_code and code not in session_notified:
                             session_notified.add(code)
                             # 매도 구간이면 아래 sell 로직이 알림을 보내므로 정상 구간만 여기서 알림
-                            if trading.get_keep_amount(total_score) is None:
+                            if keep_amount_b is None:
                                 notify_ids_first = [secrets.TELEGRAM_CHAT_ID]
                                 first_msg = (f"📌 {stock_name} ({code}) 모니터링\n"
                                              f"점수: {total_score*100:.1f}점  현재가: {curr:,}원")
@@ -514,149 +579,61 @@ def run_updater():
                         prev_sell_lvl  = entry.get("sell_level")
                         prev_open_ords = entry.get("open_orders", [])  # 저장된 주문 정보
 
-                        # 현재 점수에 대응하는 매도 레벨 계산
-                        keep_amount = trading.get_keep_amount(total_score)
+                        # 매도 결정: B 전략 (전량 0 또는 보유 None)
+                        keep_amount = keep_amount_b
 
-                        if keep_amount is not None and keep_amount != prev_sell_lvl:
-                            # 새로운(또는 아직 미처리) 매도 레벨 → 잔고 확인 + 주문
+                        # ── 매도 시그널: 각 등록자(chat_id)별로 '본인 등록 종목' 기준 알림 ──
+                        #    트리거/중복방지를 (chat_id, code) 단위로 관리 → 뒤늦게 등록한 사용자도 수신
+                        registrants = list(history_chat.get(code) or [])
+                        if keep_amount is None:
+                            # 매도 구간 이탈 → 등록자별 시그널 상태 초기화 (다음 하락 시 재알림)
+                            for _cid in registrants:
+                                user_sell_alert.pop((_cid, code), None)
+                        else:
                             if keep_amount == 0:
                                 signal_label = "[매도 시그널-전량매도]"
                             else:
                                 signal_label = f"[매도 시그널-{keep_amount // 10_000:,}만원 보유]"
-
-                            notify_ids = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
-
                             prev_str  = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
                             alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
                                          f"점수: {prev_str}{total_score * 100:.1f}점\n"
                                          f"현재가: {curr:,}원")
+                            for _cid in registrants:
+                                if user_sell_alert.get((_cid, code)) != keep_amount:
+                                    user_sell_alert[(_cid, code)] = keep_amount
+                                    if str(_cid) == secrets.TELEGRAM_CHAT_ID:
+                                        print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
+                                    send_telegram(alert_msg, [_cid])
 
-                            already_alerted = sell_alert_sent.get(code) == keep_amount
-                            if not already_alerted:
-                                if is_my_code:
-                                    print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
-                                send_telegram(alert_msg, notify_ids)
-
-                            # 레벨 변경 시 이전 주문 취소 후 재주문
-                            sell_result = trading.auto_sell(
-                                code, stock_name, total_score, curr, prev_open_ords
-                            )
-
-                            if sell_result and sell_result.get("placed_orders"):
-                                # 주문 접수 성공 — sell_level 진행, 주문 정보 저장
-                                last_scores[code] = {
-                                    "score": total_score, "sell_level": keep_amount,
-                                    "open_orders": sell_result["placed_orders"],
-                                }
-                                sell_alert_sent.pop(code, None)
-                                corr_notified.pop(code, None)
-                                if sell_result.get("msg"):
-                                    if is_my_code:
-                                        print(f"   📤 {sell_result['msg'].replace(chr(10), '  ')}")
-                                    send_telegram(sell_result["msg"], notify_ids)
-                            elif sell_result and sell_result.get("status") == "already_pending":
-                                # 기존 주문이 수량을 잠근 상태 — sell_level만 진행 (중복 알림 방지)
-                                last_scores[code] = {
-                                    "score": total_score, "sell_level": keep_amount,
-                                    "open_orders": prev_open_ords,
-                                }
-                                sell_alert_sent.pop(code, None)
-                            elif sell_result and sell_result.get("status") == "collateral_blocked":
-                                # 담보대출 종목 — REST API 매도 불가, HTS 수동 매도 필요
-                                # sell_level을 keep_amount로 진행시켜 재시도 루프 방지
-                                last_scores[code] = {
-                                    "score": total_score, "sell_level": keep_amount,
-                                    "open_orders": [],
-                                    "collateral": True,
-                                }
-                                if not already_alerted:
-                                    sell_alert_sent[code] = keep_amount
-                                    if sell_result.get("msg"):
-                                        if is_my_code:
-                                            print(f"   ⚠️ {sell_result['msg'].replace(chr(10), '  ')}")
-                                        send_telegram(sell_result["msg"], notify_ids)
-                            else:
-                                # 실패 — sell_level 유지, 다음 사이클 재시도
-                                last_scores[code] = {
-                                    "score": total_score, "sell_level": prev_sell_lvl,
-                                    "open_orders": prev_open_ords,
-                                }
-                                if not already_alerted:
-                                    sell_alert_sent[code] = keep_amount
-                                    if sell_result and sell_result.get("msg"):
-                                        if is_my_code:
-                                            print(f"   📤 {sell_result['msg'].replace(chr(10), '  ')}")
-                                        send_telegram(sell_result["msg"], notify_ids)
-
-                        elif keep_amount is None:
-                            # 매도 불필요 구간 복귀 — 저장된 주문 취소 후 sell_level 초기화
-                            sell_alert_sent.pop(code, None)
-                            corr_notified.pop(code, None)
-                            if prev_sell_lvl is not None and prev_open_ords:
-                                _notify = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
-                                _clines = []
-                                for _o in prev_open_ords:
-                                    _ok = trading.cancel_order(
-                                        _o["order_no"], code, _o["qty"], _o.get("loan_dt", "")
-                                    )
-                                    _clines.append(
-                                        f"  {'✅' if _ok else '❌'} {_o['qty']}주×{_o['price']:,}원"
-                                    )
-                                _msg = (f"🔄 매도 주문 취소 (점수 회복)\n"
-                                        f"{stock_name}({code})\n" + "\n".join(_clines))
-                                if is_my_code:
-                                    print(f"   🔄 {_msg.replace(chr(10), '  ')}")
-                                send_telegram(_msg, _notify)
-                            last_scores[code] = {"score": total_score, "sell_level": None,
-                                                 "open_orders": []}
-
+                        if not is_my_code:
+                            # 자동매매는 '내 ID로 등록된 종목'만 실행 (소유자 계좌 조회/주문)
+                            # 친구 등록·자동발굴 종목은 잔고조회·주문 없이 점수만 갱신
+                            last_scores[code] = {"score": total_score,
+                                                 "sell_level": prev_sell_lvl,
+                                                 "open_orders": prev_open_ords}
                         else:
-                            # 동일 레벨 유지 — 주문가 > 현재가이면 자동 정정
-                            updated_orders = list(prev_open_ords)
-                            if prev_sell_lvl is not None and prev_open_ords:
-                                _max_p = max(o["price"] for o in prev_open_ords)
-                                if _max_p > curr:
-                                    _notify = list(history_chat.get(code) or [secrets.TELEGRAM_CHAT_ID])
-                                    amend_ok_lines  = []
-                                    amend_err_lines = []
-                                    for i, o in enumerate(updated_orders):
-                                        if o["price"] > curr:
-                                            ok = trading.amend_sell_order(
-                                                o["order_no"], code, curr, o.get("loan_dt", ""))
-                                            if ok:
-                                                amend_ok_lines.append(
-                                                    f"  ✅ {o['qty']}주 {o['price']:,}→{curr:,}원")
-                                                updated_orders[i] = {**o, "price": curr}
-                                            else:
-                                                amend_err_lines.append(
-                                                    f"  ❌ {o['qty']}주 @{o['price']:,}원 정정실패")
-                                    if amend_ok_lines:
-                                        _msg = (f"✏️ 매도 정정\n{stock_name}({code})\n"
-                                                + "\n".join(amend_ok_lines))
-                                        if is_my_code:
-                                            print(f"   ✏️ {_msg.replace(chr(10), '  ')}")
-                                        send_telegram(_msg, _notify)
-                                        corr_notified.pop(code, None)
-                                    elif amend_err_lines:
-                                        if corr_notified.get(code) != _max_p:
-                                            corr_notified[code] = _max_p
-                                            _msg = (f"⚠️ 정정 실패\n{stock_name}({code})\n"
-                                                    + "\n".join(amend_err_lines))
-                                            if is_my_code:
-                                                print(f"   ⚠️ {_msg.replace(chr(10), '  ')}")
-                                            send_telegram(_msg, _notify)
-                                else:
-                                    corr_notified.pop(code, None)
-                            elif prev_sell_lvl is not None and not prev_open_ords:
-                                corr_notified.pop(code, None)
-                            last_scores[code] = {"score": total_score, "sell_level": prev_sell_lvl,
-                                                 "open_orders": updated_orders}
+                            # 내 보유종목: B전략 결정을 매도 plan(autosell_plan)에 반영.
+                            #   실제 집행은 execution_monitor 가 '매수호가 sweep' 으로 수행
+                            #   (한 번에 전량발주 X → 기준가 이상 매수호가 잔량만큼 분할 청산).
+                            #   기준가(sell_price)는 매 사이클 promising 현재가(curr)로 갱신.
+                            if keep_amount == 0:
+                                sell_plan_targets[code] = {
+                                    "name":       stock_name,
+                                    "sell_price": curr,
+                                    "reason":     _sell_reason,
+                                    "score":      total_score,
+                                }
+                            last_scores[code] = {"score": total_score,
+                                                 "sell_level": keep_amount,
+                                                 "open_orders": []}
 
                     # (8) history 종목이면 업데이트 수집
                     if code in history_codes:
                         history_updates[code] = {
                             'total_score': total_score,
                             'close_price': curr,
+                            'market_cap':  cap,
+                            'change_pct':  round((curr / oprc - 1) * 100, 2) if oprc > 0 else 0,
                             'net_hits':    s_hits - d_hits,
                             'surge_hits':  s_hits,
                             'drop_hits':   d_hits,
@@ -689,6 +666,8 @@ def run_updater():
             update_split_logs(results_stock, results_etf, today_str)
             update_search_history_scores(history_updates, today_str)
             save_last_scores(last_scores)
+            save_sell_plan(sell_plan_targets, today_str)   # 매도 sweep 계획 → execution_monitor
+            sell_strategy_b.persist()   # B 전략 교차일 상태 영속
             time.sleep(CYCLE_DELAY)
 
         except KeyboardInterrupt:

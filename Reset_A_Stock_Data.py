@@ -325,7 +325,10 @@ def run_reset_tool():
 
             if not os.path.exists(save_dir): os.makedirs(save_dir)
             file_path = os.path.join(save_dir, f"A{code}.csv")
-            df_final.to_csv(file_path, index=False, encoding='utf-8-sig')
+            # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
+            _tmp_path = file_path + ".tmp"
+            df_final.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+            os.replace(_tmp_path, file_path)
 
             print(f"   💾 저장 완료: {file_path}")
             print(f"   ✅ 데이터: {len(df_final)}일 / 프로그램, 지수, 타겟 모두 포함됨.")

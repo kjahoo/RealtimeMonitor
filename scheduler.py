@@ -25,6 +25,7 @@ import time
 import shutil
 import subprocess
 import signal
+import threading
 from datetime import datetime, timedelta, time as dtime
 
 # ====================================================
@@ -188,6 +189,30 @@ def ensure_telegram_bot_alive():
     if proc is None or proc.poll() is not None:
         log("⚠️ telegram_chat.py 종료 감지 → 재시작")
         start_telegram_bot()
+
+
+def start_exec_monitor():
+    """execution_monitor.py 를 별도 콘솔로 실행합니다.
+    실시간 호가 sweep 매수 집행 데몬 — 시장 모드와 무관하게 항상 살아있어야 하며,
+    내부에서 정규장(09:00~15:30)에만 실제 주문을 냅니다."""
+    script_path = os.path.join(PROJECT_DIR, "execution_monitor.py")
+    try:
+        proc = subprocess.Popen(
+            [PYTHON_EXE, script_path],
+            cwd=PROJECT_DIR,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        running_procs["monitor"] = proc
+        log(f"🛒 execution_monitor.py 시작 (PID: {proc.pid})")
+    except Exception as e:
+        log(f"   ❌ execution_monitor.py 시작 실패: {e}")
+
+
+def ensure_exec_monitor_alive():
+    proc = running_procs.get("monitor")
+    if proc is None or proc.poll() is not None:
+        log("⚠️ execution_monitor.py 종료 감지 → 재시작")
+        start_exec_monitor()
 
 
 # ====================================================
@@ -390,6 +415,72 @@ def run_update_data_all():
 
 
 # ====================================================
+# 📈 60점+ AI 평가 파이프라인 (build_pending → promote → auto_buy)
+#    - 평일 08:00~16:30, 30분 간격으로 1사이클
+#    - auto_buy 는 내부적으로 KRX 정규장(09:00~15:30)에만 실주문 → NXT 세션 미주문
+#    - 별도 스레드로 실행해 메인 폴링 루프를 막지 않음
+#    - AI 평가(2단계)는 Cowork(Claude) 작업이 pending CSV를 읽어 results.json 저장,
+#      promote 가 그 결과를 받아간다. (이 스케줄러는 결정적 파이썬 단계만 담당)
+# ====================================================
+EVAL_START    = dtime(8,  0)
+EVAL_END      = dtime(16, 30)
+EVAL_INTERVAL = 30 * 60            # 30분(초)
+_eval_last_run = None
+_eval_lock     = threading.Lock()
+
+
+def _run_eval_script(script, label, timeout=600):
+    """평가 파이프라인 단일 스크립트를 블로킹 실행하고 마지막 출력 한 줄을 로깅."""
+    path = os.path.join(PROJECT_DIR, script)
+    try:
+        log(f"   ▶ {label} ({script})")
+        r = subprocess.run(
+            [PYTHON_EXE, path], cwd=PROJECT_DIR,
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=timeout,
+        )
+        tail = ""
+        if r.stdout:
+            lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+            if lines:
+                tail = lines[-1][:120]
+        log(f"   ✅ {label} rc={r.returncode} | {tail}")
+    except subprocess.TimeoutExpired:
+        log(f"   ⚠️ {label} 타임아웃({timeout}s)")
+    except Exception as e:
+        log(f"   ❌ {label} 실패: {e}")
+
+
+def _eval_pipeline_worker():
+    """build_pending → promote → auto_buy 순차 실행(백그라운드 스레드)."""
+    try:
+        log("📈 60+ 평가 파이프라인 사이클 시작")
+        _run_eval_script("build_pending.py",     "build_pending(신규탐지)")
+        _run_eval_script("promote_evaluated.py", "promote(후처리)")
+        _run_eval_script("auto_buy.py",          "auto_buy(체결/매수)")
+        log("📈 60+ 평가 파이프라인 사이클 종료")
+    finally:
+        _eval_lock.release()
+
+
+def run_eval_pipeline_if_due():
+    """평일 08:00~16:30, 30분마다 평가 파이프라인을 백그라운드로 1회 기동."""
+    global _eval_last_run
+    now = datetime.now()
+    if now.weekday() >= 5:
+        return
+    if not (EVAL_START <= now.time() <= EVAL_END):
+        return
+    if _eval_last_run and (now - _eval_last_run).total_seconds() < EVAL_INTERVAL - 30:
+        return
+    if not _eval_lock.acquire(blocking=False):
+        log("⏳ 평가 파이프라인 이전 사이클 진행 중 → 이번 틱 건너뜀")
+        return
+    _eval_last_run = now
+    threading.Thread(target=_eval_pipeline_worker, daemon=True).start()
+
+
+# ====================================================
 # 🔄 메인 루프
 # ====================================================
 def main():
@@ -410,9 +501,10 @@ def main():
     signal.signal(signal.SIGINT,  on_exit)
     signal.signal(signal.SIGTERM, on_exit)
 
-    # ── Search_Stock_V3, telegram_chat 는 스케줄러 시작과 동시에 항상 기동
+    # ── Search_Stock_V3, telegram_chat, execution_monitor 는 시작과 동시에 항상 기동
     start_search_bot()
     start_telegram_bot()
+    start_exec_monitor()
 
     data_updated_today = False  # 하루에 1번만 Update_Data_All 실행
     holiday_today      = False  # 공휴일 플래그 — WAITING/WEEKEND 복귀 시 해제
@@ -433,6 +525,7 @@ def main():
                 log(f"📌 공휴일 종료 → 모드 복귀: {mode}")
             ensure_search_bot_alive()
             ensure_telegram_bot_alive()
+            ensure_exec_monitor_alive()
             time.sleep(POLL_INTERVAL)
             continue
 
@@ -475,6 +568,10 @@ def main():
         check_market_bots_alive()    # 시장 연동 봇 (stock, update)
         ensure_search_bot_alive()    # Search_Stock_V3 (항상)
         ensure_telegram_bot_alive()  # telegram_chat (항상)
+        ensure_exec_monitor_alive()  # execution_monitor (항상)
+
+        # ── 60점+ 평가 파이프라인 (평일 08:00~16:30, 30분마다 / 백그라운드)
+        run_eval_pipeline_if_due()
 
         # ── 현재 상태 주기적 출력 (폴링 주기 내 첫 번째 틱)
         if datetime.now().second < POLL_INTERVAL:
@@ -491,7 +588,11 @@ def main():
                     running_procs.get("telegram") and
                     running_procs["telegram"].poll() is None
                 )
-                log(f"💓 [{mode}] 프로덕션: {market_alive}/2 | 검색봇: {'✅' if search_alive else '❌'} | 텔레봇: {'✅' if tg_alive else '❌'}")
+                mon_alive = (
+                    running_procs.get("monitor") and
+                    running_procs["monitor"].poll() is None
+                )
+                log(f"💓 [{mode}] 프로덕션: {market_alive}/2 | 검색봇: {'✅' if search_alive else '❌'} | 텔레봇: {'✅' if tg_alive else '❌'} | 집행봇: {'✅' if mon_alive else '❌'}")
 
         time.sleep(POLL_INTERVAL)
 

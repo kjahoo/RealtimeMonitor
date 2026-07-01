@@ -282,7 +282,7 @@ def run_updater():
                         else:
                             continue
 
-                    df = pd.read_csv(file_path, encoding='utf-8-sig')
+                    df = pd.read_csv(file_path, encoding='utf-8-sig', on_bad_lines='skip')
                     df['date'] = pd.to_datetime(df['date'])
                     stock_name = df['name'].iloc[0] if 'name' in df.columns else code
 

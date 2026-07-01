@@ -32,12 +32,12 @@ LOG_DIR = r"C:\Projects\RealtimeMonitor\logs"
 
 # 모델 가중치 설정 (V3)
 MODEL_SETTINGS = {
-    "target1": {"lb": 21, "thr": 0.4974, "weight": 0.1384},
-    "target5": {"lb": 50, "thr": 0.6327, "weight": 0.3099},
-    "target20": {"lb": 60, "thr": 0.9046, "weight": 0.5517},
-    "drop1": {"lb": 10, "thr": 0.4349, "weight": 0.2411},
-    "drop5": {"lb": 94, "thr": 0.4314, "weight": 0.3714},
-    "drop20": {"lb": 98, "thr": 0.4686, "weight": 0.3875}
+    "target1": {"lb": 65, "thr": 0.5256, "weight": 0.1775},
+    "target5": {"lb": 55, "thr": 0.6484, "weight": 0.3639},
+    "target20": {"lb": 95, "thr": 0.9197, "weight": 0.4586},
+    "drop1": {"lb": 80, "thr": 0.4018, "weight": 0.2544},
+    "drop5": {"lb": 85, "thr": 0.5041, "weight": 0.3376},
+    "drop20": {"lb": 85, "thr": 0.5723, "weight": 0.4079}
 }
 
 V3_FEATURES = [
@@ -145,13 +145,36 @@ def update_daily_bot_log(data_dict, is_etf, prob_res):
     }
 
     try:
-        with open(file_path, mode='a', newline='', encoding='utf-8-sig') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            # 파일이 처음 생성될 때만 헤더 작성 (이미 있으면 데이터만 추가)
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(row_data)
-        print(f"   💾 [Main Log] {filename} 에 병합 완료")
+        # 기존 파일 읽기 후 code 기준 upsert (있으면 최신 값으로 덮어쓰기, 없으면 추가)
+        df = pd.DataFrame(columns=fieldnames)
+        if file_exists:
+            try:
+                df = pd.read_csv(file_path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
+            except Exception:
+                pass
+        for col in fieldnames:
+            if col not in df.columns: df[col] = ''
+
+        code = str(row_data['code']).strip().split('.')[0].zfill(6)
+        row_str = {k: str(v) for k, v in row_data.items()}
+        row_str['code'] = code
+
+        df['code'] = df['code'].astype(str).str.split('.').str[0].str.zfill(6)
+        mask = df['code'] == code
+        if mask.any():
+            for col, val in row_str.items():
+                if col in df.columns:
+                    df.loc[mask, col] = val
+        else:
+            df = pd.concat([df, pd.DataFrame([row_str])], ignore_index=True)
+
+        df = df[fieldnames]
+
+        # 원자적 저장 (temp + os.replace) — main_stock이 읽는 중 깨진 파일 방지
+        tmp_path = file_path + ".tmp"
+        df.to_csv(tmp_path, index=False, encoding='utf-8-sig')
+        os.replace(tmp_path, file_path)
+        print(f"   💾 [Main Log] {filename} 에 병합 완료 (code 기준 덮어쓰기)")
     except Exception as e:
         print(f"   ❌ 메인 로그 병합 실패: {e}")
 
@@ -306,7 +329,10 @@ def run_manual_analysis():
             if col not in df.columns: df[col] = 0.0
         df = df.fillna(0)
 
-        df.to_csv(file_path, index=False, encoding='utf-8-sig')
+        # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
+        _tmp_path = file_path + ".tmp"
+        df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+        os.replace(_tmp_path, file_path)
 
         # 예측 실행
         res = {}

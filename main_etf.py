@@ -38,12 +38,12 @@ MODEL_DIR = secrets.V3_MODEL_DIR  # secrets.py에 설정된 모델 경로
 
 # V3 모델 설정 (기존 값 유지)
 MODEL_SETTINGS = {
-    "target1": {"lb": 21, "thr": 0.4974, "weight": 0.1384},
-    "target5": {"lb": 50, "thr": 0.6327, "weight": 0.3099},
-    "target20": {"lb": 60, "thr": 0.9046, "weight": 0.5517},
-    "drop1": {"lb": 10, "thr": 0.4349, "weight": 0.2411},
-    "drop5": {"lb": 94, "thr": 0.4314, "weight": 0.3714},
-    "drop20": {"lb": 98, "thr": 0.4686, "weight": 0.3875}
+    "target1": {"lb": 65, "thr": 0.5256, "weight": 0.1775},
+    "target5": {"lb": 55, "thr": 0.6484, "weight": 0.3639},
+    "target20": {"lb": 95, "thr": 0.9197, "weight": 0.4586},
+    "drop1": {"lb": 80, "thr": 0.4018, "weight": 0.2544},
+    "drop5": {"lb": 85, "thr": 0.5041, "weight": 0.3376},
+    "drop20": {"lb": 85, "thr": 0.5723, "weight": 0.4079}
 }
 
 V3_FEATURES = [

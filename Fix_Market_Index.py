@@ -110,8 +110,10 @@ def run_fix_tool():
             df['kosdaq_change'] = df['kosdaq_change'].fillna(0)
 
             # 원래 컬럼 순서 유지 로직 (선택사항, 보통은 맨 뒤에 붙어도 무관하지만 깔끔하게)
-            # 여기서는 단순히 저장
-            df.to_csv(file_path, index=False, encoding='utf-8-sig')
+            # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
+            _tmp_path = file_path + ".tmp"
+            df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+            os.replace(_tmp_path, file_path)
             cnt += 1
 
         except Exception as e:

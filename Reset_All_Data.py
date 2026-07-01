@@ -294,7 +294,10 @@ def run_reset_all():
                 df_save = df_save.dropna(subset=['date'])
                 _non_date = [c for c in df_save.columns if c != 'date']
                 df_save[_non_date] = df_save[_non_date].fillna(0)
-                df_save.to_csv(file_path, index=False, encoding='utf-8-sig')
+                # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
+                _tmp_path = file_path + ".tmp"
+                df_save.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+                os.replace(_tmp_path, file_path)
                 success_cnt += 1
 
             except Exception:

@@ -313,7 +313,10 @@ def update_all_files():
                     df_combined[col] = 0
 
             df_final = df_combined[FINAL_COLUMNS].fillna(0)
-            df_final.to_csv(file_path, index=False, encoding='utf-8-sig')
+            # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
+            _tmp_path = file_path + ".tmp"
+            df_final.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+            os.replace(_tmp_path, file_path)
             success_cnt += 1
 
         except Exception as e:
