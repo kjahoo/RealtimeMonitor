@@ -459,7 +459,7 @@ def run_build_buylist():
 # ====================================================
 EVAL_START    = dtime(8,  0)
 EVAL_END      = dtime(16, 30)
-EVAL_INTERVAL = 30 * 60            # 30분(초)
+EVAL_INTERVAL = 10 * 60            # 10분(초)
 _eval_last_run = None
 _eval_lock     = threading.Lock()
 

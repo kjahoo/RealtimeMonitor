@@ -134,7 +134,11 @@ def get_cached_avg_price(code):
         hs = trading.fetch_stock_holdings(code)
         if hs:
             tq = sum(h["qty"] for h in hs)
-            ta = sum(h["purchase_amount"] for h in hs)
+            # 평단은 브로커 제공 매입가(pur_pric=avg_buy_price)를 수량가중 평균한다.
+            # pur_amt/qty 재계산은 신용·담보 매수의 금융비용 포함, 부분매도 시
+            # 매입금액이 잔여수량과 어긋나면 평단이 부풀려져 -12% 손절이 오발동함.
+            # (매도주문 코드 fetch_stock_holdings 사용부도 avg_buy_price 기준 → 일치)
+            ta = sum(h["avg_buy_price"] * h["qty"] for h in hs)
             avg = (ta / tq) if tq > 0 else None
     except Exception:
         avg = None
@@ -604,13 +608,20 @@ def run_updater():
                                 user_sell_alert.pop((_cid, code), None)
                         else:
                             if keep_amount == 0:
-                                signal_label = "[매도 시그널-전량매도]"
+                                _reason_txt = {"stop12": " (-12% 손절)",
+                                               "score":  " (점수청산)"}.get(_sell_reason, "")
+                                signal_label = f"[매도 시그널-전량매도]{_reason_txt}"
                             else:
                                 signal_label = f"[매도 시그널-{keep_amount // 10_000:,}만원 보유]"
                             prev_str  = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
+                            # -12% 손절이면 평단·손익률을 함께 표기해 -12% 확인 가능하게
+                            _extra = ""
+                            if _sell_reason == "stop12" and _avg_b and _avg_b > 0:
+                                _loss_pct = (curr - _avg_b) / _avg_b * 100
+                                _extra = f"\n평단: {_avg_b:,.0f}원 ({_loss_pct:+.1f}%)"
                             alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
                                          f"점수: {prev_str}{total_score * 100:.1f}점\n"
-                                         f"현재가: {curr:,}원")
+                                         f"현재가: {curr:,}원{_extra}")
                             for _cid in registrants:
                                 if user_sell_alert.get((_cid, code)) != keep_amount:
                                     user_sell_alert[(_cid, code)] = keep_amount
