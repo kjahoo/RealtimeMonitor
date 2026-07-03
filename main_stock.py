@@ -2,6 +2,7 @@ import os
 import sys
 import gc
 import time
+import json
 import pickle
 import warnings
 import pandas as pd
@@ -55,20 +56,26 @@ V3_FEATURES = [
 ]
 
 
-# 점수 구간(tier) 반환 — None이면 진입선(0.60) 미만 (알림 재발송 트리거용)
-# 0.6 이상부터 매수권장 알림, 0.9=고확신.  0.60 미만은 알림 없음
+# 점수 구간(tier) 반환 — None이면 진입선(0.50) 미만 (알림 재발송 트리거용)
+# 0.5 이상부터 매수권장 알림(2안 확대), 0.9=고확신. 0.50 미만은 알림 없음
 def get_score_tier(score):
     if score >= 0.9: return 0.9
     elif score >= 0.8: return 0.8
     elif score >= 0.7: return 0.7
     elif score >= 0.6: return 0.6
+    elif score >= 0.5: return 0.5
     return None
 
 
-# 매수 추천 라벨 — 시뮬 최적: 진입 0.60, 점수가중 선형 5%→25%
-#   alloc% = 5 + 50×(score-0.60), 상한 25%
+# 매수 추천 라벨 — 2안(확대): 진입 0.50, 구간별 5%씩, 상한 30%
+#   0.5~0.6→5% · 0.6~0.7→10% · 0.7~0.8→15% · 0.8~0.9→20% · 0.9~1.0→25% · ≥1.0→30%
 def get_buy_label(score):
-    alloc = min(25, round(5 + 50 * (score - 0.60)))
+    if score >= 1.00:   alloc = 30
+    elif score >= 0.90: alloc = 25
+    elif score >= 0.80: alloc = 20
+    elif score >= 0.70: alloc = 15
+    elif score >= 0.60: alloc = 10
+    else:               alloc = 5    # 0.50~0.60
     return f"[포착-{alloc}%매수추천]"
 
 
@@ -375,6 +382,71 @@ def backup_source_data(source_dir, date_str, subdir_name):
         print(f"   ⚠️ 백업 중 오류 발생: {e}")
 
 
+def _search_history_codes(date_str):
+    """오늘 Search_History.csv 에 등록된(내가/친구가 수동 추가한) 종목코드 집합."""
+    codes = set()
+    path = os.path.join(secrets.LOCAL_DATA_PATH, f"{date_str}_Search_History.csv")
+    if not os.path.exists(path):
+        return codes
+    try:
+        df = pd.read_csv(path, encoding="utf-8-sig", dtype=str, on_bad_lines="skip")
+        if "code" in df.columns:
+            for c in df["code"].dropna():
+                c = str(c).split(".")[0].strip().zfill(6)
+                if c:
+                    codes.add(c)
+    except Exception as e:
+        print(f"⚠️ Search_History 코드 로드 실패: {e}")
+    return codes
+
+
+def load_scan_targets(date_str, verbose=True):
+    """
+    장중 스캔 대상 파일 목록을 반환.
+    우선순위: logs/{today}_buylist.json → logs/buylist_latest.json → 전체 CSV(폴백).
+    buylist 의 코드 중 실제 A{code}.csv 가 존재하는 것만 대상으로 하되,
+    **Search_History(수동 추가/친구 추가) 종목은 buylist 조건 미달이어도 항상 포함**한다
+    (매수추천 티어 알림을 받도록). 전체 폴백 시에는 이미 포함되므로 생략.
+    verbose=False 면 로그를 억제(매 사이클 새로고침용).
+    """
+    def _all_files():
+        return sorted([f for f in os.listdir(DATA_DIR)
+                       if f.startswith("A") and f.endswith(".csv")])
+
+    for label, path in (("당일", os.path.join(secrets.LOCAL_DATA_PATH, f"{date_str}_buylist.json")),
+                        ("최신", os.path.join(secrets.LOCAL_DATA_PATH, "buylist_latest.json"))):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                codes = json.load(f).get("codes", [])
+            files = {f"A{c}.csv" for c in codes
+                     if os.path.exists(os.path.join(DATA_DIR, f"A{c}.csv"))}
+            if files:
+                # 수동 추가(Search_History) 종목 병합 — 조건 미달이어도 스캔 대상에 포함
+                extra = 0
+                for c in _search_history_codes(date_str):
+                    fn = f"A{c}.csv"
+                    if fn not in files and os.path.exists(os.path.join(DATA_DIR, fn)):
+                        files.add(fn); extra += 1
+                if verbose:
+                    msg = f"🧺 매수리스트({label}) 사용: {os.path.basename(path)} → {len(files)}개 종목"
+                    if extra:
+                        msg += f" (수동 추가 {extra}개 포함)"
+                    print(msg)
+                return sorted(files), False   # (파일목록, is_fallback)
+            if verbose:
+                print(f"⚠️ 매수리스트({label}) {os.path.basename(path)} 가 비어 있음 — 다음 후보로")
+        except Exception as e:
+            if verbose:
+                print(f"⚠️ 매수리스트 로드 실패({os.path.basename(path)}): {e} — 다음 후보로")
+
+    files = _all_files()
+    if verbose:
+        print(f"🧺 매수리스트 없음 — 전체 {len(files)}개 종목 폴백")
+    return files, True
+
+
 # ====== 메인 루프 ======
 if __name__ == "__main__":
     print("\n🚀 [Realtime Monitor V3] 시스템 시작 (개선된 구조 C:)")
@@ -408,7 +480,7 @@ if __name__ == "__main__":
 
     # 3. 대상 파일 목록 (G드라이브에서 읽어서 로컬로 복사 후 시작 권장)
     # 여기서는 원본(G:)을 읽고 저장만 C:와 G:에 하는 방식으로 함
-    files = sorted([f for f in os.listdir(DATA_DIR) if f.startswith("A") and f.endswith(".csv")])
+    files, is_fallback = load_scan_targets(today_str)
     print(f"📂 분석 대상: {len(files)}개 종목")
 
     today_str = datetime.now().strftime("%Y%m%d")
@@ -422,6 +494,14 @@ if __name__ == "__main__":
     try:
         while True:
             # [이전 위치] 여기서 지수를 한 번만 가져오던 것을 아래 for 루프 안으로 이동합니다.
+
+            # 매 사이클 스캔 대상 새로고침 — 장중 수동 추가(Search_History) 종목 즉시 반영
+            refreshed, is_fallback = load_scan_targets(today_str, verbose=False)
+            if len(refreshed) != len(files):
+                print(f"🔄 스캔 대상 갱신: {len(files)} → {len(refreshed)}개")
+            files = refreshed
+            # 수동 추가 종목은 시총 필터를 우회 — 조건 미달이어도 분석·알림
+            history_codes = _search_history_codes(today_str)
 
             for idx, filename in enumerate(files, 1):
                 # ✅ [수정] 1번 종목(시작) 및 50개 종목마다 지수 데이터 갱신
@@ -437,9 +517,11 @@ if __name__ == "__main__":
                 res = process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb)
 
                 if res:
-                    # 1. 시가총액 필터 (1000억 이상) - process_stock 내부 혹은 외부에서 체크
-                    # res에 이미 fetch_market_cap이 포함되어 있으므로 중복 호출 방지를 위해 res 사용
-                    if res['market_cap'] < 1000:
+                    # 1. 시가총액 필터 (1000억 이상)
+                    #    buylist 모드에서는 build_buylist가 이미 시총·강제포함을 결정했으므로
+                    #    여기서 다시 드롭하지 않는다(강제 포함된 보유/promising 보호).
+                    #    전체 폴백 모드에서만 소형주 제외(수동 추가 종목은 예외).
+                    if is_fallback and code not in history_codes and res['market_cap'] < 1000:
                         continue
 
                     # 2. 분석 시간 기록 및 결과 업데이트

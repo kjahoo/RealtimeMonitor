@@ -477,7 +477,20 @@ def run_updater():
                             file_path = alt_path
                             is_etf    = not is_etf
                         else:
-                            continue
+                            # 이력 CSV 없으면 백필 시도 (수동 추가/신규 종목도 추적 대상에 포함)
+                            #   검색기록 종목만 백필 (자동발굴 점수≥0.2 는 원래 CSV 존재)
+                            new_path = None
+                            if code in history_codes:
+                                try:
+                                    import build_stock_master as _bsm
+                                    new_path = _bsm.ensure_stock_csv(code)  # 이름은 마스터에서 자동조회
+                                except Exception:
+                                    new_path = None
+                            if new_path and os.path.exists(new_path):
+                                file_path = new_path
+                                is_etf    = False
+                            else:
+                                continue
 
                     df = pd.read_csv(file_path, encoding='utf-8-sig', dtype={'code': str, 'name': str}, on_bad_lines='skip')
                     df['date']   = pd.to_datetime(df['date'], errors='coerce').dt.normalize()

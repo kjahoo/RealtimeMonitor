@@ -267,7 +267,16 @@ def analyze(code, models, max_lb):
         if os.path.exists(alt_path):
             file_path = alt_path
         else:
-            return None, f"데이터 파일(A{code}.csv)이 없습니다."
+            # 이력 CSV 없으면 즉시 백필 생성 — 수동 추가 종목은 조건 미달이어도 추적하기 위해
+            try:
+                import build_stock_master as _bsm
+                new_path = _bsm.ensure_stock_csv(code, stock_name)
+            except Exception:
+                new_path = None
+            if new_path and os.path.exists(new_path):
+                file_path = new_path
+            else:
+                return None, f"데이터 파일(A{code}.csv)이 없어 생성에 실패했습니다."
 
     df = pd.read_csv(file_path, encoding="utf-8-sig")
     df["date"] = pd.to_datetime(df["date"])

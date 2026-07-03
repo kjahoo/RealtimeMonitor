@@ -5,8 +5,12 @@ scheduler.py - RealtimeMonitor 자동 스케줄러
   평일 08:00~09:00  : NXT 모드 → main_stock + Update_Promising 실행
   평일 09:00~15:30  : KRX 모드 → main_stock + Update_Promising 실행
   평일 15:30~20:00  : NXT 모드 → main_stock + Update_Promising 실행
-  평일 20:00~       : 봇 종료 → Update_Data_All 자동 실행 → 익일 08:00 대기
+  평일 20:00~       : 봇 종료 → Update_Data_All → build_stock_master(신규상장 편입)
+                       → build_buylist(다음거래일 매수리스트) 자동 실행 → 익일 08:00 대기
   주말              : 대기
+
+  ※ 장중 main_stock 은 logs/{today}_buylist.json(없으면 buylist_latest.json)의
+     종목만 스캔한다. buylist 가 없으면 전체 종목으로 폴백.
 
   ※ main_etf.py 는 당분간 실행하지 않음
   ※ Search_Stock_V3.py 는 스케줄러 기동 시 항상 별도 콘솔로 실행되며,
@@ -414,6 +418,37 @@ def run_update_data_all():
         log(f"   ❌ Update_Data_All.py 실행 실패: {e}")
 
 
+def _run_blocking(script_name, timeout_sec, label):
+    """PROJECT_DIR 의 스크립트를 별도 콘솔로 실행하고 완료까지 대기(공통 헬퍼)."""
+    script_path = os.path.join(PROJECT_DIR, script_name)
+    log(f"🧺 {label} 실행 시작... ({script_name})")
+    try:
+        proc = subprocess.Popen(
+            [PYTHON_EXE, script_path],
+            cwd=PROJECT_DIR,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        log(f"   ✅ {script_name} 실행 중 (PID: {proc.pid})")
+        try:
+            proc.wait(timeout=timeout_sec)
+            log(f"   ✅ {label} 완료!")
+        except subprocess.TimeoutExpired:
+            log(f"   ⚠️ {label} {timeout_sec//60}분 초과 → 강제 종료")
+            proc.kill()
+    except Exception as e:
+        log(f"   ❌ {label} 실행 실패: {e}")
+
+
+def run_build_stock_master():
+    """전체 상장 보통주 마스터 생성 + 신규상장 CSV 백필 (최대 2시간)."""
+    _run_blocking("build_stock_master.py", 7200, "종목 마스터 생성/백필")
+
+
+def run_build_buylist():
+    """다음 거래일 매수리스트(장중 스캔 유니버스) 생성 (최대 30분)."""
+    _run_blocking("build_buylist.py", 1800, "매수리스트 생성")
+
+
 # ====================================================
 # 📈 60점+ AI 평가 파이프라인 (build_pending → promote → auto_buy)
 #    - 평일 08:00~16:30, 30분 간격으로 1사이클
@@ -553,6 +588,9 @@ def main():
                 stop_market_bots()
                 if not data_updated_today:
                     run_update_data_all()
+                    # 전체 이력 갱신 직후: 신규상장 편입 → 다음 거래일 매수리스트 생성
+                    run_build_stock_master()
+                    run_build_buylist()
                     data_updated_today = True
                     secs = next_weekday_start()
                     h, m = divmod(int(secs) // 60, 60)
