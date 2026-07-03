@@ -1,0 +1,8373 @@
+{
+  "generated_at": "2026-05-29 08:37:50",
+  "total_stocks": 2523,
+  "excluded_count": 1970,
+  "passed_count": 553,
+  "thresholds": {
+    "trading_value_min_KRW": 2000000000,
+    "market_cap_min_억": 1000,
+    "consecutive_same_close": 20,
+    "consecutive_zero_volume": 20,
+    "daily_move_max_pct": 50.0
+  },
+  "excluded": {
+    "000020": [
+      "low_trading_value(3.4억)",
+      "large_daily_move(81%)"
+    ],
+    "000040": [
+      "low_trading_value(5.0억)",
+      "consecutive_same_close(137일)",
+      "consecutive_zero_volume(137일)",
+      "large_daily_move(929%)"
+    ],
+    "000050": [
+      "large_daily_move(91%)"
+    ],
+    "000070": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)"
+    ],
+    "000080": [
+      "large_daily_move(2730%)"
+    ],
+    "000100": [
+      "large_daily_move(79%)"
+    ],
+    "000120": [
+      "large_daily_move(591%)"
+    ],
+    "000140": [
+      "low_trading_value(5.1억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(55%)"
+    ],
+    "000180": [
+      "low_trading_value(1.2억)",
+      "large_daily_move(395%)"
+    ],
+    "000220": [
+      "low_trading_value(3.8억)",
+      "large_daily_move(82%)"
+    ],
+    "000230": [
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(122%)"
+    ],
+    "000240": [
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(55%)"
+    ],
+    "000300": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(295일)",
+      "consecutive_zero_volume(546일)",
+      "large_daily_move(1603%)"
+    ],
+    "000320": [
+      "low_trading_value(15.5억)",
+      "large_daily_move(911%)"
+    ],
+    "000370": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(358%)"
+    ],
+    "000400": [
+      "no_2025_data",
+      "consecutive_same_close(37일)",
+      "consecutive_zero_volume(37일)",
+      "large_daily_move(1801%)"
+    ],
+    "000430": [
+      "low_trading_value(4.2억)",
+      "large_daily_move(89%)"
+    ],
+    "000440": [
+      "low_trading_value(14.5억)",
+      "large_daily_move(84%)"
+    ],
+    "000480": [
+      "low_trading_value(1.8억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(91%)"
+    ],
+    "000490": [
+      "large_daily_move(83%)"
+    ],
+    "000520": [
+      "large_daily_move(80%)"
+    ],
+    "000540": [
+      "low_trading_value(15.9억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(137%)"
+    ],
+    "000590": [
+      "low_trading_value(0.8억)"
+    ],
+    "000640": [
+      "low_trading_value(14.3억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(27일)"
+    ],
+    "000660": [
+      "large_daily_move(2156%)"
+    ],
+    "000670": [
+      "large_daily_move(90%)"
+    ],
+    "000680": [
+      "consecutive_same_close(542일)",
+      "consecutive_zero_volume(608일)",
+      "large_daily_move(775%)"
+    ],
+    "000700": [
+      "low_trading_value(1.2억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)"
+    ],
+    "000720": [
+      "no_2025_data",
+      "large_daily_move(865%)"
+    ],
+    "000760": [
+      "low_trading_value(3.1억)"
+    ],
+    "000850": [
+      "low_trading_value(5.0억)"
+    ],
+    "000860": [
+      "low_trading_value(2.9억)",
+      "large_daily_move(81%)"
+    ],
+    "000890": [
+      "low_trading_value(2.5억)",
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(39일)",
+      "large_daily_move(297%)"
+    ],
+    "000910": [
+      "large_daily_move(89%)"
+    ],
+    "000950": [
+      "low_trading_value(1.7억)"
+    ],
+    "000970": [
+      "low_trading_value(14.1억)"
+    ],
+    "001000": [
+      "low_trading_value(7.5억)",
+      "large_daily_move(926%)"
+    ],
+    "001020": [
+      "low_trading_value(0.6억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(904%)"
+    ],
+    "001040": [
+      "no_2025_data"
+    ],
+    "001060": [
+      "no_2025_data"
+    ],
+    "001070": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(81%)"
+    ],
+    "001080": [
+      "low_trading_value(4.3억)",
+      "consecutive_same_close(239일)",
+      "consecutive_zero_volume(239일)",
+      "large_daily_move(91%)"
+    ],
+    "001120": [
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)"
+    ],
+    "001130": [
+      "no_2025_data",
+      "large_daily_move(93%)"
+    ],
+    "001140": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(441일)",
+      "consecutive_zero_volume(441일)",
+      "large_daily_move(847%)"
+    ],
+    "001200": [
+      "large_daily_move(907%)"
+    ],
+    "001210": [
+      "low_trading_value(5.7억)"
+    ],
+    "001230": [
+      "low_trading_value(4.7억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)"
+    ],
+    "001250": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(340%)"
+    ],
+    "001260": [
+      "low_trading_value(6.2억)",
+      "consecutive_same_close(41일)",
+      "consecutive_zero_volume(62일)",
+      "large_daily_move(3300%)"
+    ],
+    "001290": [
+      "low_trading_value(11.0억)",
+      "consecutive_same_close(148일)",
+      "consecutive_zero_volume(148일)",
+      "large_daily_move(72%)"
+    ],
+    "001340": [
+      "low_trading_value(8.8억)",
+      "consecutive_same_close(186일)",
+      "consecutive_zero_volume(186일)",
+      "large_daily_move(91%)"
+    ],
+    "001360": [
+      "low_trading_value(14.7억)"
+    ],
+    "001380": [
+      "consecutive_same_close(608일)",
+      "consecutive_zero_volume(608일)",
+      "large_daily_move(595%)"
+    ],
+    "001390": [
+      "low_trading_value(17.2억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(927%)"
+    ],
+    "001420": [
+      "low_trading_value(0.2억)",
+      "large_daily_move(90%)"
+    ],
+    "001430": [
+      "large_daily_move(1916%)"
+    ],
+    "001440": [
+      "consecutive_same_close(199일)",
+      "consecutive_zero_volume(250일)",
+      "large_daily_move(963%)"
+    ],
+    "001450": [
+      "large_daily_move(90%)"
+    ],
+    "001460": [
+      "low_trading_value(1.9억)",
+      "large_daily_move(91%)"
+    ],
+    "001470": [
+      "consecutive_same_close(281일)",
+      "consecutive_zero_volume(281일)",
+      "large_daily_move(1651%)"
+    ],
+    "001500": [
+      "low_trading_value(19.7억)",
+      "large_daily_move(112%)"
+    ],
+    "001510": [
+      "large_daily_move(469%)"
+    ],
+    "001520": [
+      "consecutive_same_close(96일)",
+      "consecutive_zero_volume(95일)",
+      "large_daily_move(326%)"
+    ],
+    "001530": [
+      "large_daily_move(90%)"
+    ],
+    "001540": [
+      "low_trading_value(4.7억)",
+      "large_daily_move(932%)"
+    ],
+    "001550": [
+      "low_trading_value(5.9억)",
+      "large_daily_move(194%)"
+    ],
+    "001560": [
+      "low_trading_value(1.0억)",
+      "large_daily_move(51%)"
+    ],
+    "001570": [
+      "consecutive_same_close(287일)",
+      "consecutive_zero_volume(287일)",
+      "large_daily_move(149%)"
+    ],
+    "001620": [
+      "low_trading_value(0.5억)",
+      "large_daily_move(344%)"
+    ],
+    "001630": [
+      "low_trading_value(3.1억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)",
+      "large_daily_move(67%)"
+    ],
+    "001680": [
+      "large_daily_move(110%)"
+    ],
+    "001740": [
+      "low_trading_value(15.4억)",
+      "consecutive_same_close(45일)",
+      "consecutive_zero_volume(45일)",
+      "large_daily_move(875%)"
+    ],
+    "001750": [
+      "low_trading_value(9.2억)"
+    ],
+    "001770": [
+      "low_trading_value(0.4억)",
+      "consecutive_same_close(52일)",
+      "consecutive_zero_volume(52일)"
+    ],
+    "001780": [
+      "low_trading_value(13.2억)",
+      "large_daily_move(3529%)"
+    ],
+    "001790": [
+      "large_daily_move(80%)"
+    ],
+    "001800": [
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)",
+      "large_daily_move(96%)"
+    ],
+    "001810": [
+      "low_trading_value(0.7억)",
+      "large_daily_move(91%)"
+    ],
+    "001820": [
+      "large_daily_move(58%)"
+    ],
+    "001840": [
+      "low_trading_value(1.4억)",
+      "consecutive_same_close(198일)",
+      "consecutive_zero_volume(280일)",
+      "large_daily_move(944%)"
+    ],
+    "001940": [
+      "low_trading_value(3.5억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(80%)"
+    ],
+    "002020": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)"
+    ],
+    "002030": [
+      "low_trading_value(6.3억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)"
+    ],
+    "002070": [
+      "low_trading_value(8.1억)",
+      "large_daily_move(3238%)"
+    ],
+    "002100": [
+      "low_trading_value(3.3억)",
+      "large_daily_move(80%)"
+    ],
+    "002140": [
+      "low_trading_value(6.8억)",
+      "large_daily_move(166%)"
+    ],
+    "002150": [
+      "low_trading_value(2.4억)",
+      "large_daily_move(54%)"
+    ],
+    "002170": [
+      "low_trading_value(1.3억)"
+    ],
+    "002200": [
+      "low_trading_value(2.1억)",
+      "large_daily_move(90%)"
+    ],
+    "002210": [
+      "low_trading_value(2.6억)",
+      "consecutive_same_close(225일)",
+      "consecutive_zero_volume(225일)",
+      "large_daily_move(81%)"
+    ],
+    "002220": [
+      "low_trading_value(5.2억)",
+      "consecutive_same_close(34일)",
+      "consecutive_zero_volume(33일)",
+      "large_daily_move(90%)"
+    ],
+    "002230": [
+      "low_trading_value(5.1억)"
+    ],
+    "002240": [
+      "low_trading_value(3.5억)",
+      "large_daily_move(385%)"
+    ],
+    "002290": [
+      "low_trading_value(5.2억)",
+      "large_daily_move(89%)"
+    ],
+    "002310": [
+      "low_trading_value(14.0억)",
+      "large_daily_move(81%)"
+    ],
+    "002320": [
+      "low_trading_value(5.5억)"
+    ],
+    "002350": [
+      "low_trading_value(10.6억)",
+      "large_daily_move(110%)"
+    ],
+    "002360": [
+      "low_trading_value(2.9억)",
+      "large_daily_move(725%)"
+    ],
+    "002390": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(905%)"
+    ],
+    "002410": [
+      "consecutive_same_close(288일)",
+      "consecutive_zero_volume(512일)",
+      "large_daily_move(7100%)"
+    ],
+    "002420": [
+      "low_trading_value(2.9억)",
+      "consecutive_same_close(166일)",
+      "consecutive_zero_volume(333일)",
+      "large_daily_move(161%)"
+    ],
+    "002450": [
+      "low_trading_value(4.5억)",
+      "large_daily_move(901%)"
+    ],
+    "002460": [
+      "low_trading_value(1.7억)"
+    ],
+    "002600": [
+      "low_trading_value(0.1억)"
+    ],
+    "002620": [
+      "low_trading_value(2.9억)",
+      "consecutive_same_close(33일)",
+      "consecutive_zero_volume(33일)",
+      "large_daily_move(91%)"
+    ],
+    "002630": [
+      "consecutive_same_close(21일)",
+      "large_daily_move(183%)"
+    ],
+    "002680": [
+      "low_trading_value(1.8억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)"
+    ],
+    "002690": [
+      "low_trading_value(0.4억)"
+    ],
+    "002700": [
+      "low_trading_value(9.3억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "002710": [
+      "large_daily_move(78%)"
+    ],
+    "002720": [
+      "low_trading_value(8.3억)",
+      "large_daily_move(79%)"
+    ],
+    "002760": [
+      "low_trading_value(3.2억)",
+      "large_daily_move(81%)"
+    ],
+    "002780": [
+      "low_trading_value(3.5억)",
+      "consecutive_same_close(58일)",
+      "consecutive_zero_volume(58일)",
+      "large_daily_move(1046%)"
+    ],
+    "002790": [
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(91%)"
+    ],
+    "002810": [
+      "low_trading_value(2.8억)"
+    ],
+    "002820": [
+      "low_trading_value(0.5억)",
+      "large_daily_move(81%)"
+    ],
+    "002840": [
+      "low_trading_value(4.2억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(86%)"
+    ],
+    "002870": [
+      "low_trading_value(3.5억)",
+      "large_daily_move(91%)"
+    ],
+    "002880": [
+      "low_trading_value(2.4억)",
+      "large_daily_move(1006%)"
+    ],
+    "002900": [
+      "large_daily_move(411%)"
+    ],
+    "002920": [
+      "low_trading_value(0.7억)",
+      "large_daily_move(90%)"
+    ],
+    "002960": [
+      "low_trading_value(9.9억)"
+    ],
+    "002990": [
+      "low_trading_value(3.8억)",
+      "large_daily_move(359%)"
+    ],
+    "003000": [
+      "low_trading_value(11.7억)"
+    ],
+    "003010": [
+      "low_trading_value(5.4억)"
+    ],
+    "003030": [
+      "no_2025_data",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)"
+    ],
+    "003060": [
+      "low_trading_value(4.3억)",
+      "consecutive_same_close(60일)",
+      "consecutive_zero_volume(60일)",
+      "large_daily_move(2200%)"
+    ],
+    "003070": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(372%)"
+    ],
+    "003080": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(90%)"
+    ],
+    "003090": [
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(81%)"
+    ],
+    "003100": [
+      "low_trading_value(3.5억)"
+    ],
+    "003120": [
+      "low_trading_value(4.4억)",
+      "large_daily_move(82%)"
+    ],
+    "003200": [
+      "low_trading_value(4.7억)",
+      "large_daily_move(90%)"
+    ],
+    "003220": [
+      "low_trading_value(8.3억)",
+      "large_daily_move(98%)"
+    ],
+    "003240": [
+      "low_trading_value(18.5억)"
+    ],
+    "003280": [
+      "consecutive_same_close(316일)",
+      "consecutive_zero_volume(364일)",
+      "large_daily_move(301%)"
+    ],
+    "003300": [
+      "low_trading_value(3.1억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)",
+      "large_daily_move(81%)"
+    ],
+    "003310": [
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(89%)"
+    ],
+    "003350": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(80%)"
+    ],
+    "003380": [
+      "large_daily_move(116%)"
+    ],
+    "003460": [
+      "low_trading_value(1.8억)",
+      "large_daily_move(79%)"
+    ],
+    "003470": [
+      "low_trading_value(16.8억)",
+      "large_daily_move(51%)"
+    ],
+    "003480": [
+      "low_trading_value(10.2억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)"
+    ],
+    "003520": [
+      "low_trading_value(10.6억)",
+      "large_daily_move(1057%)"
+    ],
+    "003550": [
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)",
+      "large_daily_move(99%)"
+    ],
+    "003560": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(485일)",
+      "consecutive_zero_volume(668일)",
+      "large_daily_move(2453%)"
+    ],
+    "003570": [
+      "large_daily_move(1490%)"
+    ],
+    "003580": [
+      "low_trading_value(7.8억)",
+      "large_daily_move(343%)"
+    ],
+    "003610": [
+      "low_trading_value(5.3억)",
+      "large_daily_move(91%)"
+    ],
+    "003620": [
+      "low_trading_value(15.4억)",
+      "consecutive_same_close(446일)",
+      "consecutive_zero_volume(581일)",
+      "large_daily_move(837%)"
+    ],
+    "003650": [
+      "low_trading_value(1.4억)"
+    ],
+    "003670": [
+      "large_daily_move(91%)"
+    ],
+    "003680": [
+      "low_trading_value(13.7억)"
+    ],
+    "003690": [
+      "large_daily_move(90%)"
+    ],
+    "003720": [
+      "large_daily_move(89%)"
+    ],
+    "003780": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(90%)"
+    ],
+    "003800": [
+      "low_trading_value(2.3억)",
+      "large_daily_move(81%)"
+    ],
+    "003830": [
+      "low_trading_value(0.5억)"
+    ],
+    "003850": [
+      "low_trading_value(12.5억)",
+      "large_daily_move(80%)"
+    ],
+    "003920": [
+      "low_trading_value(7.0억)",
+      "large_daily_move(90%)"
+    ],
+    "003960": [
+      "low_trading_value(11.0억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)",
+      "large_daily_move(290%)"
+    ],
+    "004060": [
+      "low_trading_value(3.9억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(760%)"
+    ],
+    "004080": [
+      "low_trading_value(0.4억)"
+    ],
+    "004090": [
+      "large_daily_move(93%)"
+    ],
+    "004100": [
+      "large_daily_move(89%)"
+    ],
+    "004140": [
+      "large_daily_move(86%)"
+    ],
+    "004150": [
+      "low_trading_value(3.7억)"
+    ],
+    "004170": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)",
+      "large_daily_move(51%)"
+    ],
+    "004250": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(89%)"
+    ],
+    "004270": [
+      "low_trading_value(1.0억)",
+      "large_daily_move(846%)"
+    ],
+    "004310": [
+      "large_daily_move(90%)"
+    ],
+    "004360": [
+      "low_trading_value(7.3억)"
+    ],
+    "004370": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)"
+    ],
+    "004380": [
+      "consecutive_same_close(223일)",
+      "consecutive_zero_volume(223일)",
+      "large_daily_move(392%)"
+    ],
+    "004410": [
+      "low_trading_value(5.1억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(809%)"
+    ],
+    "004430": [
+      "low_trading_value(4.7억)",
+      "large_daily_move(90%)"
+    ],
+    "004440": [
+      "low_trading_value(6.3억)"
+    ],
+    "004450": [
+      "low_trading_value(0.9억)"
+    ],
+    "004490": [
+      "large_daily_move(62%)"
+    ],
+    "004540": [
+      "low_trading_value(5.5억)",
+      "large_daily_move(117%)"
+    ],
+    "004560": [
+      "low_trading_value(5.6억)",
+      "large_daily_move(130%)"
+    ],
+    "004590": [
+      "low_trading_value(2.7억)",
+      "large_daily_move(81%)"
+    ],
+    "004650": [
+      "low_trading_value(3.5억)"
+    ],
+    "004690": [
+      "low_trading_value(19.1억)"
+    ],
+    "004700": [
+      "low_trading_value(4.3억)"
+    ],
+    "004710": [
+      "low_trading_value(12.4억)",
+      "large_daily_move(854%)"
+    ],
+    "004720": [
+      "low_trading_value(7.5억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(1069%)"
+    ],
+    "004770": [
+      "large_daily_move(89%)"
+    ],
+    "004780": [
+      "low_trading_value(0.5억)",
+      "large_daily_move(90%)"
+    ],
+    "004800": [
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(58%)"
+    ],
+    "004840": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(898%)"
+    ],
+    "004870": [
+      "low_trading_value(18.4억)",
+      "consecutive_same_close(81일)",
+      "consecutive_zero_volume(81일)",
+      "large_daily_move(2460%)"
+    ],
+    "004890": [
+      "low_trading_value(0.6억)"
+    ],
+    "004910": [
+      "low_trading_value(2.5억)"
+    ],
+    "004920": [
+      "low_trading_value(3.3억)",
+      "large_daily_move(111%)"
+    ],
+    "004960": [
+      "low_trading_value(14.0억)",
+      "large_daily_move(1620%)"
+    ],
+    "004970": [
+      "low_trading_value(1.5억)"
+    ],
+    "004990": [
+      "large_daily_move(90%)"
+    ],
+    "005010": [
+      "large_daily_move(115%)"
+    ],
+    "005030": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(760일)",
+      "consecutive_zero_volume(759일)",
+      "large_daily_move(90%)"
+    ],
+    "005070": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(462%)"
+    ],
+    "005090": [
+      "low_trading_value(6.1억)"
+    ],
+    "005110": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(524일)",
+      "consecutive_zero_volume(524일)",
+      "large_daily_move(1033%)"
+    ],
+    "005160": [
+      "low_trading_value(4.0억)",
+      "large_daily_move(398%)"
+    ],
+    "005250": [
+      "low_trading_value(11.3억)",
+      "large_daily_move(90%)"
+    ],
+    "005290": [
+      "large_daily_move(55%)"
+    ],
+    "005300": [
+      "large_daily_move(90%)"
+    ],
+    "005320": [
+      "low_trading_value(3.8억)",
+      "large_daily_move(543%)"
+    ],
+    "005360": [
+      "low_trading_value(7.3억)",
+      "large_daily_move(79%)"
+    ],
+    "005420": [
+      "large_daily_move(3013%)"
+    ],
+    "005430": [
+      "low_trading_value(6.7억)"
+    ],
+    "005440": [
+      "low_trading_value(19.0억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)",
+      "large_daily_move(90%)"
+    ],
+    "005500": [
+      "low_trading_value(5.8억)",
+      "large_daily_move(79%)"
+    ],
+    "005610": [
+      "low_trading_value(11.3억)"
+    ],
+    "005670": [
+      "low_trading_value(10.4억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(90%)"
+    ],
+    "005680": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(72%)"
+    ],
+    "005690": [
+      "large_daily_move(89%)"
+    ],
+    "005710": [
+      "low_trading_value(6.6억)",
+      "large_daily_move(89%)"
+    ],
+    "005720": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(90%)"
+    ],
+    "005740": [
+      "low_trading_value(11.8억)",
+      "consecutive_same_close(273일)",
+      "consecutive_zero_volume(273일)",
+      "large_daily_move(87%)"
+    ],
+    "005750": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(393%)"
+    ],
+    "005800": [
+      "low_trading_value(6.8억)",
+      "large_daily_move(91%)"
+    ],
+    "005810": [
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)"
+    ],
+    "005820": [
+      "low_trading_value(0.2억)"
+    ],
+    "005850": [
+      "consecutive_same_close(32일)",
+      "consecutive_zero_volume(32일)",
+      "large_daily_move(913%)"
+    ],
+    "005860": [
+      "low_trading_value(12.7억)"
+    ],
+    "005870": [
+      "large_daily_move(3348%)"
+    ],
+    "005880": [
+      "consecutive_same_close(70일)",
+      "consecutive_zero_volume(70일)",
+      "large_daily_move(742%)"
+    ],
+    "005930": [
+      "large_daily_move(98%)"
+    ],
+    "005950": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)"
+    ],
+    "005960": [
+      "low_trading_value(2.8억)",
+      "consecutive_same_close(72일)",
+      "consecutive_zero_volume(72일)",
+      "large_daily_move(1850%)"
+    ],
+    "005990": [
+      "low_trading_value(0.9억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)"
+    ],
+    "006040": [
+      "large_daily_move(80%)"
+    ],
+    "006050": [
+      "low_trading_value(7.5억)",
+      "large_daily_move(52%)"
+    ],
+    "006060": [
+      "low_trading_value(7.1억)",
+      "large_daily_move(269%)"
+    ],
+    "006090": [
+      "low_trading_value(1.8억)"
+    ],
+    "006110": [
+      "large_daily_move(95%)"
+    ],
+    "006120": [
+      "low_trading_value(16.2억)",
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)"
+    ],
+    "006140": [
+      "low_trading_value(4.3억)",
+      "large_daily_move(90%)"
+    ],
+    "006200": [
+      "low_trading_value(0.9억)",
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(268%)"
+    ],
+    "006220": [
+      "consecutive_same_close(144일)",
+      "consecutive_zero_volume(144일)",
+      "large_daily_move(507%)"
+    ],
+    "006280": [
+      "large_daily_move(326%)"
+    ],
+    "006340": [
+      "large_daily_move(88%)"
+    ],
+    "006370": [
+      "low_trading_value(3.6억)"
+    ],
+    "006380": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(500일)",
+      "consecutive_zero_volume(564일)",
+      "large_daily_move(400%)"
+    ],
+    "006490": [
+      "large_daily_move(1042%)"
+    ],
+    "006570": [
+      "low_trading_value(0.7억)"
+    ],
+    "006620": [
+      "low_trading_value(15.4억)",
+      "large_daily_move(64%)"
+    ],
+    "006730": [
+      "large_daily_move(91%)"
+    ],
+    "006740": [
+      "low_trading_value(1.4억)",
+      "large_daily_move(91%)"
+    ],
+    "006840": [
+      "low_trading_value(1.4억)"
+    ],
+    "006890": [
+      "low_trading_value(3.4억)"
+    ],
+    "006980": [
+      "low_trading_value(0.4억)",
+      "large_daily_move(861%)"
+    ],
+    "007110": [
+      "large_daily_move(323%)"
+    ],
+    "007120": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(342%)"
+    ],
+    "007160": [
+      "low_trading_value(8.7억)"
+    ],
+    "007210": [
+      "low_trading_value(3.6억)",
+      "large_daily_move(90%)"
+    ],
+    "007280": [
+      "low_trading_value(1.9억)",
+      "consecutive_same_close(162일)",
+      "consecutive_zero_volume(162일)",
+      "large_daily_move(118%)"
+    ],
+    "007330": [
+      "low_trading_value(4.9억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "007340": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(81%)"
+    ],
+    "007370": [
+      "low_trading_value(19.7억)",
+      "large_daily_move(91%)"
+    ],
+    "007390": [
+      "large_daily_move(116%)"
+    ],
+    "007460": [
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(31일)",
+      "large_daily_move(1446%)"
+    ],
+    "007530": [
+      "low_trading_value(1.0억)",
+      "consecutive_same_close(124일)",
+      "consecutive_zero_volume(124일)",
+      "large_daily_move(91%)"
+    ],
+    "007540": [
+      "low_trading_value(9.8억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "007570": [
+      "low_trading_value(7.3억)",
+      "consecutive_same_close(128일)",
+      "consecutive_zero_volume(128일)"
+    ],
+    "007590": [
+      "low_trading_value(0.4억)"
+    ],
+    "007610": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(1004일)",
+      "consecutive_zero_volume(1004일)",
+      "large_daily_move(117%)"
+    ],
+    "007680": [
+      "low_trading_value(0.9억)"
+    ],
+    "007690": [
+      "low_trading_value(5.5억)"
+    ],
+    "007700": [
+      "low_trading_value(6.5억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)",
+      "large_daily_move(65%)"
+    ],
+    "007720": [
+      "low_trading_value(8.6억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(1221%)"
+    ],
+    "007770": [
+      "low_trading_value(0.4억)",
+      "large_daily_move(91%)"
+    ],
+    "007820": [
+      "large_daily_move(51%)"
+    ],
+    "007860": [
+      "low_trading_value(16.3억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "007980": [
+      "low_trading_value(15.8억)",
+      "large_daily_move(89%)"
+    ],
+    "008060": [
+      "low_trading_value(10.4억)"
+    ],
+    "008110": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(423일)",
+      "consecutive_zero_volume(423일)"
+    ],
+    "008250": [
+      "low_trading_value(8.8억)",
+      "large_daily_move(57%)"
+    ],
+    "008260": [
+      "low_trading_value(3.3억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(751%)"
+    ],
+    "008290": [
+      "low_trading_value(1.7억)",
+      "large_daily_move(79%)"
+    ],
+    "008350": [
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(31일)",
+      "large_daily_move(205%)"
+    ],
+    "008370": [
+      "low_trading_value(0.6억)"
+    ],
+    "008420": [
+      "low_trading_value(9.4억)"
+    ],
+    "008470": [
+      "low_trading_value(0.3억)"
+    ],
+    "008490": [
+      "large_daily_move(52%)"
+    ],
+    "008500": [
+      "low_trading_value(11.0억)",
+      "consecutive_same_close(245일)",
+      "consecutive_zero_volume(245일)",
+      "large_daily_move(83%)"
+    ],
+    "008600": [
+      "low_trading_value(12.8억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)",
+      "large_daily_move(961%)"
+    ],
+    "008700": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(1606%)"
+    ],
+    "008830": [
+      "large_daily_move(91%)"
+    ],
+    "008870": [
+      "low_trading_value(1.9억)"
+    ],
+    "008930": [
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(82%)"
+    ],
+    "008970": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(754%)"
+    ],
+    "009070": [
+      "large_daily_move(141%)"
+    ],
+    "009140": [
+      "low_trading_value(0.9억)"
+    ],
+    "009160": [
+      "low_trading_value(4.8억)",
+      "large_daily_move(408%)"
+    ],
+    "009180": [
+      "low_trading_value(3.5억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "009190": [
+      "low_trading_value(3.9억)",
+      "large_daily_move(1197%)"
+    ],
+    "009200": [
+      "low_trading_value(4.2억)",
+      "large_daily_move(54%)"
+    ],
+    "009240": [
+      "low_trading_value(15.7억)"
+    ],
+    "009270": [
+      "large_daily_move(4573%)"
+    ],
+    "009290": [
+      "low_trading_value(7.1억)"
+    ],
+    "009300": [
+      "low_trading_value(1.6억)"
+    ],
+    "009310": [
+      "low_trading_value(2.9억)",
+      "consecutive_same_close(343일)",
+      "consecutive_zero_volume(343일)",
+      "large_daily_move(754%)"
+    ],
+    "009320": [
+      "low_trading_value(0.8억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(4631%)"
+    ],
+    "009410": [
+      "low_trading_value(14.3억)",
+      "consecutive_same_close(81일)",
+      "consecutive_zero_volume(153일)",
+      "large_daily_move(100%)"
+    ],
+    "009420": [
+      "large_daily_move(91%)"
+    ],
+    "009440": [
+      "low_trading_value(0.2억)",
+      "consecutive_same_close(289일)",
+      "consecutive_zero_volume(289일)",
+      "large_daily_move(90%)"
+    ],
+    "009450": [
+      "large_daily_move(80%)"
+    ],
+    "009460": [
+      "low_trading_value(1.4억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(458%)"
+    ],
+    "009520": [
+      "large_daily_move(90%)"
+    ],
+    "009540": [
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)"
+    ],
+    "009580": [
+      "low_trading_value(7.2억)",
+      "consecutive_same_close(618일)",
+      "consecutive_zero_volume(618일)",
+      "large_daily_move(130%)"
+    ],
+    "009620": [
+      "low_trading_value(13.6억)",
+      "large_daily_move(520%)"
+    ],
+    "009680": [
+      "no_2025_data",
+      "large_daily_move(91%)"
+    ],
+    "009730": [
+      "consecutive_same_close(294일)",
+      "consecutive_zero_volume(540일)",
+      "large_daily_move(1195%)"
+    ],
+    "009770": [
+      "low_trading_value(1.1억)"
+    ],
+    "009780": [
+      "large_daily_move(96%)"
+    ],
+    "009810": [
+      "low_trading_value(2.4억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(1162%)"
+    ],
+    "009830": [
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)"
+    ],
+    "009900": [
+      "low_trading_value(14.5억)"
+    ],
+    "009970": [
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(82%)"
+    ],
+    "010040": [
+      "low_trading_value(0.6억)",
+      "large_daily_move(147%)"
+    ],
+    "010060": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "010100": [
+      "large_daily_move(80%)"
+    ],
+    "010120": [
+      "large_daily_move(366%)"
+    ],
+    "010170": [
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(64일)"
+    ],
+    "010240": [
+      "low_trading_value(1.2억)",
+      "large_daily_move(53%)"
+    ],
+    "010280": [
+      "low_trading_value(7.6억)",
+      "large_daily_move(419%)"
+    ],
+    "010400": [
+      "low_trading_value(0.8억)",
+      "large_daily_move(52%)"
+    ],
+    "010470": [
+      "low_trading_value(3.0억)",
+      "large_daily_move(83%)"
+    ],
+    "010580": [
+      "consecutive_same_close(382일)",
+      "consecutive_zero_volume(605일)",
+      "large_daily_move(400%)"
+    ],
+    "010600": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(429일)",
+      "consecutive_zero_volume(429일)",
+      "large_daily_move(1083%)"
+    ],
+    "010640": [
+      "low_trading_value(8.1억)",
+      "consecutive_same_close(319일)",
+      "consecutive_zero_volume(319일)",
+      "large_daily_move(89%)"
+    ],
+    "010660": [
+      "large_daily_move(91%)"
+    ],
+    "010780": [
+      "low_trading_value(9.2억)",
+      "large_daily_move(245%)"
+    ],
+    "010820": [
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(750%)"
+    ],
+    "010960": [
+      "low_trading_value(5.5억)"
+    ],
+    "011000": [
+      "large_daily_move(474%)"
+    ],
+    "011040": [
+      "low_trading_value(3.1억)",
+      "large_daily_move(53%)"
+    ],
+    "011080": [
+      "large_daily_move(809%)"
+    ],
+    "011090": [
+      "low_trading_value(7.2억)",
+      "large_daily_move(325%)"
+    ],
+    "011150": [
+      "low_trading_value(16.6억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(1605%)"
+    ],
+    "011200": [
+      "large_daily_move(595%)"
+    ],
+    "011230": [
+      "low_trading_value(9.2억)",
+      "large_daily_move(139%)"
+    ],
+    "011280": [
+      "low_trading_value(7.2억)",
+      "large_daily_move(89%)"
+    ],
+    "011300": [
+      "low_trading_value(7.3억)",
+      "consecutive_same_close(263일)",
+      "consecutive_zero_volume(263일)",
+      "large_daily_move(797%)"
+    ],
+    "011320": [
+      "low_trading_value(4.1억)",
+      "large_daily_move(1308%)"
+    ],
+    "011330": [
+      "low_trading_value(5.3억)",
+      "consecutive_same_close(292일)",
+      "consecutive_zero_volume(311일)",
+      "large_daily_move(473%)"
+    ],
+    "011370": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(458%)"
+    ],
+    "011390": [
+      "low_trading_value(11.2억)"
+    ],
+    "011500": [
+      "large_daily_move(88%)"
+    ],
+    "011560": [
+      "low_trading_value(4.4억)",
+      "large_daily_move(51%)"
+    ],
+    "011690": [
+      "consecutive_same_close(306일)",
+      "consecutive_zero_volume(552일)",
+      "large_daily_move(400%)"
+    ],
+    "011700": [
+      "large_daily_move(91%)"
+    ],
+    "011760": [
+      "low_trading_value(17.0억)",
+      "large_daily_move(482%)"
+    ],
+    "011810": [
+      "low_trading_value(1.6억)",
+      "consecutive_same_close(219일)",
+      "consecutive_zero_volume(335일)",
+      "large_daily_move(1160%)"
+    ],
+    "011930": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(900%)"
+    ],
+    "012030": [
+      "low_trading_value(13.2억)",
+      "large_daily_move(89%)"
+    ],
+    "012160": [
+      "low_trading_value(3.9억)",
+      "large_daily_move(89%)"
+    ],
+    "012170": [
+      "low_trading_value(15.1억)",
+      "consecutive_same_close(279일)",
+      "consecutive_zero_volume(423일)",
+      "large_daily_move(5000%)"
+    ],
+    "012200": [
+      "low_trading_value(9.2억)",
+      "consecutive_same_close(107일)",
+      "consecutive_zero_volume(107일)"
+    ],
+    "012210": [
+      "low_trading_value(4.4억)",
+      "consecutive_same_close(81일)",
+      "consecutive_zero_volume(81일)",
+      "large_daily_move(93%)"
+    ],
+    "012280": [
+      "low_trading_value(0.9억)"
+    ],
+    "012320": [
+      "low_trading_value(5.7억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)"
+    ],
+    "012340": [
+      "low_trading_value(2.2억)",
+      "large_daily_move(633%)"
+    ],
+    "012510": [
+      "large_daily_move(653%)"
+    ],
+    "012610": [
+      "low_trading_value(19.6억)",
+      "large_daily_move(90%)"
+    ],
+    "012620": [
+      "low_trading_value(0.6억)"
+    ],
+    "012630": [
+      "low_trading_value(13.0억)",
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)",
+      "large_daily_move(125%)"
+    ],
+    "012690": [
+      "low_trading_value(5.0억)",
+      "large_daily_move(72%)"
+    ],
+    "012700": [
+      "large_daily_move(87%)"
+    ],
+    "012790": [
+      "low_trading_value(4.2억)",
+      "large_daily_move(64%)"
+    ],
+    "012800": [
+      "low_trading_value(18.7억)",
+      "large_daily_move(90%)"
+    ],
+    "012860": [
+      "low_trading_value(2.8억)"
+    ],
+    "013000": [
+      "low_trading_value(1.7억)",
+      "consecutive_same_close(127일)",
+      "consecutive_zero_volume(127일)",
+      "large_daily_move(2198%)"
+    ],
+    "013120": [
+      "low_trading_value(3.0억)",
+      "large_daily_move(91%)"
+    ],
+    "013310": [
+      "low_trading_value(14.4억)",
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(126%)"
+    ],
+    "013360": [
+      "large_daily_move(1480%)"
+    ],
+    "013520": [
+      "low_trading_value(3.4억)",
+      "large_daily_move(91%)"
+    ],
+    "013570": [
+      "low_trading_value(2.2억)",
+      "consecutive_same_close(32일)",
+      "consecutive_zero_volume(32일)"
+    ],
+    "013700": [
+      "low_trading_value(5.0억)",
+      "large_daily_move(91%)"
+    ],
+    "013720": [
+      "low_trading_value(4.6억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)",
+      "large_daily_move(1199%)"
+    ],
+    "013810": [
+      "low_trading_value(8.0억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "013870": [
+      "low_trading_value(0.8억)"
+    ],
+    "013890": [
+      "consecutive_same_close(283일)",
+      "consecutive_zero_volume(283일)",
+      "large_daily_move(10967%)"
+    ],
+    "013990": [
+      "large_daily_move(90%)"
+    ],
+    "014100": [
+      "low_trading_value(1.9억)",
+      "consecutive_same_close(282일)",
+      "consecutive_zero_volume(282일)",
+      "large_daily_move(89%)"
+    ],
+    "014130": [
+      "low_trading_value(0.8억)",
+      "large_daily_move(91%)"
+    ],
+    "014160": [
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(36일)",
+      "large_daily_move(4431%)"
+    ],
+    "014190": [
+      "low_trading_value(5.2억)"
+    ],
+    "014280": [
+      "large_daily_move(475%)"
+    ],
+    "014440": [
+      "low_trading_value(7.5억)"
+    ],
+    "014470": [
+      "low_trading_value(11.7억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)",
+      "large_daily_move(230%)"
+    ],
+    "014530": [
+      "low_trading_value(13.7억)",
+      "large_daily_move(91%)"
+    ],
+    "014570": [
+      "low_trading_value(1.3억)",
+      "large_daily_move(91%)"
+    ],
+    "014580": [
+      "large_daily_move(90%)"
+    ],
+    "014710": [
+      "low_trading_value(17.1억)"
+    ],
+    "014790": [
+      "low_trading_value(2.8억)"
+    ],
+    "014820": [
+      "low_trading_value(6.9억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(787%)"
+    ],
+    "014830": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)"
+    ],
+    "014910": [
+      "low_trading_value(1.2억)"
+    ],
+    "014940": [
+      "consecutive_same_close(98일)",
+      "consecutive_zero_volume(160일)",
+      "large_daily_move(400%)"
+    ],
+    "014970": [
+      "large_daily_move(91%)"
+    ],
+    "014990": [
+      "low_trading_value(16.5억)",
+      "large_daily_move(90%)"
+    ],
+    "015020": [
+      "low_trading_value(18.9억)",
+      "consecutive_same_close(48일)",
+      "consecutive_zero_volume(50일)",
+      "large_daily_move(100%)"
+    ],
+    "015230": [
+      "low_trading_value(5.5억)",
+      "large_daily_move(81%)"
+    ],
+    "015260": [
+      "low_trading_value(2.6억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)",
+      "large_daily_move(1253%)"
+    ],
+    "015360": [
+      "low_trading_value(4.8억)",
+      "large_daily_move(80%)"
+    ],
+    "015590": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(349일)",
+      "consecutive_zero_volume(353일)",
+      "large_daily_move(400%)"
+    ],
+    "015710": [
+      "low_trading_value(2.8억)"
+    ],
+    "015860": [
+      "low_trading_value(9.2억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)"
+    ],
+    "015890": [
+      "low_trading_value(4.8억)"
+    ],
+    "016090": [
+      "low_trading_value(2.1억)",
+      "large_daily_move(90%)"
+    ],
+    "016100": [
+      "low_trading_value(2.2억)"
+    ],
+    "016250": [
+      "low_trading_value(0.8억)",
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)"
+    ],
+    "016380": [
+      "low_trading_value(9.6억)",
+      "consecutive_same_close(45일)",
+      "consecutive_zero_volume(44일)",
+      "large_daily_move(308%)"
+    ],
+    "016450": [
+      "low_trading_value(3.1억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(90%)"
+    ],
+    "016580": [
+      "low_trading_value(3.9억)",
+      "large_daily_move(80%)"
+    ],
+    "016590": [
+      "low_trading_value(7.3억)",
+      "large_daily_move(90%)"
+    ],
+    "016600": [
+      "low_trading_value(1.7억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(116%)"
+    ],
+    "016610": [
+      "low_trading_value(12.7억)"
+    ],
+    "016670": [
+      "low_trading_value(2.8억)",
+      "consecutive_same_close(420일)",
+      "consecutive_zero_volume(420일)",
+      "large_daily_move(3002%)"
+    ],
+    "016710": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(82%)"
+    ],
+    "016740": [
+      "low_trading_value(3.4억)"
+    ],
+    "016790": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(542일)",
+      "consecutive_zero_volume(542일)",
+      "large_daily_move(74%)"
+    ],
+    "016800": [
+      "low_trading_value(0.6억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "016880": [
+      "consecutive_same_close(45일)",
+      "consecutive_zero_volume(45일)",
+      "large_daily_move(55%)"
+    ],
+    "016920": [
+      "low_trading_value(7.5억)",
+      "consecutive_same_close(52일)",
+      "consecutive_zero_volume(52일)"
+    ],
+    "017000": [
+      "low_trading_value(8.1억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(2100%)"
+    ],
+    "017040": [
+      "low_trading_value(14.5억)",
+      "consecutive_same_close(33일)",
+      "consecutive_zero_volume(33일)",
+      "large_daily_move(900%)"
+    ],
+    "017180": [
+      "low_trading_value(1.5억)"
+    ],
+    "017250": [
+      "low_trading_value(0.5억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)"
+    ],
+    "017370": [
+      "low_trading_value(6.3억)"
+    ],
+    "017390": [
+      "low_trading_value(6.7억)"
+    ],
+    "017480": [
+      "low_trading_value(0.5억)"
+    ],
+    "017550": [
+      "low_trading_value(2.6억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(1178%)"
+    ],
+    "017650": [
+      "low_trading_value(0.7억)",
+      "large_daily_move(377%)"
+    ],
+    "017670": [
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(81%)"
+    ],
+    "017810": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(90%)"
+    ],
+    "017860": [
+      "large_daily_move(57%)"
+    ],
+    "017890": [
+      "low_trading_value(4.4억)",
+      "large_daily_move(89%)"
+    ],
+    "017900": [
+      "low_trading_value(0.8억)"
+    ],
+    "017940": [
+      "low_trading_value(12.0억)"
+    ],
+    "018120": [
+      "low_trading_value(0.5억)"
+    ],
+    "018250": [
+      "low_trading_value(15.0억)"
+    ],
+    "018290": [
+      "large_daily_move(569%)"
+    ],
+    "018310": [
+      "low_trading_value(3.1억)"
+    ],
+    "018470": [
+      "large_daily_move(91%)"
+    ],
+    "018620": [
+      "low_trading_value(0.5억)",
+      "large_daily_move(356%)"
+    ],
+    "018670": [
+      "no_2025_data",
+      "large_daily_move(119%)"
+    ],
+    "018680": [
+      "low_trading_value(0.8억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(56%)"
+    ],
+    "018700": [
+      "low_trading_value(1.7억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(315%)"
+    ],
+    "018880": [
+      "large_daily_move(91%)"
+    ],
+    "019010": [
+      "low_trading_value(0.9억)",
+      "large_daily_move(91%)"
+    ],
+    "019170": [
+      "large_daily_move(89%)"
+    ],
+    "019180": [
+      "large_daily_move(54%)"
+    ],
+    "019210": [
+      "low_trading_value(9.8억)"
+    ],
+    "019440": [
+      "low_trading_value(2.6억)"
+    ],
+    "019490": [
+      "consecutive_same_close(394일)",
+      "consecutive_zero_volume(394일)"
+    ],
+    "019540": [
+      "low_trading_value(2.1억)"
+    ],
+    "019550": [
+      "low_trading_value(4.6억)",
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "019570": [
+      "low_trading_value(4.5억)",
+      "consecutive_same_close(37일)",
+      "consecutive_zero_volume(37일)",
+      "large_daily_move(213%)"
+    ],
+    "019660": [
+      "low_trading_value(2.8억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(1179%)"
+    ],
+    "019680": [
+      "low_trading_value(1.0억)",
+      "large_daily_move(91%)"
+    ],
+    "019770": [
+      "low_trading_value(3.0억)"
+    ],
+    "020000": [
+      "low_trading_value(9.6억)"
+    ],
+    "020120": [
+      "low_trading_value(15.4억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(787%)"
+    ],
+    "020400": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(81%)"
+    ],
+    "020560": [
+      "low_trading_value(10.0억)",
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(36일)",
+      "large_daily_move(328%)"
+    ],
+    "020760": [
+      "low_trading_value(2.7억)",
+      "consecutive_same_close(169일)",
+      "consecutive_zero_volume(169일)"
+    ],
+    "021040": [
+      "low_trading_value(9.7억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(846%)"
+    ],
+    "021050": [
+      "low_trading_value(3.3억)",
+      "large_daily_move(90%)"
+    ],
+    "021080": [
+      "low_trading_value(10.4억)"
+    ],
+    "021320": [
+      "low_trading_value(1.3억)"
+    ],
+    "021650": [
+      "low_trading_value(0.3억)"
+    ],
+    "021820": [
+      "low_trading_value(3.3억)",
+      "consecutive_same_close(841일)",
+      "consecutive_zero_volume(841일)",
+      "large_daily_move(90%)"
+    ],
+    "021880": [
+      "low_trading_value(13.0억)",
+      "consecutive_same_close(302일)",
+      "consecutive_zero_volume(324일)",
+      "large_daily_move(235%)"
+    ],
+    "022100": [
+      "large_daily_move(90%)"
+    ],
+    "022220": [
+      "low_trading_value(2.2억)",
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(37일)",
+      "large_daily_move(3867%)"
+    ],
+    "023000": [
+      "low_trading_value(0.4억)"
+    ],
+    "023150": [
+      "low_trading_value(0.3억)",
+      "large_daily_move(91%)"
+    ],
+    "023350": [
+      "low_trading_value(6.1억)"
+    ],
+    "023410": [
+      "low_trading_value(8.7억)"
+    ],
+    "023440": [
+      "low_trading_value(10.0억)",
+      "consecutive_same_close(180일)",
+      "consecutive_zero_volume(180일)"
+    ],
+    "023450": [
+      "low_trading_value(0.5억)",
+      "large_daily_move(65%)"
+    ],
+    "023600": [
+      "low_trading_value(1.8억)",
+      "large_daily_move(90%)"
+    ],
+    "023760": [
+      "low_trading_value(1.9억)",
+      "large_daily_move(282%)"
+    ],
+    "023770": [
+      "low_trading_value(4.0억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)",
+      "large_daily_move(868%)"
+    ],
+    "023790": [
+      "large_daily_move(90%)"
+    ],
+    "023800": [
+      "low_trading_value(3.3억)"
+    ],
+    "023810": [
+      "low_trading_value(2.1억)"
+    ],
+    "023900": [
+      "low_trading_value(0.9억)",
+      "large_daily_move(63%)"
+    ],
+    "023910": [
+      "low_trading_value(4.4억)"
+    ],
+    "023960": [
+      "low_trading_value(2.5억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)"
+    ],
+    "024060": [
+      "large_daily_move(98%)"
+    ],
+    "024070": [
+      "low_trading_value(0.3억)"
+    ],
+    "024090": [
+      "low_trading_value(1.0억)"
+    ],
+    "024120": [
+      "low_trading_value(3.3억)"
+    ],
+    "024720": [
+      "large_daily_move(52%)"
+    ],
+    "024800": [
+      "low_trading_value(1.4억)",
+      "large_daily_move(55%)"
+    ],
+    "024830": [
+      "low_trading_value(9.4억)",
+      "consecutive_same_close(841일)",
+      "consecutive_zero_volume(841일)",
+      "large_daily_move(51%)"
+    ],
+    "024840": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)",
+      "large_daily_move(401%)"
+    ],
+    "024850": [
+      "low_trading_value(11.5억)",
+      "consecutive_same_close(159일)",
+      "consecutive_zero_volume(159일)",
+      "large_daily_move(469%)"
+    ],
+    "024880": [
+      "low_trading_value(6.1억)"
+    ],
+    "024890": [
+      "low_trading_value(0.8억)",
+      "large_daily_move(350%)"
+    ],
+    "024900": [
+      "low_trading_value(2.3억)",
+      "large_daily_move(91%)"
+    ],
+    "024910": [
+      "low_trading_value(4.0억)"
+    ],
+    "024940": [
+      "large_daily_move(90%)"
+    ],
+    "024950": [
+      "low_trading_value(4.6억)",
+      "consecutive_same_close(64일)",
+      "consecutive_zero_volume(64일)"
+    ],
+    "025000": [
+      "low_trading_value(3.1억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)"
+    ],
+    "025440": [
+      "low_trading_value(3.3억)",
+      "large_daily_move(383%)"
+    ],
+    "025530": [
+      "low_trading_value(0.6억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "025560": [
+      "low_trading_value(6.7억)",
+      "large_daily_move(4584%)"
+    ],
+    "025620": [
+      "low_trading_value(12.0억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)",
+      "large_daily_move(1686%)"
+    ],
+    "025750": [
+      "low_trading_value(12.6억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(409%)"
+    ],
+    "025770": [
+      "low_trading_value(4.0억)"
+    ],
+    "025820": [
+      "large_daily_move(89%)"
+    ],
+    "025860": [
+      "low_trading_value(7.7억)"
+    ],
+    "025870": [
+      "low_trading_value(1.1억)"
+    ],
+    "025880": [
+      "low_trading_value(16.7억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(91%)"
+    ],
+    "025890": [
+      "low_trading_value(1.3억)",
+      "large_daily_move(187%)"
+    ],
+    "025900": [
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)",
+      "large_daily_move(62%)"
+    ],
+    "025980": [
+      "large_daily_move(75%)"
+    ],
+    "026150": [
+      "low_trading_value(9.4억)"
+    ],
+    "026890": [
+      "low_trading_value(11.0억)"
+    ],
+    "026910": [
+      "low_trading_value(0.5억)",
+      "large_daily_move(91%)"
+    ],
+    "026940": [
+      "low_trading_value(3.1억)",
+      "large_daily_move(77%)"
+    ],
+    "026960": [
+      "large_daily_move(50%)"
+    ],
+    "027040": [
+      "low_trading_value(2.1억)",
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(550%)"
+    ],
+    "027410": [
+      "low_trading_value(4.9억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)",
+      "large_daily_move(64%)"
+    ],
+    "027580": [
+      "low_trading_value(14.0억)",
+      "large_daily_move(278%)"
+    ],
+    "027710": [
+      "low_trading_value(3.0억)"
+    ],
+    "027740": [
+      "low_trading_value(11.4억)",
+      "large_daily_move(357%)"
+    ],
+    "027970": [
+      "low_trading_value(0.7억)",
+      "large_daily_move(399%)"
+    ],
+    "028080": [
+      "low_trading_value(6.7억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(550%)"
+    ],
+    "028100": [
+      "low_trading_value(4.6억)"
+    ],
+    "028300": [
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(31일)",
+      "large_daily_move(1221%)"
+    ],
+    "028670": [
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(39일)",
+      "large_daily_move(1049%)"
+    ],
+    "029460": [
+      "low_trading_value(7.8억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)"
+    ],
+    "029480": [
+      "low_trading_value(7.8억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(1164%)"
+    ],
+    "029530": [
+      "low_trading_value(5.8억)"
+    ],
+    "030000": [
+      "large_daily_move(96%)"
+    ],
+    "030190": [
+      "low_trading_value(13.1억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(80%)"
+    ],
+    "030210": [
+      "low_trading_value(6.7억)",
+      "large_daily_move(61%)"
+    ],
+    "030350": [
+      "low_trading_value(1.3억)",
+      "consecutive_same_close(287일)",
+      "consecutive_zero_volume(287일)",
+      "large_daily_move(2259%)"
+    ],
+    "030520": [
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(29일)",
+      "large_daily_move(1019%)"
+    ],
+    "030530": [
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)"
+    ],
+    "030610": [
+      "low_trading_value(14.6억)",
+      "large_daily_move(81%)"
+    ],
+    "030720": [
+      "low_trading_value(2.8억)"
+    ],
+    "030960": [
+      "low_trading_value(15.5억)",
+      "large_daily_move(91%)"
+    ],
+    "031310": [
+      "low_trading_value(8.4억)",
+      "large_daily_move(1020%)"
+    ],
+    "031330": [
+      "low_trading_value(13.9억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)",
+      "large_daily_move(71%)"
+    ],
+    "031430": [
+      "no_2025_data",
+      "large_daily_move(81%)"
+    ],
+    "031440": [
+      "low_trading_value(8.9억)"
+    ],
+    "031510": [
+      "low_trading_value(0.5억)"
+    ],
+    "031820": [
+      "low_trading_value(3.0억)",
+      "large_daily_move(940%)"
+    ],
+    "031860": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(35일)",
+      "consecutive_zero_volume(35일)",
+      "large_daily_move(1606%)"
+    ],
+    "031980": [
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "032080": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(89%)"
+    ],
+    "032280": [
+      "low_trading_value(5.0억)"
+    ],
+    "032300": [
+      "low_trading_value(2.7억)"
+    ],
+    "032350": [
+      "consecutive_same_close(120일)",
+      "consecutive_zero_volume(120일)"
+    ],
+    "032540": [
+      "low_trading_value(0.5억)"
+    ],
+    "032560": [
+      "low_trading_value(1.1억)"
+    ],
+    "032580": [
+      "large_daily_move(495%)"
+    ],
+    "032620": [
+      "low_trading_value(11.7억)"
+    ],
+    "032680": [
+      "low_trading_value(6.1억)",
+      "large_daily_move(713%)"
+    ],
+    "032750": [
+      "low_trading_value(1.8억)",
+      "large_daily_move(91%)"
+    ],
+    "032790": [
+      "low_trading_value(3.8억)",
+      "consecutive_same_close(709일)",
+      "consecutive_zero_volume(709일)",
+      "large_daily_move(744%)"
+    ],
+    "032800": [
+      "low_trading_value(2.0억)",
+      "large_daily_move(1591%)"
+    ],
+    "032820": [
+      "large_daily_move(648%)"
+    ],
+    "032850": [
+      "low_trading_value(8.0억)"
+    ],
+    "032860": [
+      "low_trading_value(3.7억)",
+      "consecutive_same_close(635일)",
+      "consecutive_zero_volume(635일)",
+      "large_daily_move(1131%)"
+    ],
+    "032960": [
+      "low_trading_value(2.7억)"
+    ],
+    "032980": [
+      "low_trading_value(3.1억)",
+      "consecutive_same_close(171일)",
+      "consecutive_zero_volume(302일)",
+      "large_daily_move(1001%)"
+    ],
+    "033050": [
+      "low_trading_value(0.2억)"
+    ],
+    "033100": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)"
+    ],
+    "033130": [
+      "low_trading_value(2.4억)"
+    ],
+    "033170": [
+      "low_trading_value(7.9억)"
+    ],
+    "033180": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(291일)",
+      "consecutive_zero_volume(668일)",
+      "large_daily_move(400%)"
+    ],
+    "033200": [
+      "low_trading_value(0.8억)"
+    ],
+    "033230": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)"
+    ],
+    "033250": [
+      "low_trading_value(5.4억)",
+      "large_daily_move(369%)"
+    ],
+    "033270": [
+      "low_trading_value(7.6억)"
+    ],
+    "033290": [
+      "low_trading_value(1.2억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)"
+    ],
+    "033310": [
+      "low_trading_value(3.3억)",
+      "large_daily_move(179%)"
+    ],
+    "033340": [
+      "consecutive_same_close(419일)",
+      "consecutive_zero_volume(825일)",
+      "large_daily_move(100%)"
+    ],
+    "033540": [
+      "low_trading_value(10.0억)",
+      "large_daily_move(163%)"
+    ],
+    "033560": [
+      "low_trading_value(2.3억)"
+    ],
+    "033640": [
+      "low_trading_value(14.6억)"
+    ],
+    "033790": [
+      "consecutive_same_close(786일)",
+      "consecutive_zero_volume(785일)",
+      "large_daily_move(54%)"
+    ],
+    "033830": [
+      "low_trading_value(1.7억)",
+      "large_daily_move(91%)"
+    ],
+    "033920": [
+      "low_trading_value(5.0억)"
+    ],
+    "034310": [
+      "low_trading_value(8.2억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(128%)"
+    ],
+    "034590": [
+      "low_trading_value(0.7억)"
+    ],
+    "034810": [
+      "low_trading_value(4.1억)"
+    ],
+    "034830": [
+      "low_trading_value(6.8억)"
+    ],
+    "034940": [
+      "low_trading_value(3.0억)"
+    ],
+    "034950": [
+      "low_trading_value(2.9억)"
+    ],
+    "035000": [
+      "low_trading_value(2.4억)"
+    ],
+    "035080": [
+      "low_trading_value(4.0억)",
+      "large_daily_move(383%)"
+    ],
+    "035150": [
+      "low_trading_value(7.3억)"
+    ],
+    "035200": [
+      "low_trading_value(18.6억)"
+    ],
+    "035290": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(313일)",
+      "consecutive_zero_volume(639일)",
+      "large_daily_move(900%)"
+    ],
+    "035420": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(80%)"
+    ],
+    "035460": [
+      "low_trading_value(1.8억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)"
+    ],
+    "035510": [
+      "large_daily_move(91%)"
+    ],
+    "035600": [
+      "low_trading_value(15.8억)"
+    ],
+    "035610": [
+      "low_trading_value(3.5억)"
+    ],
+    "035620": [
+      "low_trading_value(1.3억)",
+      "large_daily_move(567%)"
+    ],
+    "035720": [
+      "large_daily_move(78%)"
+    ],
+    "035760": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(89%)"
+    ],
+    "035810": [
+      "low_trading_value(6.7억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)"
+    ],
+    "035890": [
+      "low_trading_value(4.9억)",
+      "consecutive_same_close(174일)",
+      "consecutive_zero_volume(174일)",
+      "large_daily_move(106%)"
+    ],
+    "035900": [
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)",
+      "large_daily_move(11400%)"
+    ],
+    "036000": [
+      "low_trading_value(13.3억)"
+    ],
+    "036010": [
+      "low_trading_value(7.4억)"
+    ],
+    "036030": [
+      "low_trading_value(3.0억)"
+    ],
+    "036090": [
+      "low_trading_value(5.0억)",
+      "consecutive_same_close(153일)",
+      "consecutive_zero_volume(153일)",
+      "large_daily_move(910%)"
+    ],
+    "036120": [
+      "low_trading_value(4.7억)",
+      "large_daily_move(365%)"
+    ],
+    "036170": [
+      "low_trading_value(0.9억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(1164%)"
+    ],
+    "036180": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(356일)",
+      "consecutive_zero_volume(356일)",
+      "large_daily_move(1622%)"
+    ],
+    "036190": [
+      "low_trading_value(4.7억)"
+    ],
+    "036220": [
+      "low_trading_value(12.2억)",
+      "consecutive_same_close(55일)",
+      "consecutive_zero_volume(55일)",
+      "large_daily_move(739%)"
+    ],
+    "036420": [
+      "low_trading_value(7.8억)",
+      "large_daily_move(815%)"
+    ],
+    "036480": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(92%)"
+    ],
+    "036530": [
+      "low_trading_value(15.8억)"
+    ],
+    "036560": [
+      "low_trading_value(3.6억)",
+      "large_daily_move(90%)"
+    ],
+    "036570": [
+      "large_daily_move(71%)"
+    ],
+    "036580": [
+      "low_trading_value(1.3억)"
+    ],
+    "036620": [
+      "large_daily_move(56%)"
+    ],
+    "036630": [
+      "low_trading_value(15.2억)",
+      "consecutive_same_close(48일)",
+      "consecutive_zero_volume(48일)",
+      "large_daily_move(1150%)"
+    ],
+    "036640": [
+      "low_trading_value(3.5억)"
+    ],
+    "036670": [
+      "low_trading_value(1.8억)"
+    ],
+    "036690": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(528일)",
+      "consecutive_zero_volume(528일)"
+    ],
+    "036710": [
+      "low_trading_value(13.8억)",
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(31일)",
+      "large_daily_move(59%)"
+    ],
+    "036800": [
+      "low_trading_value(3.5억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "036830": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)",
+      "large_daily_move(56%)"
+    ],
+    "037030": [
+      "low_trading_value(6.7억)",
+      "consecutive_same_close(173일)",
+      "consecutive_zero_volume(173일)",
+      "large_daily_move(51567%)"
+    ],
+    "037230": [
+      "low_trading_value(4.7억)",
+      "large_daily_move(91%)"
+    ],
+    "037270": [
+      "large_daily_move(80%)"
+    ],
+    "037330": [
+      "low_trading_value(1.1억)"
+    ],
+    "037350": [
+      "low_trading_value(3.7억)"
+    ],
+    "037370": [
+      "low_trading_value(3.5억)"
+    ],
+    "037400": [
+      "low_trading_value(0.8억)",
+      "large_daily_move(962%)"
+    ],
+    "037440": [
+      "low_trading_value(7.3억)"
+    ],
+    "037460": [
+      "low_trading_value(7.3억)"
+    ],
+    "037560": [
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(31일)"
+    ],
+    "037710": [
+      "low_trading_value(6.5억)",
+      "large_daily_move(81%)"
+    ],
+    "037760": [
+      "low_trading_value(0.3억)",
+      "large_daily_move(1255%)"
+    ],
+    "037950": [
+      "low_trading_value(14.2억)",
+      "consecutive_same_close(164일)",
+      "consecutive_zero_volume(164일)",
+      "large_daily_move(1918%)"
+    ],
+    "038010": [
+      "low_trading_value(3.2억)",
+      "large_daily_move(91%)"
+    ],
+    "038060": [
+      "low_trading_value(0.5억)"
+    ],
+    "038070": [
+      "low_trading_value(17.6억)"
+    ],
+    "038290": [
+      "low_trading_value(3.9억)"
+    ],
+    "038390": [
+      "low_trading_value(9.4억)"
+    ],
+    "038460": [
+      "large_daily_move(487%)"
+    ],
+    "038500": [
+      "consecutive_same_close(64일)",
+      "consecutive_zero_volume(63일)",
+      "large_daily_move(2194%)"
+    ],
+    "038530": [
+      "low_trading_value(8.0억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(1130%)"
+    ],
+    "038540": [
+      "low_trading_value(4.3억)",
+      "large_daily_move(506%)"
+    ],
+    "038620": [
+      "low_trading_value(9.0억)",
+      "large_daily_move(382%)"
+    ],
+    "038680": [
+      "low_trading_value(9.8억)"
+    ],
+    "038870": [
+      "large_daily_move(989%)"
+    ],
+    "038880": [
+      "low_trading_value(10.6억)",
+      "consecutive_same_close(493일)",
+      "consecutive_zero_volume(493일)",
+      "large_daily_move(812%)"
+    ],
+    "038950": [
+      "low_trading_value(0.3억)"
+    ],
+    "039010": [
+      "low_trading_value(5.4억)"
+    ],
+    "039020": [
+      "low_trading_value(9.4억)",
+      "large_daily_move(79%)"
+    ],
+    "039240": [
+      "large_daily_move(79%)"
+    ],
+    "039290": [
+      "low_trading_value(5.1억)"
+    ],
+    "039310": [
+      "low_trading_value(0.5억)",
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)"
+    ],
+    "039340": [
+      "low_trading_value(1.0억)",
+      "large_daily_move(91%)"
+    ],
+    "039420": [
+      "low_trading_value(9.7억)",
+      "large_daily_move(90%)"
+    ],
+    "039440": [
+      "consecutive_same_close(32일)",
+      "consecutive_zero_volume(32일)"
+    ],
+    "039560": [
+      "low_trading_value(7.0억)"
+    ],
+    "039570": [
+      "low_trading_value(1.8억)",
+      "large_daily_move(52%)"
+    ],
+    "039740": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(63%)"
+    ],
+    "039840": [
+      "low_trading_value(7.2억)"
+    ],
+    "039980": [
+      "large_daily_move(550%)"
+    ],
+    "040160": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(51%)"
+    ],
+    "040350": [
+      "low_trading_value(4.9억)",
+      "large_daily_move(914%)"
+    ],
+    "040420": [
+      "low_trading_value(1.6억)"
+    ],
+    "040610": [
+      "low_trading_value(1.7억)",
+      "large_daily_move(75%)"
+    ],
+    "040910": [
+      "low_trading_value(12.7억)",
+      "large_daily_move(53%)"
+    ],
+    "041460": [
+      "low_trading_value(12.1억)"
+    ],
+    "041520": [
+      "low_trading_value(1.4억)"
+    ],
+    "041590": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(277일)",
+      "consecutive_zero_volume(523일)",
+      "large_daily_move(200%)"
+    ],
+    "041650": [
+      "low_trading_value(1.3억)"
+    ],
+    "041830": [
+      "low_trading_value(13.1억)"
+    ],
+    "041920": [
+      "low_trading_value(9.5억)"
+    ],
+    "041930": [
+      "low_trading_value(6.0억)"
+    ],
+    "041960": [
+      "low_trading_value(10.0억)",
+      "large_daily_move(81%)"
+    ],
+    "042000": [
+      "large_daily_move(50%)"
+    ],
+    "042040": [
+      "low_trading_value(3.9억)",
+      "consecutive_same_close(132일)",
+      "consecutive_zero_volume(174일)",
+      "large_daily_move(735%)"
+    ],
+    "042110": [
+      "low_trading_value(1.8억)",
+      "consecutive_same_close(161일)",
+      "consecutive_zero_volume(161일)",
+      "large_daily_move(70%)"
+    ],
+    "042420": [
+      "low_trading_value(4.0억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)",
+      "large_daily_move(57%)"
+    ],
+    "042500": [
+      "low_trading_value(3.6억)"
+    ],
+    "042510": [
+      "low_trading_value(13.9억)",
+      "large_daily_move(895%)"
+    ],
+    "042600": [
+      "low_trading_value(9.4억)"
+    ],
+    "042660": [
+      "consecutive_same_close(189일)",
+      "consecutive_zero_volume(315일)",
+      "large_daily_move(900%)"
+    ],
+    "042700": [
+      "large_daily_move(58%)"
+    ],
+    "042940": [
+      "large_daily_move(807%)"
+    ],
+    "043090": [
+      "low_trading_value(0.7억)",
+      "consecutive_same_close(258일)",
+      "consecutive_zero_volume(276일)",
+      "large_daily_move(433%)"
+    ],
+    "043100": [
+      "low_trading_value(11.7억)",
+      "consecutive_same_close(272일)",
+      "consecutive_zero_volume(335일)",
+      "large_daily_move(667%)"
+    ],
+    "043150": [
+      "low_trading_value(5.6억)"
+    ],
+    "043200": [
+      "large_daily_move(915%)"
+    ],
+    "043220": [
+      "low_trading_value(3.2억)",
+      "consecutive_same_close(169일)",
+      "consecutive_zero_volume(281일)",
+      "large_daily_move(929%)"
+    ],
+    "043340": [
+      "low_trading_value(1.0억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(83%)"
+    ],
+    "043360": [
+      "low_trading_value(0.5억)"
+    ],
+    "043370": [
+      "low_trading_value(2.8억)"
+    ],
+    "043590": [
+      "low_trading_value(1.4억)",
+      "consecutive_same_close(464일)",
+      "consecutive_zero_volume(789일)",
+      "large_daily_move(59%)"
+    ],
+    "043610": [
+      "low_trading_value(3.5억)"
+    ],
+    "043650": [
+      "low_trading_value(1.6억)",
+      "consecutive_same_close(56일)",
+      "consecutive_zero_volume(56일)"
+    ],
+    "043710": [
+      "low_trading_value(1.3억)",
+      "consecutive_same_close(143일)",
+      "consecutive_zero_volume(143일)",
+      "large_daily_move(629%)"
+    ],
+    "043910": [
+      "large_daily_move(866%)"
+    ],
+    "044180": [
+      "consecutive_same_close(286일)",
+      "consecutive_zero_volume(385일)",
+      "large_daily_move(1232%)"
+    ],
+    "044340": [
+      "low_trading_value(18.0억)",
+      "large_daily_move(68%)"
+    ],
+    "044380": [
+      "low_trading_value(2.2억)",
+      "large_daily_move(337%)"
+    ],
+    "044450": [
+      "low_trading_value(5.5억)",
+      "large_daily_move(89%)"
+    ],
+    "044480": [
+      "low_trading_value(16.6억)",
+      "large_daily_move(251%)"
+    ],
+    "044490": [
+      "consecutive_same_close(273일)",
+      "consecutive_zero_volume(272일)"
+    ],
+    "044780": [
+      "low_trading_value(1.2억)"
+    ],
+    "044820": [
+      "low_trading_value(4.2억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)"
+    ],
+    "044960": [
+      "low_trading_value(5.4억)"
+    ],
+    "044990": [
+      "low_trading_value(10.3억)",
+      "consecutive_same_close(237일)",
+      "consecutive_zero_volume(236일)"
+    ],
+    "045060": [
+      "low_trading_value(0.5억)"
+    ],
+    "045100": [
+      "low_trading_value(9.9억)"
+    ],
+    "045300": [
+      "low_trading_value(0.7억)"
+    ],
+    "045340": [
+      "low_trading_value(16.0억)",
+      "large_daily_move(50%)"
+    ],
+    "045390": [
+      "large_daily_move(527%)"
+    ],
+    "045510": [
+      "low_trading_value(1.4억)",
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)"
+    ],
+    "045520": [
+      "low_trading_value(0.7억)"
+    ],
+    "045660": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)"
+    ],
+    "045970": [
+      "low_trading_value(16.7억)",
+      "large_daily_move(755%)"
+    ],
+    "046070": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(401일)",
+      "consecutive_zero_volume(528일)",
+      "large_daily_move(3900%)"
+    ],
+    "046210": [
+      "low_trading_value(2.7억)",
+      "consecutive_same_close(116일)",
+      "consecutive_zero_volume(116일)",
+      "large_daily_move(67%)"
+    ],
+    "046310": [
+      "low_trading_value(2.0억)"
+    ],
+    "046390": [
+      "low_trading_value(17.5억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(4500%)"
+    ],
+    "046440": [
+      "low_trading_value(13.1억)"
+    ],
+    "046890": [
+      "low_trading_value(9.8억)",
+      "large_daily_move(52%)"
+    ],
+    "046940": [
+      "low_trading_value(12.9억)",
+      "large_daily_move(2208%)"
+    ],
+    "046970": [
+      "consecutive_same_close(276일)",
+      "consecutive_zero_volume(276일)"
+    ],
+    "047040": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "047080": [
+      "low_trading_value(0.8억)"
+    ],
+    "047310": [
+      "low_trading_value(6.4억)"
+    ],
+    "047400": [
+      "large_daily_move(89%)"
+    ],
+    "047560": [
+      "large_daily_move(50%)"
+    ],
+    "047770": [
+      "consecutive_same_close(211일)",
+      "consecutive_zero_volume(211일)",
+      "large_daily_move(5401%)"
+    ],
+    "047820": [
+      "low_trading_value(7.7억)",
+      "consecutive_same_close(428일)",
+      "consecutive_zero_volume(428일)",
+      "large_daily_move(1661%)"
+    ],
+    "048410": [
+      "consecutive_same_close(360일)",
+      "consecutive_zero_volume(360일)",
+      "large_daily_move(1621%)"
+    ],
+    "048530": [
+      "low_trading_value(14.0억)",
+      "large_daily_move(51%)"
+    ],
+    "048550": [
+      "low_trading_value(12.5억)"
+    ],
+    "048770": [
+      "low_trading_value(5.6억)"
+    ],
+    "048830": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(54%)"
+    ],
+    "048870": [
+      "low_trading_value(13.3억)",
+      "consecutive_same_close(46일)",
+      "consecutive_zero_volume(46일)",
+      "large_daily_move(121%)"
+    ],
+    "048910": [
+      "low_trading_value(10.7억)"
+    ],
+    "049070": [
+      "large_daily_move(51%)"
+    ],
+    "049080": [
+      "low_trading_value(2.2억)"
+    ],
+    "049120": [
+      "low_trading_value(0.5억)",
+      "large_daily_move(550%)"
+    ],
+    "049180": [
+      "low_trading_value(13.9억)",
+      "consecutive_same_close(336일)",
+      "consecutive_zero_volume(336일)",
+      "large_daily_move(2231%)"
+    ],
+    "049430": [
+      "low_trading_value(4.4억)"
+    ],
+    "049470": [
+      "consecutive_same_close(84일)",
+      "consecutive_zero_volume(84일)",
+      "large_daily_move(366%)"
+    ],
+    "049480": [
+      "low_trading_value(12.1억)"
+    ],
+    "049520": [
+      "low_trading_value(3.9억)",
+      "large_daily_move(52%)"
+    ],
+    "049550": [
+      "low_trading_value(0.2억)"
+    ],
+    "049630": [
+      "large_daily_move(484%)"
+    ],
+    "049720": [
+      "low_trading_value(5.4억)",
+      "large_daily_move(91%)"
+    ],
+    "049800": [
+      "low_trading_value(0.4억)"
+    ],
+    "049830": [
+      "low_trading_value(0.3억)"
+    ],
+    "049950": [
+      "low_trading_value(11.0억)"
+    ],
+    "049960": [
+      "low_trading_value(1.9억)"
+    ],
+    "050090": [
+      "low_trading_value(3.9억)",
+      "large_daily_move(396%)"
+    ],
+    "050110": [
+      "low_trading_value(3.0억)",
+      "large_daily_move(333%)"
+    ],
+    "050120": [
+      "low_trading_value(2.4억)",
+      "large_daily_move(848%)"
+    ],
+    "050760": [
+      "low_trading_value(1.4억)",
+      "large_daily_move(474%)"
+    ],
+    "050860": [
+      "low_trading_value(1.5억)",
+      "consecutive_same_close(231일)",
+      "consecutive_zero_volume(155일)",
+      "large_daily_move(353%)"
+    ],
+    "050960": [
+      "low_trading_value(12.5억)"
+    ],
+    "051160": [
+      "low_trading_value(9.7억)",
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)"
+    ],
+    "051360": [
+      "low_trading_value(16.4억)"
+    ],
+    "051370": [
+      "low_trading_value(12.9억)"
+    ],
+    "051380": [
+      "low_trading_value(3.7억)"
+    ],
+    "051390": [
+      "low_trading_value(0.4억)"
+    ],
+    "051490": [
+      "low_trading_value(9.6억)"
+    ],
+    "051500": [
+      "low_trading_value(10.0억)"
+    ],
+    "051630": [
+      "low_trading_value(13.5억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(77%)"
+    ],
+    "051780": [
+      "low_trading_value(9.6억)",
+      "large_daily_move(881%)"
+    ],
+    "051980": [
+      "large_daily_move(762%)"
+    ],
+    "052020": [
+      "low_trading_value(19.1억)"
+    ],
+    "052260": [
+      "low_trading_value(4.4억)"
+    ],
+    "052300": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(39일)",
+      "large_daily_move(1357%)"
+    ],
+    "052330": [
+      "low_trading_value(3.6억)"
+    ],
+    "052400": [
+      "consecutive_same_close(142일)",
+      "consecutive_zero_volume(142일)",
+      "large_daily_move(76%)"
+    ],
+    "052420": [
+      "consecutive_same_close(129일)",
+      "consecutive_zero_volume(129일)",
+      "large_daily_move(717%)"
+    ],
+    "052460": [
+      "low_trading_value(13.1억)",
+      "large_daily_move(58%)"
+    ],
+    "052600": [
+      "low_trading_value(9.3억)"
+    ],
+    "052670": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(620일)",
+      "consecutive_zero_volume(620일)",
+      "large_daily_move(29948%)"
+    ],
+    "052710": [
+      "low_trading_value(11.0억)"
+    ],
+    "052770": [
+      "low_trading_value(4.1억)",
+      "consecutive_same_close(387일)",
+      "consecutive_zero_volume(1087일)",
+      "large_daily_move(454%)"
+    ],
+    "052790": [
+      "low_trading_value(2.4억)"
+    ],
+    "052860": [
+      "low_trading_value(2.8억)"
+    ],
+    "052900": [
+      "low_trading_value(2.5억)",
+      "consecutive_same_close(165일)",
+      "consecutive_zero_volume(165일)"
+    ],
+    "053050": [
+      "low_trading_value(17.3억)"
+    ],
+    "053060": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(109%)"
+    ],
+    "053080": [
+      "low_trading_value(12.0억)",
+      "large_daily_move(56%)"
+    ],
+    "053160": [
+      "low_trading_value(6.1억)"
+    ],
+    "053210": [
+      "low_trading_value(2.3억)"
+    ],
+    "053260": [
+      "low_trading_value(5.9억)"
+    ],
+    "053270": [
+      "low_trading_value(4.7억)"
+    ],
+    "053280": [
+      "low_trading_value(3.8억)"
+    ],
+    "053350": [
+      "low_trading_value(13.3억)"
+    ],
+    "053450": [
+      "low_trading_value(12.8억)",
+      "consecutive_same_close(115일)",
+      "consecutive_zero_volume(115일)"
+    ],
+    "053580": [
+      "no_2025_data",
+      "large_daily_move(51%)"
+    ],
+    "053610": [
+      "low_trading_value(10.3억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "053620": [
+      "low_trading_value(0.2억)"
+    ],
+    "053700": [
+      "low_trading_value(10.1억)",
+      "large_daily_move(2094%)"
+    ],
+    "053950": [
+      "low_trading_value(12.2억)",
+      "consecutive_same_close(433일)",
+      "consecutive_zero_volume(433일)",
+      "large_daily_move(343%)"
+    ],
+    "053980": [
+      "low_trading_value(3.6억)"
+    ],
+    "054040": [
+      "low_trading_value(2.2억)"
+    ],
+    "054050": [
+      "low_trading_value(3.8억)"
+    ],
+    "054090": [
+      "low_trading_value(1.8억)"
+    ],
+    "054180": [
+      "low_trading_value(9.3억)",
+      "consecutive_same_close(197일)",
+      "consecutive_zero_volume(219일)",
+      "large_daily_move(6122%)"
+    ],
+    "054210": [
+      "low_trading_value(10.7억)"
+    ],
+    "054220": [
+      "low_trading_value(3.9억)",
+      "consecutive_same_close(333일)",
+      "consecutive_zero_volume(824일)",
+      "large_daily_move(699%)"
+    ],
+    "054300": [
+      "consecutive_same_close(128일)",
+      "consecutive_zero_volume(128일)",
+      "large_daily_move(938%)"
+    ],
+    "054410": [
+      "low_trading_value(0.3억)"
+    ],
+    "054540": [
+      "large_daily_move(54%)"
+    ],
+    "054620": [
+      "low_trading_value(1.8억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "054670": [
+      "low_trading_value(8.8억)"
+    ],
+    "054780": [
+      "low_trading_value(10.4억)",
+      "consecutive_same_close(85일)",
+      "consecutive_zero_volume(85일)",
+      "large_daily_move(1900%)"
+    ],
+    "054800": [
+      "low_trading_value(1.8억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(24일)"
+    ],
+    "054920": [
+      "large_daily_move(441%)"
+    ],
+    "054930": [
+      "low_trading_value(3.6억)"
+    ],
+    "054940": [
+      "low_trading_value(2.8억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "055490": [
+      "low_trading_value(2.6억)"
+    ],
+    "056090": [
+      "low_trading_value(17.4억)",
+      "consecutive_same_close(366일)",
+      "consecutive_zero_volume(366일)",
+      "large_daily_move(74%)"
+    ],
+    "056190": [
+      "low_trading_value(20.0억)",
+      "large_daily_move(53%)"
+    ],
+    "056700": [
+      "low_trading_value(0.9억)"
+    ],
+    "056730": [
+      "low_trading_value(0.9억)",
+      "consecutive_same_close(421일)",
+      "consecutive_zero_volume(1022일)",
+      "large_daily_move(765%)"
+    ],
+    "057030": [
+      "low_trading_value(7.2억)"
+    ],
+    "057050": [
+      "low_trading_value(9.6억)"
+    ],
+    "057540": [
+      "low_trading_value(13.9억)"
+    ],
+    "057680": [
+      "low_trading_value(10.0억)",
+      "large_daily_move(378%)"
+    ],
+    "057880": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(473일)",
+      "consecutive_zero_volume(932일)",
+      "large_daily_move(910%)"
+    ],
+    "058110": [
+      "low_trading_value(7.7억)",
+      "large_daily_move(52%)"
+    ],
+    "058400": [
+      "low_trading_value(4.6억)",
+      "large_daily_move(91%)"
+    ],
+    "058430": [
+      "large_daily_move(89%)"
+    ],
+    "058450": [
+      "low_trading_value(2.0억)",
+      "consecutive_same_close(456일)",
+      "consecutive_zero_volume(456일)",
+      "large_daily_move(625%)"
+    ],
+    "058470": [
+      "large_daily_move(78%)"
+    ],
+    "058630": [
+      "low_trading_value(11.0억)"
+    ],
+    "058650": [
+      "low_trading_value(2.8억)"
+    ],
+    "058730": [
+      "low_trading_value(8.4억)"
+    ],
+    "058820": [
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(197%)"
+    ],
+    "058850": [
+      "low_trading_value(13.0억)"
+    ],
+    "058860": [
+      "low_trading_value(8.7억)"
+    ],
+    "058970": [
+      "large_daily_move(50%)"
+    ],
+    "059090": [
+      "no_2025_data"
+    ],
+    "059100": [
+      "low_trading_value(2.5억)"
+    ],
+    "059120": [
+      "low_trading_value(18.4억)"
+    ],
+    "059270": [
+      "large_daily_move(55%)"
+    ],
+    "060150": [
+      "low_trading_value(4.6억)",
+      "large_daily_move(67%)"
+    ],
+    "060230": [
+      "low_trading_value(8.1억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)",
+      "large_daily_move(859%)"
+    ],
+    "060240": [
+      "low_trading_value(1.9억)",
+      "consecutive_same_close(276일)",
+      "consecutive_zero_volume(276일)",
+      "large_daily_move(1300%)"
+    ],
+    "060250": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(89%)"
+    ],
+    "060260": [
+      "low_trading_value(6.7억)",
+      "consecutive_same_close(134일)",
+      "consecutive_zero_volume(134일)",
+      "large_daily_move(517%)"
+    ],
+    "060280": [
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)"
+    ],
+    "060310": [
+      "large_daily_move(474%)"
+    ],
+    "060370": [
+      "large_daily_move(77%)"
+    ],
+    "060380": [
+      "low_trading_value(3.6억)",
+      "large_daily_move(51%)"
+    ],
+    "060480": [
+      "low_trading_value(0.4억)"
+    ],
+    "060540": [
+      "low_trading_value(2.0억)"
+    ],
+    "060560": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(370%)"
+    ],
+    "060570": [
+      "low_trading_value(5.3억)"
+    ],
+    "060590": [
+      "low_trading_value(3.6억)"
+    ],
+    "060850": [
+      "low_trading_value(1.7억)"
+    ],
+    "060900": [
+      "low_trading_value(5.3억)",
+      "consecutive_same_close(309일)",
+      "consecutive_zero_volume(553일)",
+      "large_daily_move(2083%)"
+    ],
+    "060980": [
+      "low_trading_value(11.5억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(59%)"
+    ],
+    "061040": [
+      "low_trading_value(3.3억)",
+      "large_daily_move(280%)"
+    ],
+    "061250": [
+      "low_trading_value(8.9억)",
+      "large_daily_move(858%)"
+    ],
+    "061970": [
+      "low_trading_value(17.0억)"
+    ],
+    "063080": [
+      "low_trading_value(11.9억)"
+    ],
+    "063160": [
+      "low_trading_value(5.4억)"
+    ],
+    "063440": [
+      "low_trading_value(7.8억)",
+      "large_daily_move(1400%)"
+    ],
+    "063570": [
+      "low_trading_value(3.0억)",
+      "large_daily_move(89%)"
+    ],
+    "063760": [
+      "low_trading_value(1.0억)"
+    ],
+    "064090": [
+      "low_trading_value(7.2억)",
+      "consecutive_same_close(92일)",
+      "consecutive_zero_volume(134일)",
+      "large_daily_move(987%)"
+    ],
+    "064240": [
+      "low_trading_value(2.5억)"
+    ],
+    "064480": [
+      "low_trading_value(6.8억)"
+    ],
+    "064520": [
+      "low_trading_value(1.0억)",
+      "consecutive_same_close(319일)",
+      "consecutive_zero_volume(902일)",
+      "large_daily_move(901%)"
+    ],
+    "064800": [
+      "low_trading_value(7.1억)",
+      "large_daily_move(263%)"
+    ],
+    "064850": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(52일)",
+      "consecutive_zero_volume(40일)"
+    ],
+    "065060": [
+      "low_trading_value(5.1억)",
+      "large_daily_move(1027%)"
+    ],
+    "065130": [
+      "low_trading_value(1.0억)"
+    ],
+    "065150": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(825일)",
+      "consecutive_zero_volume(825일)",
+      "large_daily_move(900%)"
+    ],
+    "065170": [
+      "low_trading_value(6.7억)",
+      "large_daily_move(909%)"
+    ],
+    "065350": [
+      "no_2025_data",
+      "large_daily_move(277%)"
+    ],
+    "065420": [
+      "low_trading_value(3.9억)",
+      "consecutive_same_close(770일)",
+      "consecutive_zero_volume(770일)",
+      "large_daily_move(1738%)"
+    ],
+    "065440": [
+      "low_trading_value(16.3억)"
+    ],
+    "065450": [
+      "low_trading_value(13.4억)",
+      "large_daily_move(57%)"
+    ],
+    "065500": [
+      "consecutive_same_close(369일)",
+      "consecutive_zero_volume(369일)",
+      "large_daily_move(375%)"
+    ],
+    "065510": [
+      "low_trading_value(4.7억)"
+    ],
+    "065530": [
+      "low_trading_value(1.9억)",
+      "large_daily_move(91%)"
+    ],
+    "065570": [
+      "low_trading_value(0.6억)",
+      "consecutive_same_close(314일)",
+      "consecutive_zero_volume(314일)"
+    ],
+    "065650": [
+      "low_trading_value(8.7억)",
+      "large_daily_move(1112%)"
+    ],
+    "065660": [
+      "low_trading_value(9.7억)"
+    ],
+    "065680": [
+      "low_trading_value(16.7억)"
+    ],
+    "065690": [
+      "low_trading_value(1.4억)"
+    ],
+    "065710": [
+      "low_trading_value(10.5억)"
+    ],
+    "065770": [
+      "low_trading_value(6.2억)",
+      "large_daily_move(70%)"
+    ],
+    "065950": [
+      "low_trading_value(7.2억)"
+    ],
+    "066130": [
+      "low_trading_value(2.2억)"
+    ],
+    "066310": [
+      "low_trading_value(15.9억)"
+    ],
+    "066360": [
+      "low_trading_value(3.3억)"
+    ],
+    "066410": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(786일)",
+      "consecutive_zero_volume(786일)",
+      "large_daily_move(693%)"
+    ],
+    "066430": [
+      "low_trading_value(9.2억)",
+      "consecutive_same_close(256일)",
+      "consecutive_zero_volume(332일)",
+      "large_daily_move(5394%)"
+    ],
+    "066590": [
+      "low_trading_value(3.4억)"
+    ],
+    "066620": [
+      "low_trading_value(2.6억)"
+    ],
+    "066670": [
+      "low_trading_value(1.8억)"
+    ],
+    "066700": [
+      "low_trading_value(2.7억)"
+    ],
+    "066790": [
+      "consecutive_same_close(485일)",
+      "consecutive_zero_volume(679일)",
+      "large_daily_move(100%)"
+    ],
+    "066900": [
+      "low_trading_value(1.2억)"
+    ],
+    "066910": [
+      "low_trading_value(8.1억)"
+    ],
+    "066980": [
+      "low_trading_value(11.7억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(820%)"
+    ],
+    "067000": [
+      "low_trading_value(16.5억)",
+      "large_daily_move(61%)"
+    ],
+    "067010": [
+      "low_trading_value(1.4억)"
+    ],
+    "067160": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "067170": [
+      "low_trading_value(4.0억)"
+    ],
+    "067280": [
+      "low_trading_value(2.4억)"
+    ],
+    "067290": [
+      "low_trading_value(18.6억)"
+    ],
+    "067310": [
+      "no_2025_data",
+      "large_daily_move(225%)"
+    ],
+    "067370": [
+      "low_trading_value(1.2억)"
+    ],
+    "067390": [
+      "low_trading_value(7.3억)"
+    ],
+    "067570": [
+      "low_trading_value(1.9억)"
+    ],
+    "067730": [
+      "low_trading_value(1.9억)"
+    ],
+    "067770": [
+      "low_trading_value(0.4억)"
+    ],
+    "067830": [
+      "low_trading_value(9.1억)",
+      "large_daily_move(77%)"
+    ],
+    "067900": [
+      "low_trading_value(2.0억)"
+    ],
+    "067920": [
+      "low_trading_value(2.1억)"
+    ],
+    "067990": [
+      "low_trading_value(3.3억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(22일)",
+      "large_daily_move(962%)"
+    ],
+    "068100": [
+      "low_trading_value(11.4억)"
+    ],
+    "068240": [
+      "low_trading_value(18.4억)",
+      "consecutive_same_close(49일)",
+      "consecutive_zero_volume(49일)"
+    ],
+    "068270": [
+      "large_daily_move(107%)"
+    ],
+    "068290": [
+      "low_trading_value(6.2억)",
+      "large_daily_move(91%)"
+    ],
+    "068330": [
+      "consecutive_same_close(110일)",
+      "consecutive_zero_volume(110일)",
+      "large_daily_move(81%)"
+    ],
+    "068760": [
+      "no_2025_data"
+    ],
+    "068790": [
+      "low_trading_value(0.8억)",
+      "consecutive_same_close(231일)",
+      "consecutive_zero_volume(231일)",
+      "large_daily_move(64%)"
+    ],
+    "068930": [
+      "low_trading_value(2.9억)"
+    ],
+    "068940": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(774일)",
+      "consecutive_zero_volume(774일)",
+      "large_daily_move(59%)"
+    ],
+    "069080": [
+      "low_trading_value(9.5억)",
+      "large_daily_move(65%)"
+    ],
+    "069140": [
+      "low_trading_value(3.6억)",
+      "consecutive_same_close(66일)",
+      "consecutive_zero_volume(66일)"
+    ],
+    "069260": [
+      "low_trading_value(11.0억)"
+    ],
+    "069330": [
+      "low_trading_value(2.8억)",
+      "consecutive_same_close(314일)",
+      "consecutive_zero_volume(314일)",
+      "large_daily_move(160%)"
+    ],
+    "069410": [
+      "low_trading_value(3.2억)"
+    ],
+    "069460": [
+      "low_trading_value(10.1억)",
+      "consecutive_same_close(149일)",
+      "consecutive_zero_volume(149일)",
+      "large_daily_move(400%)"
+    ],
+    "069510": [
+      "low_trading_value(3.5억)"
+    ],
+    "069540": [
+      "low_trading_value(19.7억)",
+      "consecutive_same_close(621일)",
+      "consecutive_zero_volume(621일)"
+    ],
+    "069640": [
+      "low_trading_value(3.4억)",
+      "large_daily_move(85%)"
+    ],
+    "069730": [
+      "low_trading_value(1.3억)"
+    ],
+    "069920": [
+      "low_trading_value(16.8억)",
+      "large_daily_move(445%)"
+    ],
+    "070300": [
+      "low_trading_value(7.2억)",
+      "consecutive_same_close(160일)",
+      "consecutive_zero_volume(160일)"
+    ],
+    "070590": [
+      "low_trading_value(4.6억)",
+      "consecutive_same_close(120일)",
+      "consecutive_zero_volume(120일)"
+    ],
+    "070960": [
+      "low_trading_value(18.1억)"
+    ],
+    "071090": [
+      "large_daily_move(91%)"
+    ],
+    "071200": [
+      "low_trading_value(14.7억)",
+      "consecutive_same_close(64일)",
+      "consecutive_zero_volume(64일)"
+    ],
+    "071280": [
+      "low_trading_value(12.0억)"
+    ],
+    "071670": [
+      "low_trading_value(8.9억)"
+    ],
+    "071840": [
+      "low_trading_value(2.4억)"
+    ],
+    "071850": [
+      "low_trading_value(0.3억)"
+    ],
+    "071950": [
+      "low_trading_value(8.2억)",
+      "large_daily_move(858%)"
+    ],
+    "071970": [
+      "consecutive_same_close(217일)",
+      "consecutive_zero_volume(243일)",
+      "large_daily_move(1900%)"
+    ],
+    "072020": [
+      "low_trading_value(2.0억)"
+    ],
+    "072130": [
+      "low_trading_value(12.4억)"
+    ],
+    "072470": [
+      "low_trading_value(17.4억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)"
+    ],
+    "072770": [
+      "large_daily_move(86%)"
+    ],
+    "072870": [
+      "low_trading_value(1.9억)",
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(68%)"
+    ],
+    "072950": [
+      "low_trading_value(6.1억)"
+    ],
+    "072990": [
+      "low_trading_value(6.8억)",
+      "large_daily_move(50%)"
+    ],
+    "073010": [
+      "consecutive_same_close(515일)",
+      "consecutive_zero_volume(606일)",
+      "large_daily_move(110%)"
+    ],
+    "073110": [
+      "low_trading_value(1.8억)"
+    ],
+    "073190": [
+      "low_trading_value(4.8억)"
+    ],
+    "073240": [
+      "large_daily_move(175%)"
+    ],
+    "073490": [
+      "low_trading_value(8.3억)"
+    ],
+    "073540": [
+      "low_trading_value(2.3억)"
+    ],
+    "073560": [
+      "low_trading_value(2.1억)"
+    ],
+    "073570": [
+      "consecutive_same_close(63일)",
+      "consecutive_zero_volume(63일)",
+      "large_daily_move(439%)"
+    ],
+    "073640": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(530일)",
+      "consecutive_zero_volume(530일)",
+      "large_daily_move(57%)"
+    ],
+    "074430": [
+      "low_trading_value(4.4억)",
+      "large_daily_move(77%)"
+    ],
+    "074600": [
+      "no_2025_data",
+      "large_daily_move(51%)"
+    ],
+    "074610": [
+      "low_trading_value(1.9억)",
+      "consecutive_same_close(177일)",
+      "consecutive_zero_volume(276일)",
+      "large_daily_move(900%)"
+    ],
+    "075130": [
+      "low_trading_value(15.0억)"
+    ],
+    "075180": [
+      "low_trading_value(0.4억)"
+    ],
+    "075970": [
+      "low_trading_value(8.7억)"
+    ],
+    "076080": [
+      "low_trading_value(2.3억)"
+    ],
+    "076610": [
+      "low_trading_value(4.0억)",
+      "large_daily_move(387%)"
+    ],
+    "077360": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)",
+      "large_daily_move(59%)"
+    ],
+    "077500": [
+      "large_daily_move(65%)"
+    ],
+    "077970": [
+      "consecutive_same_close(254일)",
+      "consecutive_zero_volume(280일)",
+      "large_daily_move(701%)"
+    ],
+    "078000": [
+      "low_trading_value(8.6억)"
+    ],
+    "078020": [
+      "low_trading_value(9.3억)"
+    ],
+    "078070": [
+      "low_trading_value(2.2억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)"
+    ],
+    "078130": [
+      "low_trading_value(13.2억)",
+      "consecutive_same_close(573일)",
+      "consecutive_zero_volume(573일)",
+      "large_daily_move(791%)"
+    ],
+    "078160": [
+      "no_2025_data"
+    ],
+    "078590": [
+      "low_trading_value(14.9억)",
+      "consecutive_same_close(513일)",
+      "consecutive_zero_volume(620일)",
+      "large_daily_move(775%)"
+    ],
+    "078860": [
+      "low_trading_value(4.4억)",
+      "large_daily_move(1849%)"
+    ],
+    "078890": [
+      "low_trading_value(4.6억)"
+    ],
+    "079000": [
+      "low_trading_value(1.9억)"
+    ],
+    "079160": [
+      "low_trading_value(19.0억)"
+    ],
+    "079170": [
+      "low_trading_value(1.7억)"
+    ],
+    "079190": [
+      "low_trading_value(1.9억)",
+      "consecutive_same_close(748일)",
+      "consecutive_zero_volume(748일)",
+      "large_daily_move(160%)"
+    ],
+    "079370": [
+      "large_daily_move(66%)"
+    ],
+    "079430": [
+      "low_trading_value(2.2억)",
+      "large_daily_move(52%)"
+    ],
+    "079650": [
+      "low_trading_value(0.4억)",
+      "large_daily_move(98%)"
+    ],
+    "079810": [
+      "low_trading_value(9.1억)"
+    ],
+    "079940": [
+      "low_trading_value(14.8억)"
+    ],
+    "079950": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(247%)"
+    ],
+    "079960": [
+      "low_trading_value(7.2억)"
+    ],
+    "079970": [
+      "low_trading_value(1.5억)",
+      "consecutive_same_close(287일)",
+      "consecutive_zero_volume(287일)",
+      "large_daily_move(739%)"
+    ],
+    "079980": [
+      "low_trading_value(2.1억)"
+    ],
+    "080010": [
+      "low_trading_value(0.8억)"
+    ],
+    "080160": [
+      "low_trading_value(14.6억)"
+    ],
+    "080420": [
+      "low_trading_value(0.6억)",
+      "large_daily_move(51%)"
+    ],
+    "080470": [
+      "low_trading_value(0.6억)"
+    ],
+    "080520": [
+      "low_trading_value(0.8억)"
+    ],
+    "080530": [
+      "low_trading_value(2.2억)",
+      "consecutive_same_close(447일)",
+      "consecutive_zero_volume(559일)",
+      "large_daily_move(293%)"
+    ],
+    "080720": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(394일)",
+      "consecutive_zero_volume(394일)"
+    ],
+    "081000": [
+      "low_trading_value(7.9억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)",
+      "large_daily_move(77%)"
+    ],
+    "081150": [
+      "low_trading_value(15.7억)"
+    ],
+    "081580": [
+      "low_trading_value(2.4억)"
+    ],
+    "081660": [
+      "large_daily_move(81%)"
+    ],
+    "082210": [
+      "low_trading_value(2.4억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(404%)"
+    ],
+    "082640": [
+      "low_trading_value(14.5억)"
+    ],
+    "082660": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(434일)",
+      "consecutive_zero_volume(434일)",
+      "large_daily_move(349%)"
+    ],
+    "082800": [
+      "large_daily_move(408%)"
+    ],
+    "082920": [
+      "consecutive_same_close(273일)",
+      "consecutive_zero_volume(273일)",
+      "large_daily_move(54%)"
+    ],
+    "083310": [
+      "low_trading_value(13.9억)"
+    ],
+    "083420": [
+      "large_daily_move(91%)"
+    ],
+    "083450": [
+      "large_daily_move(50%)"
+    ],
+    "083470": [
+      "low_trading_value(5.2억)",
+      "consecutive_same_close(251일)",
+      "consecutive_zero_volume(876일)",
+      "large_daily_move(390%)"
+    ],
+    "083500": [
+      "low_trading_value(18.8억)"
+    ],
+    "083550": [
+      "low_trading_value(1.8억)"
+    ],
+    "083640": [
+      "low_trading_value(1.8억)",
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(23일)",
+      "large_daily_move(328%)"
+    ],
+    "083650": [
+      "large_daily_move(67%)"
+    ],
+    "083660": [
+      "low_trading_value(14.1억)",
+      "consecutive_same_close(392일)",
+      "consecutive_zero_volume(392일)"
+    ],
+    "083790": [
+      "low_trading_value(3.0억)"
+    ],
+    "083930": [
+      "low_trading_value(18.0억)"
+    ],
+    "084010": [
+      "low_trading_value(5.1억)",
+      "large_daily_move(80%)"
+    ],
+    "084110": [
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)"
+    ],
+    "084180": [
+      "low_trading_value(3.7억)",
+      "consecutive_same_close(355일)",
+      "consecutive_zero_volume(355일)",
+      "large_daily_move(981%)"
+    ],
+    "084370": [
+      "no_2025_data",
+      "large_daily_move(288%)"
+    ],
+    "084440": [
+      "low_trading_value(0.8억)",
+      "consecutive_same_close(21일)",
+      "large_daily_move(79%)"
+    ],
+    "084650": [
+      "large_daily_move(65%)"
+    ],
+    "084680": [
+      "low_trading_value(4.9억)",
+      "large_daily_move(77%)"
+    ],
+    "084730": [
+      "low_trading_value(2.5억)"
+    ],
+    "084850": [
+      "low_trading_value(5.5억)"
+    ],
+    "084870": [
+      "low_trading_value(1.0억)"
+    ],
+    "084990": [
+      "low_trading_value(18.7억)"
+    ],
+    "085310": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)"
+    ],
+    "085620": [
+      "low_trading_value(9.8억)"
+    ],
+    "085660": [
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(59%)"
+    ],
+    "085670": [
+      "low_trading_value(11.9억)"
+    ],
+    "085810": [
+      "low_trading_value(5.4억)",
+      "large_daily_move(464%)"
+    ],
+    "085910": [
+      "low_trading_value(9.0억)"
+    ],
+    "086040": [
+      "low_trading_value(1.8억)"
+    ],
+    "086060": [
+      "low_trading_value(13.2억)"
+    ],
+    "086280": [
+      "read_error(No columns to parse from file)"
+    ],
+    "086450": [
+      "large_daily_move(79%)"
+    ],
+    "086520": [
+      "large_daily_move(79%)"
+    ],
+    "086670": [
+      "low_trading_value(4.5억)"
+    ],
+    "086710": [
+      "low_trading_value(13.8억)",
+      "large_daily_move(53%)"
+    ],
+    "086820": [
+      "low_trading_value(14.6억)",
+      "large_daily_move(67%)"
+    ],
+    "086890": [
+      "low_trading_value(10.6억)"
+    ],
+    "086960": [
+      "large_daily_move(183%)"
+    ],
+    "086980": [
+      "low_trading_value(6.8억)",
+      "large_daily_move(90%)"
+    ],
+    "087010": [
+      "large_daily_move(53%)"
+    ],
+    "087260": [
+      "low_trading_value(5.3억)"
+    ],
+    "087600": [
+      "low_trading_value(2.1억)"
+    ],
+    "088130": [
+      "low_trading_value(4.1억)",
+      "large_daily_move(52%)"
+    ],
+    "088280": [
+      "low_trading_value(4.3억)"
+    ],
+    "088290": [
+      "low_trading_value(1.8억)",
+      "large_daily_move(252%)"
+    ],
+    "088390": [
+      "low_trading_value(7.5억)",
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)",
+      "large_daily_move(57%)"
+    ],
+    "088790": [
+      "low_trading_value(1.7억)"
+    ],
+    "088800": [
+      "low_trading_value(10.6억)",
+      "large_daily_move(217%)"
+    ],
+    "088910": [
+      "low_trading_value(0.9억)"
+    ],
+    "089030": [
+      "large_daily_move(68%)"
+    ],
+    "089140": [
+      "low_trading_value(3.6억)",
+      "large_daily_move(381%)"
+    ],
+    "089150": [
+      "large_daily_move(91%)"
+    ],
+    "089230": [
+      "low_trading_value(3.5억)",
+      "large_daily_move(1068%)"
+    ],
+    "089470": [
+      "low_trading_value(1.3억)",
+      "large_daily_move(89%)"
+    ],
+    "089590": [
+      "low_trading_value(9.7억)"
+    ],
+    "089600": [
+      "low_trading_value(3.8억)"
+    ],
+    "089790": [
+      "low_trading_value(19.7억)",
+      "large_daily_move(199%)"
+    ],
+    "089850": [
+      "large_daily_move(53%)"
+    ],
+    "089860": [
+      "low_trading_value(13.0억)"
+    ],
+    "089980": [
+      "low_trading_value(10.4억)"
+    ],
+    "090150": [
+      "low_trading_value(1.2억)"
+    ],
+    "090350": [
+      "low_trading_value(7.2억)"
+    ],
+    "090370": [
+      "low_trading_value(7.4억)",
+      "large_daily_move(377%)"
+    ],
+    "090410": [
+      "low_trading_value(13.6억)",
+      "large_daily_move(78%)"
+    ],
+    "090430": [
+      "read_error(No columns to parse from file)"
+    ],
+    "090470": [
+      "low_trading_value(3.5억)",
+      "large_daily_move(52%)"
+    ],
+    "090710": [
+      "large_daily_move(168%)"
+    ],
+    "090850": [
+      "low_trading_value(6.1억)"
+    ],
+    "091120": [
+      "low_trading_value(17.0억)",
+      "large_daily_move(63%)"
+    ],
+    "091340": [
+      "low_trading_value(2.1억)"
+    ],
+    "091440": [
+      "low_trading_value(10.6억)"
+    ],
+    "091580": [
+      "low_trading_value(14.6억)"
+    ],
+    "091590": [
+      "low_trading_value(1.2억)"
+    ],
+    "091700": [
+      "low_trading_value(11.2억)"
+    ],
+    "091970": [
+      "low_trading_value(4.3억)",
+      "consecutive_same_close(346일)",
+      "consecutive_zero_volume(346일)",
+      "large_daily_move(550%)"
+    ],
+    "092040": [
+      "low_trading_value(15.8억)",
+      "large_daily_move(52%)"
+    ],
+    "092070": [
+      "low_trading_value(7.4억)"
+    ],
+    "092130": [
+      "low_trading_value(2.1억)",
+      "large_daily_move(79%)"
+    ],
+    "092190": [
+      "low_trading_value(1.2억)"
+    ],
+    "092200": [
+      "large_daily_move(89%)"
+    ],
+    "092220": [
+      "low_trading_value(5.7억)",
+      "large_daily_move(1137%)"
+    ],
+    "092230": [
+      "low_trading_value(2.5억)"
+    ],
+    "092300": [
+      "low_trading_value(11.6억)"
+    ],
+    "092440": [
+      "low_trading_value(0.7억)",
+      "large_daily_move(50%)"
+    ],
+    "092600": [
+      "low_trading_value(1.2억)",
+      "large_daily_move(549%)"
+    ],
+    "092780": [
+      "low_trading_value(1.1억)"
+    ],
+    "093050": [
+      "low_trading_value(10.1억)"
+    ],
+    "093190": [
+      "low_trading_value(0.7억)"
+    ],
+    "093380": [
+      "low_trading_value(0.9억)"
+    ],
+    "093640": [
+      "low_trading_value(3.9억)"
+    ],
+    "093920": [
+      "low_trading_value(0.9억)"
+    ],
+    "094280": [
+      "low_trading_value(6.0억)"
+    ],
+    "094360": [
+      "consecutive_same_close(46일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(51%)"
+    ],
+    "094800": [
+      "low_trading_value(3.4억)"
+    ],
+    "094820": [
+      "low_trading_value(18.1억)",
+      "consecutive_same_close(27일)",
+      "consecutive_zero_volume(27일)",
+      "large_daily_move(51%)"
+    ],
+    "094840": [
+      "low_trading_value(11.5억)",
+      "consecutive_same_close(32일)",
+      "consecutive_zero_volume(32일)",
+      "large_daily_move(51%)"
+    ],
+    "094860": [
+      "low_trading_value(1.5억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(356%)"
+    ],
+    "094970": [
+      "low_trading_value(4.9억)",
+      "large_daily_move(55%)"
+    ],
+    "095190": [
+      "low_trading_value(4.4억)"
+    ],
+    "095270": [
+      "low_trading_value(2.6억)"
+    ],
+    "095500": [
+      "large_daily_move(59%)"
+    ],
+    "095570": [
+      "low_trading_value(8.7억)",
+      "large_daily_move(82%)"
+    ],
+    "095660": [
+      "low_trading_value(18.9억)",
+      "large_daily_move(62%)"
+    ],
+    "095700": [
+      "low_trading_value(12.9억)"
+    ],
+    "095720": [
+      "low_trading_value(8.4억)",
+      "large_daily_move(73%)"
+    ],
+    "095910": [
+      "low_trading_value(5.6억)"
+    ],
+    "096240": [
+      "low_trading_value(3.5억)"
+    ],
+    "096350": [
+      "low_trading_value(15.0억)",
+      "large_daily_move(485%)"
+    ],
+    "096610": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(569일)",
+      "consecutive_zero_volume(569일)"
+    ],
+    "096630": [
+      "low_trading_value(3.3억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)",
+      "large_daily_move(464%)"
+    ],
+    "096690": [
+      "low_trading_value(2.0억)",
+      "consecutive_same_close(206일)",
+      "consecutive_zero_volume(206일)",
+      "large_daily_move(1198%)"
+    ],
+    "096760": [
+      "low_trading_value(3.9억)",
+      "large_daily_move(82%)"
+    ],
+    "096870": [
+      "low_trading_value(0.6억)"
+    ],
+    "097230": [
+      "consecutive_same_close(47일)",
+      "consecutive_zero_volume(47일)",
+      "large_daily_move(443%)"
+    ],
+    "097520": [
+      "low_trading_value(15.2억)"
+    ],
+    "097780": [
+      "low_trading_value(2.7억)",
+      "consecutive_same_close(130일)",
+      "consecutive_zero_volume(130일)",
+      "large_daily_move(412%)"
+    ],
+    "097800": [
+      "low_trading_value(8.4억)",
+      "large_daily_move(353%)"
+    ],
+    "097870": [
+      "low_trading_value(14.8억)"
+    ],
+    "098460": [
+      "large_daily_move(77%)"
+    ],
+    "098660": [
+      "low_trading_value(0.6억)"
+    ],
+    "099190": [
+      "low_trading_value(18.4억)",
+      "large_daily_move(54%)"
+    ],
+    "099390": [
+      "low_trading_value(2.1억)"
+    ],
+    "099410": [
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "099430": [
+      "large_daily_move(73%)"
+    ],
+    "099520": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(728일)",
+      "consecutive_zero_volume(1266일)",
+      "large_daily_move(100%)"
+    ],
+    "099750": [
+      "low_trading_value(5.2억)",
+      "large_daily_move(54%)"
+    ],
+    "100030": [
+      "low_trading_value(1.5억)"
+    ],
+    "100120": [
+      "low_trading_value(5.6억)"
+    ],
+    "100130": [
+      "no_2025_data"
+    ],
+    "100220": [
+      "low_trading_value(8.8억)"
+    ],
+    "100250": [
+      "low_trading_value(2.6억)"
+    ],
+    "100590": [
+      "low_trading_value(6.6억)"
+    ],
+    "100660": [
+      "low_trading_value(12.5억)"
+    ],
+    "100700": [
+      "low_trading_value(1.7억)",
+      "large_daily_move(78%)"
+    ],
+    "100840": [
+      "large_daily_move(65%)"
+    ],
+    "101000": [
+      "consecutive_same_close(183일)",
+      "consecutive_zero_volume(330일)",
+      "large_daily_move(379%)"
+    ],
+    "101140": [
+      "low_trading_value(4.7억)",
+      "consecutive_same_close(297일)",
+      "consecutive_zero_volume(433일)",
+      "large_daily_move(1900%)"
+    ],
+    "101240": [
+      "low_trading_value(6.1억)"
+    ],
+    "101330": [
+      "low_trading_value(2.6억)"
+    ],
+    "101360": [
+      "consecutive_same_close(58일)",
+      "consecutive_zero_volume(38일)"
+    ],
+    "101390": [
+      "low_trading_value(3.7억)",
+      "consecutive_same_close(276일)",
+      "consecutive_zero_volume(276일)",
+      "large_daily_move(1209%)"
+    ],
+    "101400": [
+      "low_trading_value(5.0억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(452%)"
+    ],
+    "101530": [
+      "low_trading_value(4.9억)"
+    ],
+    "101670": [
+      "large_daily_move(61%)"
+    ],
+    "101680": [
+      "low_trading_value(3.5억)",
+      "consecutive_same_close(527일)",
+      "consecutive_zero_volume(527일)",
+      "large_daily_move(160%)"
+    ],
+    "101730": [
+      "low_trading_value(17.1억)",
+      "large_daily_move(51%)"
+    ],
+    "101930": [
+      "low_trading_value(11.7억)",
+      "large_daily_move(74%)"
+    ],
+    "101970": [
+      "consecutive_same_close(49일)",
+      "consecutive_zero_volume(49일)",
+      "large_daily_move(2382%)"
+    ],
+    "102260": [
+      "low_trading_value(4.7억)",
+      "large_daily_move(inf%)"
+    ],
+    "102370": [
+      "large_daily_move(57%)"
+    ],
+    "102460": [
+      "low_trading_value(5.1억)"
+    ],
+    "102940": [
+      "no_2025_data",
+      "large_daily_move(201%)"
+    ],
+    "103230": [
+      "low_trading_value(3.7억)",
+      "consecutive_same_close(523일)",
+      "consecutive_zero_volume(523일)"
+    ],
+    "104040": [
+      "low_trading_value(16.8억)",
+      "large_daily_move(336%)"
+    ],
+    "104200": [
+      "low_trading_value(7.7억)"
+    ],
+    "104460": [
+      "low_trading_value(7.6억)"
+    ],
+    "104480": [
+      "low_trading_value(6.9억)"
+    ],
+    "104540": [
+      "low_trading_value(4.4억)",
+      "consecutive_same_close(254일)",
+      "consecutive_zero_volume(254일)"
+    ],
+    "104620": [
+      "large_daily_move(57%)"
+    ],
+    "104700": [
+      "low_trading_value(3.2억)",
+      "large_daily_move(78%)"
+    ],
+    "104830": [
+      "large_daily_move(53%)"
+    ],
+    "105330": [
+      "low_trading_value(3.0억)"
+    ],
+    "105550": [
+      "consecutive_same_close(99일)",
+      "consecutive_zero_volume(99일)"
+    ],
+    "105630": [
+      "low_trading_value(16.6억)"
+    ],
+    "105740": [
+      "low_trading_value(17.6억)"
+    ],
+    "105760": [
+      "low_trading_value(9.4억)"
+    ],
+    "105840": [
+      "large_daily_move(51%)"
+    ],
+    "106080": [
+      "low_trading_value(13.4억)",
+      "consecutive_same_close(297일)",
+      "consecutive_zero_volume(1057일)",
+      "large_daily_move(435%)"
+    ],
+    "106190": [
+      "low_trading_value(4.3억)"
+    ],
+    "106240": [
+      "low_trading_value(10.4억)",
+      "consecutive_same_close(25일)",
+      "consecutive_zero_volume(25일)",
+      "large_daily_move(70%)"
+    ],
+    "106520": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(761일)",
+      "consecutive_zero_volume(761일)",
+      "large_daily_move(400%)"
+    ],
+    "107590": [
+      "low_trading_value(0.2억)",
+      "large_daily_move(91%)"
+    ],
+    "107640": [
+      "consecutive_same_close(97일)",
+      "consecutive_zero_volume(186일)"
+    ],
+    "108230": [
+      "low_trading_value(12.0억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)",
+      "large_daily_move(52%)"
+    ],
+    "108320": [
+      "large_daily_move(60%)"
+    ],
+    "108670": [
+      "low_trading_value(7.5억)"
+    ],
+    "108860": [
+      "consecutive_same_close(284일)",
+      "consecutive_zero_volume(284일)"
+    ],
+    "109070": [
+      "low_trading_value(9.9억)",
+      "consecutive_same_close(1225일)",
+      "consecutive_zero_volume(1225일)",
+      "large_daily_move(1459%)"
+    ],
+    "109080": [
+      "low_trading_value(8.6억)"
+    ],
+    "109670": [
+      "low_trading_value(8.9억)"
+    ],
+    "109740": [
+      "low_trading_value(5.8억)",
+      "consecutive_same_close(119일)",
+      "consecutive_zero_volume(119일)"
+    ],
+    "109820": [
+      "low_trading_value(10.9억)"
+    ],
+    "109860": [
+      "low_trading_value(0.5억)"
+    ],
+    "109960": [
+      "low_trading_value(4.5억)",
+      "large_daily_move(499%)"
+    ],
+    "110020": [
+      "low_trading_value(2.6억)"
+    ],
+    "110790": [
+      "low_trading_value(2.1억)",
+      "large_daily_move(50%)"
+    ],
+    "111110": [
+      "low_trading_value(3.1억)"
+    ],
+    "111380": [
+      "low_trading_value(1.9억)"
+    ],
+    "111710": [
+      "low_trading_value(0.2억)"
+    ],
+    "111870": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(401일)",
+      "consecutive_zero_volume(667일)",
+      "large_daily_move(1400%)"
+    ],
+    "112040": [
+      "large_daily_move(53%)"
+    ],
+    "114190": [
+      "consecutive_same_close(527일)",
+      "consecutive_zero_volume(527일)",
+      "large_daily_move(63%)"
+    ],
+    "114630": [
+      "low_trading_value(0.8억)",
+      "large_daily_move(421%)"
+    ],
+    "114810": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)"
+    ],
+    "114840": [
+      "large_daily_move(52%)"
+    ],
+    "115160": [
+      "low_trading_value(1.7억)",
+      "large_daily_move(1200%)"
+    ],
+    "115180": [
+      "consecutive_same_close(344일)",
+      "consecutive_zero_volume(344일)"
+    ],
+    "115310": [
+      "large_daily_move(80%)"
+    ],
+    "115440": [
+      "low_trading_value(16.8억)"
+    ],
+    "115480": [
+      "low_trading_value(0.7억)",
+      "large_daily_move(307%)"
+    ],
+    "115530": [
+      "low_trading_value(3.1억)",
+      "consecutive_same_close(915일)",
+      "consecutive_zero_volume(915일)",
+      "large_daily_move(802%)"
+    ],
+    "115570": [
+      "low_trading_value(0.8억)"
+    ],
+    "115610": [
+      "low_trading_value(15.7억)",
+      "large_daily_move(129%)"
+    ],
+    "117580": [
+      "low_trading_value(12.4억)"
+    ],
+    "117670": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(445일)",
+      "consecutive_zero_volume(445일)",
+      "large_daily_move(980%)"
+    ],
+    "118000": [
+      "low_trading_value(4.8억)",
+      "large_daily_move(1010%)"
+    ],
+    "118990": [
+      "low_trading_value(8.8억)",
+      "large_daily_move(434%)"
+    ],
+    "119500": [
+      "large_daily_move(52%)"
+    ],
+    "119610": [
+      "low_trading_value(7.9억)",
+      "consecutive_same_close(263일)",
+      "consecutive_zero_volume(263일)"
+    ],
+    "119650": [
+      "low_trading_value(0.2억)",
+      "consecutive_same_close(240일)",
+      "consecutive_zero_volume(289일)",
+      "large_daily_move(100%)"
+    ],
+    "119830": [
+      "low_trading_value(11.8억)"
+    ],
+    "120030": [
+      "low_trading_value(6.2억)"
+    ],
+    "120240": [
+      "low_trading_value(8.0억)"
+    ],
+    "121440": [
+      "low_trading_value(7.2억)",
+      "consecutive_same_close(26일)",
+      "consecutive_zero_volume(26일)",
+      "large_daily_move(66%)"
+    ],
+    "121800": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(766일)",
+      "consecutive_zero_volume(766일)",
+      "large_daily_move(122%)"
+    ],
+    "121850": [
+      "low_trading_value(6.1억)",
+      "large_daily_move(921%)"
+    ],
+    "121890": [
+      "low_trading_value(1.5억)",
+      "consecutive_same_close(887일)",
+      "consecutive_zero_volume(886일)",
+      "large_daily_move(160%)"
+    ],
+    "122310": [
+      "low_trading_value(1.2억)",
+      "large_daily_move(68%)"
+    ],
+    "122350": [
+      "low_trading_value(6.5억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)",
+      "large_daily_move(50%)"
+    ],
+    "122450": [
+      "low_trading_value(12.3억)",
+      "large_daily_move(51%)"
+    ],
+    "122640": [
+      "low_trading_value(16.6억)",
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(62일)",
+      "large_daily_move(59%)"
+    ],
+    "122690": [
+      "low_trading_value(4.6억)",
+      "consecutive_same_close(41일)",
+      "consecutive_zero_volume(40일)",
+      "large_daily_move(390%)"
+    ],
+    "122900": [
+      "low_trading_value(3.2억)"
+    ],
+    "122990": [
+      "low_trading_value(5.3억)"
+    ],
+    "123010": [
+      "consecutive_zero_volume(31일)",
+      "large_daily_move(410%)"
+    ],
+    "123040": [
+      "low_trading_value(8.5억)",
+      "large_daily_move(71%)"
+    ],
+    "123410": [
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(39일)"
+    ],
+    "123420": [
+      "consecutive_same_close(40일)",
+      "consecutive_zero_volume(40일)",
+      "large_daily_move(230%)"
+    ],
+    "123570": [
+      "low_trading_value(2.5억)",
+      "large_daily_move(53%)"
+    ],
+    "123700": [
+      "low_trading_value(1.6억)"
+    ],
+    "123750": [
+      "low_trading_value(1.1억)",
+      "consecutive_same_close(42일)",
+      "consecutive_zero_volume(42일)",
+      "large_daily_move(463%)"
+    ],
+    "123840": [
+      "low_trading_value(1.7억)",
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(39일)",
+      "large_daily_move(897%)"
+    ],
+    "123860": [
+      "low_trading_value(7.8억)",
+      "large_daily_move(66%)"
+    ],
+    "123890": [
+      "low_trading_value(4.6억)"
+    ],
+    "124500": [
+      "large_daily_move(51%)"
+    ],
+    "124560": [
+      "low_trading_value(15.7억)",
+      "large_daily_move(52%)"
+    ],
+    "125210": [
+      "low_trading_value(10.5억)"
+    ],
+    "126340": [
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(71일)",
+      "large_daily_move(90%)"
+    ],
+    "126560": [
+      "low_trading_value(8.1억)"
+    ],
+    "126600": [
+      "low_trading_value(2.2억)",
+      "large_daily_move(52%)"
+    ],
+    "126640": [
+      "low_trading_value(7.5억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "126700": [
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(38일)",
+      "large_daily_move(474%)"
+    ],
+    "126720": [
+      "low_trading_value(14.0억)"
+    ],
+    "126880": [
+      "low_trading_value(11.2억)"
+    ],
+    "127710": [
+      "low_trading_value(0.8억)"
+    ],
+    "127980": [
+      "low_trading_value(0.9억)"
+    ],
+    "128540": [
+      "low_trading_value(5.2억)"
+    ],
+    "128660": [
+      "low_trading_value(4.1억)"
+    ],
+    "128820": [
+      "large_daily_move(283%)"
+    ],
+    "129260": [
+      "low_trading_value(9.3억)"
+    ],
+    "129890": [
+      "low_trading_value(16.2억)",
+      "large_daily_move(80%)"
+    ],
+    "129920": [
+      "low_trading_value(17.6억)"
+    ],
+    "130500": [
+      "low_trading_value(4.4억)"
+    ],
+    "130580": [
+      "low_trading_value(0.7억)"
+    ],
+    "130740": [
+      "low_trading_value(2.1억)"
+    ],
+    "131030": [
+      "low_trading_value(15.4억)",
+      "consecutive_same_close(52일)",
+      "consecutive_zero_volume(52일)"
+    ],
+    "131090": [
+      "low_trading_value(0.7억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(384%)"
+    ],
+    "131100": [
+      "low_trading_value(1.6억)",
+      "consecutive_same_close(88일)",
+      "consecutive_zero_volume(88일)",
+      "large_daily_move(1019%)"
+    ],
+    "131180": [
+      "low_trading_value(0.3억)",
+      "large_daily_move(393%)"
+    ],
+    "131220": [
+      "low_trading_value(4.7억)"
+    ],
+    "131290": [
+      "large_daily_move(62%)"
+    ],
+    "131370": [
+      "low_trading_value(12.2억)",
+      "consecutive_same_close(42일)",
+      "consecutive_zero_volume(42일)"
+    ],
+    "131400": [
+      "large_daily_move(105%)"
+    ],
+    "131760": [
+      "low_trading_value(10.3억)",
+      "large_daily_move(362%)"
+    ],
+    "133750": [
+      "low_trading_value(7.4억)"
+    ],
+    "133820": [
+      "low_trading_value(10.6억)"
+    ],
+    "134060": [
+      "low_trading_value(0.2억)"
+    ],
+    "134380": [
+      "low_trading_value(0.6억)",
+      "large_daily_move(91%)"
+    ],
+    "134790": [
+      "low_trading_value(2.3억)"
+    ],
+    "136410": [
+      "low_trading_value(5.2억)"
+    ],
+    "136490": [
+      "low_trading_value(13.2억)",
+      "large_daily_move(50%)"
+    ],
+    "136540": [
+      "low_trading_value(2.3억)"
+    ],
+    "137080": [
+      "low_trading_value(1.5억)"
+    ],
+    "137310": [
+      "low_trading_value(18.5억)"
+    ],
+    "137940": [
+      "low_trading_value(12.2억)",
+      "large_daily_move(778%)"
+    ],
+    "137950": [
+      "low_trading_value(1.9억)"
+    ],
+    "138070": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(51%)"
+    ],
+    "138080": [
+      "low_trading_value(10.4억)"
+    ],
+    "138360": [
+      "low_trading_value(8.7억)",
+      "consecutive_same_close(953일)",
+      "consecutive_zero_volume(953일)",
+      "large_daily_move(60%)"
+    ],
+    "138490": [
+      "low_trading_value(7.3억)"
+    ],
+    "139050": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(496일)",
+      "consecutive_zero_volume(496일)",
+      "large_daily_move(1442%)"
+    ],
+    "139670": [
+      "low_trading_value(0.8억)",
+      "large_daily_move(52%)"
+    ],
+    "139990": [
+      "low_trading_value(1.0억)"
+    ],
+    "140070": [
+      "low_trading_value(3.2억)",
+      "large_daily_move(52%)"
+    ],
+    "140410": [
+      "large_daily_move(67%)"
+    ],
+    "140430": [
+      "large_daily_move(365%)"
+    ],
+    "140520": [
+      "low_trading_value(0.4억)"
+    ],
+    "141000": [
+      "low_trading_value(2.2억)"
+    ],
+    "142210": [
+      "low_trading_value(15.5억)",
+      "large_daily_move(59%)"
+    ],
+    "142760": [
+      "low_trading_value(3.6억)"
+    ],
+    "143160": [
+      "low_trading_value(2.9억)",
+      "large_daily_move(67%)"
+    ],
+    "143210": [
+      "low_trading_value(1.0억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)"
+    ],
+    "143240": [
+      "low_trading_value(4.5억)"
+    ],
+    "143540": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(53%)"
+    ],
+    "144510": [
+      "low_trading_value(12.3억)"
+    ],
+    "144960": [
+      "low_trading_value(13.3억)",
+      "large_daily_move(80%)"
+    ],
+    "145020": [
+      "large_daily_move(66%)"
+    ],
+    "145170": [
+      "low_trading_value(9.8억)"
+    ],
+    "145210": [
+      "low_trading_value(3.5억)",
+      "consecutive_same_close(544일)",
+      "consecutive_zero_volume(544일)",
+      "large_daily_move(2711%)"
+    ],
+    "145990": [
+      "low_trading_value(7.4억)"
+    ],
+    "146060": [
+      "low_trading_value(1.5억)"
+    ],
+    "146320": [
+      "low_trading_value(9.6억)"
+    ],
+    "147760": [
+      "low_trading_value(1.6억)"
+    ],
+    "148150": [
+      "large_daily_move(67%)"
+    ],
+    "148250": [
+      "low_trading_value(8.7억)",
+      "consecutive_same_close(105일)",
+      "consecutive_zero_volume(95일)",
+      "large_daily_move(57%)"
+    ],
+    "148780": [
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(25일)",
+      "large_daily_move(77%)"
+    ],
+    "148930": [
+      "low_trading_value(0.8억)"
+    ],
+    "149950": [
+      "low_trading_value(2.4억)"
+    ],
+    "149980": [
+      "low_trading_value(1.5억)",
+      "consecutive_same_close(259일)",
+      "consecutive_zero_volume(259일)",
+      "large_daily_move(77%)"
+    ],
+    "150840": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(940일)",
+      "consecutive_zero_volume(940일)",
+      "large_daily_move(98%)"
+    ],
+    "150900": [
+      "low_trading_value(3.8억)"
+    ],
+    "151860": [
+      "low_trading_value(7.8억)"
+    ],
+    "152550": [
+      "low_trading_value(11.7억)",
+      "large_daily_move(98%)"
+    ],
+    "153460": [
+      "low_trading_value(0.3억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "153490": [
+      "low_trading_value(0.7억)"
+    ],
+    "153710": [
+      "low_trading_value(0.9억)"
+    ],
+    "154030": [
+      "low_trading_value(5.2억)"
+    ],
+    "154040": [
+      "low_trading_value(0.8억)"
+    ],
+    "155650": [
+      "low_trading_value(1.5억)",
+      "large_daily_move(50%)"
+    ],
+    "155660": [
+      "low_trading_value(1.1억)"
+    ],
+    "156100": [
+      "low_trading_value(19.7억)",
+      "consecutive_same_close(277일)",
+      "consecutive_zero_volume(277일)"
+    ],
+    "158430": [
+      "large_daily_move(82%)"
+    ],
+    "159010": [
+      "low_trading_value(5.5억)",
+      "large_daily_move(57%)"
+    ],
+    "159580": [
+      "low_trading_value(19.9억)"
+    ],
+    "159910": [
+      "low_trading_value(5.2억)",
+      "consecutive_same_close(424일)",
+      "consecutive_zero_volume(424일)",
+      "large_daily_move(856%)"
+    ],
+    "160550": [
+      "low_trading_value(9.0억)",
+      "large_daily_move(52%)"
+    ],
+    "160980": [
+      "low_trading_value(12.4억)"
+    ],
+    "161000": [
+      "large_daily_move(92%)"
+    ],
+    "161580": [
+      "large_daily_move(66%)"
+    ],
+    "162300": [
+      "low_trading_value(3.1억)"
+    ],
+    "163280": [
+      "large_daily_move(56%)"
+    ],
+    "163560": [
+      "low_trading_value(4.9억)"
+    ],
+    "166480": [
+      "low_trading_value(11.9억)"
+    ],
+    "168330": [
+      "low_trading_value(7.0억)",
+      "consecutive_same_close(387일)",
+      "consecutive_zero_volume(387일)",
+      "large_daily_move(160%)"
+    ],
+    "168360": [
+      "large_daily_move(54%)"
+    ],
+    "169330": [
+      "low_trading_value(0.2억)",
+      "large_daily_move(55%)"
+    ],
+    "170790": [
+      "low_trading_value(9.7억)",
+      "consecutive_same_close(81일)",
+      "consecutive_zero_volume(81일)"
+    ],
+    "170900": [
+      "low_trading_value(10.6억)"
+    ],
+    "171120": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(56%)"
+    ],
+    "173130": [
+      "consecutive_same_close(154일)",
+      "consecutive_zero_volume(155일)",
+      "large_daily_move(65%)"
+    ],
+    "173940": [
+      "low_trading_value(0.5억)"
+    ],
+    "174880": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(491일)",
+      "consecutive_zero_volume(667일)",
+      "large_daily_move(400%)"
+    ],
+    "174900": [
+      "large_daily_move(52%)"
+    ],
+    "175140": [
+      "low_trading_value(5.7억)"
+    ],
+    "175250": [
+      "low_trading_value(2.2억)",
+      "consecutive_same_close(195일)",
+      "consecutive_zero_volume(195일)",
+      "large_daily_move(51%)"
+    ],
+    "176750": [
+      "low_trading_value(13.4억)"
+    ],
+    "177350": [
+      "low_trading_value(12.0억)",
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(47일)",
+      "large_daily_move(549%)"
+    ],
+    "177830": [
+      "low_trading_value(1.7억)",
+      "large_daily_move(50%)"
+    ],
+    "178320": [
+      "large_daily_move(53%)"
+    ],
+    "178780": [
+      "low_trading_value(2.0억)",
+      "consecutive_same_close(478일)",
+      "consecutive_zero_volume(943일)",
+      "large_daily_move(400%)"
+    ],
+    "179290": [
+      "low_trading_value(9.5억)"
+    ],
+    "179530": [
+      "low_trading_value(16.4억)",
+      "large_daily_move(65%)"
+    ],
+    "179900": [
+      "large_daily_move(66%)"
+    ],
+    "180400": [
+      "low_trading_value(16.6억)",
+      "consecutive_same_close(994일)",
+      "consecutive_zero_volume(994일)",
+      "large_daily_move(66%)"
+    ],
+    "182360": [
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(42일)",
+      "large_daily_move(391%)"
+    ],
+    "182400": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(320일)",
+      "consecutive_zero_volume(526일)",
+      "large_daily_move(51%)"
+    ],
+    "183190": [
+      "low_trading_value(11.1억)",
+      "large_daily_move(90%)"
+    ],
+    "183490": [
+      "low_trading_value(6.2억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(49일)",
+      "large_daily_move(78%)"
+    ],
+    "184230": [
+      "low_trading_value(11.4억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)",
+      "large_daily_move(340%)"
+    ],
+    "185490": [
+      "low_trading_value(4.1억)"
+    ],
+    "186230": [
+      "low_trading_value(4.3억)",
+      "consecutive_same_close(151일)",
+      "consecutive_zero_volume(205일)",
+      "large_daily_move(51%)"
+    ],
+    "187220": [
+      "low_trading_value(2.5억)"
+    ],
+    "187270": [
+      "low_trading_value(4.1억)"
+    ],
+    "187420": [
+      "low_trading_value(4.0억)"
+    ],
+    "187660": [
+      "large_daily_move(52%)"
+    ],
+    "187790": [
+      "low_trading_value(8.2억)",
+      "consecutive_same_close(267일)",
+      "consecutive_zero_volume(267일)",
+      "large_daily_move(147%)"
+    ],
+    "187870": [
+      "low_trading_value(1.8억)"
+    ],
+    "188260": [
+      "low_trading_value(2.4억)"
+    ],
+    "189330": [
+      "low_trading_value(13.0억)",
+      "consecutive_same_close(98일)",
+      "consecutive_zero_volume(73일)"
+    ],
+    "189690": [
+      "low_trading_value(9.2억)",
+      "large_daily_move(67%)"
+    ],
+    "189860": [
+      "low_trading_value(5.1억)"
+    ],
+    "189980": [
+      "low_trading_value(2.3억)",
+      "large_daily_move(81%)"
+    ],
+    "190510": [
+      "low_trading_value(12.4억)"
+    ],
+    "190650": [
+      "low_trading_value(1.1억)"
+    ],
+    "191410": [
+      "low_trading_value(8.1억)"
+    ],
+    "191420": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(53%)"
+    ],
+    "192250": [
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(36일)",
+      "large_daily_move(832%)"
+    ],
+    "192390": [
+      "low_trading_value(3.3억)"
+    ],
+    "192400": [
+      "low_trading_value(8.3억)",
+      "consecutive_same_close(28일)",
+      "consecutive_zero_volume(28일)",
+      "large_daily_move(80%)"
+    ],
+    "192410": [
+      "low_trading_value(11.5억)",
+      "consecutive_same_close(460일)",
+      "consecutive_zero_volume(460일)",
+      "large_daily_move(1932%)"
+    ],
+    "192440": [
+      "low_trading_value(2.2억)"
+    ],
+    "192650": [
+      "low_trading_value(10.6억)"
+    ],
+    "193250": [
+      "low_trading_value(4.2억)",
+      "large_daily_move(334%)"
+    ],
+    "194370": [
+      "large_daily_move(55%)"
+    ],
+    "194700": [
+      "large_daily_move(53%)"
+    ],
+    "195500": [
+      "low_trading_value(5.2억)"
+    ],
+    "195990": [
+      "low_trading_value(11.7억)",
+      "large_daily_move(686%)"
+    ],
+    "196300": [
+      "low_trading_value(8.3억)"
+    ],
+    "196450": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(165일)",
+      "consecutive_zero_volume(208일)",
+      "large_daily_move(400%)"
+    ],
+    "196490": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(498일)",
+      "consecutive_zero_volume(514일)",
+      "large_daily_move(2900%)"
+    ],
+    "196700": [
+      "low_trading_value(3.5억)"
+    ],
+    "197140": [
+      "low_trading_value(0.4억)",
+      "consecutive_same_close(39일)",
+      "consecutive_zero_volume(57일)"
+    ],
+    "198080": [
+      "low_trading_value(2.5억)"
+    ],
+    "198440": [
+      "low_trading_value(4.6억)",
+      "consecutive_same_close(75일)",
+      "consecutive_zero_volume(75일)"
+    ],
+    "198940": [
+      "low_trading_value(0.6억)",
+      "consecutive_same_close(113일)",
+      "consecutive_zero_volume(67일)",
+      "large_daily_move(132%)"
+    ],
+    "199730": [
+      "low_trading_value(3.7억)"
+    ],
+    "199800": [
+      "low_trading_value(17.4억)"
+    ],
+    "200130": [
+      "consecutive_same_close(34일)",
+      "consecutive_zero_volume(34일)",
+      "large_daily_move(426%)"
+    ],
+    "200230": [
+      "large_daily_move(882%)"
+    ],
+    "200350": [
+      "low_trading_value(19.1억)"
+    ],
+    "200780": [
+      "low_trading_value(0.5억)"
+    ],
+    "200880": [
+      "low_trading_value(15.3억)"
+    ],
+    "203400": [
+      "consecutive_same_close(75일)",
+      "consecutive_zero_volume(75일)"
+    ],
+    "203450": [
+      "low_trading_value(3.9억)"
+    ],
+    "203650": [
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)",
+      "large_daily_move(54%)"
+    ],
+    "203690": [
+      "low_trading_value(0.3억)",
+      "consecutive_same_close(324일)",
+      "consecutive_zero_volume(324일)",
+      "large_daily_move(357%)"
+    ],
+    "204020": [
+      "low_trading_value(9.9억)",
+      "large_daily_move(51%)"
+    ],
+    "204320": [
+      "large_daily_move(80%)"
+    ],
+    "204610": [
+      "low_trading_value(6.5억)"
+    ],
+    "204620": [
+      "consecutive_same_close(57일)",
+      "consecutive_zero_volume(56일)",
+      "large_daily_move(463%)"
+    ],
+    "204630": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(382일)",
+      "consecutive_zero_volume(461일)",
+      "large_daily_move(2900%)"
+    ],
+    "204840": [
+      "low_trading_value(6.1억)",
+      "consecutive_same_close(48일)",
+      "consecutive_zero_volume(48일)"
+    ],
+    "205100": [
+      "consecutive_same_close(46일)",
+      "consecutive_zero_volume(46일)",
+      "large_daily_move(70%)"
+    ],
+    "205470": [
+      "consecutive_same_close(41일)",
+      "consecutive_zero_volume(41일)",
+      "large_daily_move(389%)"
+    ],
+    "205500": [
+      "consecutive_same_close(70일)",
+      "consecutive_zero_volume(70일)",
+      "large_daily_move(370%)"
+    ],
+    "206400": [
+      "low_trading_value(6.6억)",
+      "consecutive_same_close(41일)",
+      "consecutive_zero_volume(41일)",
+      "large_daily_move(335%)"
+    ],
+    "206560": [
+      "low_trading_value(11.1억)"
+    ],
+    "206640": [
+      "low_trading_value(14.4억)",
+      "consecutive_same_close(40일)",
+      "consecutive_zero_volume(40일)",
+      "large_daily_move(606%)"
+    ],
+    "207760": [
+      "consecutive_same_close(42일)",
+      "consecutive_zero_volume(41일)",
+      "large_daily_move(57%)"
+    ],
+    "208140": [
+      "low_trading_value(3.4억)",
+      "consecutive_same_close(51일)",
+      "consecutive_zero_volume(51일)"
+    ],
+    "208340": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(482일)",
+      "consecutive_zero_volume(482일)",
+      "large_daily_move(93%)"
+    ],
+    "208350": [
+      "low_trading_value(0.7억)",
+      "consecutive_same_close(41일)",
+      "consecutive_zero_volume(41일)",
+      "large_daily_move(382%)"
+    ],
+    "208370": [
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(42일)",
+      "large_daily_move(377%)"
+    ],
+    "208640": [
+      "low_trading_value(19.3억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)"
+    ],
+    "208710": [
+      "low_trading_value(19.3억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)",
+      "large_daily_move(289%)"
+    ],
+    "208860": [
+      "low_trading_value(1.0억)",
+      "consecutive_same_close(1040일)",
+      "consecutive_zero_volume(1040일)",
+      "large_daily_move(69%)"
+    ],
+    "209640": [
+      "large_daily_move(50%)"
+    ],
+    "210120": [
+      "consecutive_same_close(84일)",
+      "consecutive_zero_volume(112일)",
+      "large_daily_move(66%)"
+    ],
+    "210540": [
+      "low_trading_value(5.2억)"
+    ],
+    "210980": [
+      "low_trading_value(10.7억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)",
+      "large_daily_move(51%)"
+    ],
+    "211050": [
+      "large_daily_move(80%)"
+    ],
+    "211270": [
+      "low_trading_value(18.9억)"
+    ],
+    "212560": [
+      "low_trading_value(8.9억)"
+    ],
+    "213500": [
+      "low_trading_value(4.5억)"
+    ],
+    "214150": [
+      "consecutive_same_close(45일)",
+      "consecutive_zero_volume(45일)"
+    ],
+    "214180": [
+      "low_trading_value(17.5억)",
+      "large_daily_move(51%)"
+    ],
+    "214260": [
+      "low_trading_value(9.2억)"
+    ],
+    "214270": [
+      "low_trading_value(15.1억)",
+      "consecutive_same_close(40일)",
+      "consecutive_zero_volume(40일)",
+      "large_daily_move(452%)"
+    ],
+    "214320": [
+      "low_trading_value(20.0억)",
+      "large_daily_move(50%)"
+    ],
+    "214330": [
+      "low_trading_value(3.6억)",
+      "large_daily_move(806%)"
+    ],
+    "214370": [
+      "consecutive_same_close(277일)",
+      "consecutive_zero_volume(277일)",
+      "large_daily_move(81%)"
+    ],
+    "214390": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(184일)",
+      "consecutive_zero_volume(184일)"
+    ],
+    "214430": [
+      "large_daily_move(50%)"
+    ],
+    "214610": [
+      "low_trading_value(12.7억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)",
+      "large_daily_move(843%)"
+    ],
+    "214680": [
+      "low_trading_value(15.5억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)"
+    ],
+    "215000": [
+      "low_trading_value(10.3억)"
+    ],
+    "215090": [
+      "low_trading_value(8.8억)",
+      "consecutive_same_close(794일)",
+      "consecutive_zero_volume(793일)",
+      "large_daily_move(385%)"
+    ],
+    "215100": [
+      "consecutive_same_close(58일)",
+      "consecutive_zero_volume(57일)",
+      "large_daily_move(85%)"
+    ],
+    "215200": [
+      "low_trading_value(11.6억)",
+      "large_daily_move(81%)"
+    ],
+    "215360": [
+      "low_trading_value(5.6억)"
+    ],
+    "215380": [
+      "low_trading_value(7.4억)",
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(38일)",
+      "large_daily_move(83%)"
+    ],
+    "215480": [
+      "low_trading_value(1.3억)",
+      "consecutive_same_close(33일)",
+      "consecutive_zero_volume(33일)",
+      "large_daily_move(353%)"
+    ],
+    "215600": [
+      "consecutive_same_close(603일)",
+      "consecutive_zero_volume(603일)"
+    ],
+    "215790": [
+      "low_trading_value(4.3억)",
+      "consecutive_same_close(24일)",
+      "consecutive_zero_volume(24일)",
+      "large_daily_move(403%)"
+    ],
+    "216050": [
+      "low_trading_value(3.4억)",
+      "large_daily_move(58%)"
+    ],
+    "216080": [
+      "low_trading_value(8.1억)",
+      "large_daily_move(51%)"
+    ],
+    "217190": [
+      "low_trading_value(12.3억)"
+    ],
+    "217270": [
+      "low_trading_value(19.5억)",
+      "consecutive_same_close(76일)",
+      "consecutive_zero_volume(76일)",
+      "large_daily_move(420%)"
+    ],
+    "217330": [
+      "low_trading_value(12.6억)",
+      "large_daily_move(65%)"
+    ],
+    "217480": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(565일)",
+      "consecutive_zero_volume(773일)"
+    ],
+    "217500": [
+      "low_trading_value(10.5억)",
+      "consecutive_same_close(57일)",
+      "consecutive_zero_volume(57일)"
+    ],
+    "217620": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(347일)",
+      "consecutive_zero_volume(504일)",
+      "large_daily_move(900%)"
+    ],
+    "217730": [
+      "low_trading_value(9.6억)"
+    ],
+    "217820": [
+      "low_trading_value(10.2억)",
+      "large_daily_move(52%)"
+    ],
+    "218150": [
+      "low_trading_value(11.8억)",
+      "consecutive_same_close(58일)",
+      "consecutive_zero_volume(58일)"
+    ],
+    "218410": [
+      "consecutive_same_close(79일)",
+      "consecutive_zero_volume(79일)",
+      "large_daily_move(549%)"
+    ],
+    "219130": [
+      "low_trading_value(10.9억)"
+    ],
+    "219420": [
+      "low_trading_value(19.1억)",
+      "consecutive_same_close(22일)",
+      "consecutive_zero_volume(29일)",
+      "large_daily_move(72%)"
+    ],
+    "219550": [
+      "low_trading_value(10.4억)",
+      "consecutive_same_close(35일)",
+      "consecutive_zero_volume(35일)",
+      "large_daily_move(876%)"
+    ],
+    "219750": [
+      "low_trading_value(2.7억)",
+      "consecutive_same_close(279일)",
+      "consecutive_zero_volume(772일)",
+      "large_daily_move(100%)"
+    ],
+    "220180": [
+      "low_trading_value(2.9억)"
+    ],
+    "220260": [
+      "consecutive_same_close(49일)",
+      "consecutive_zero_volume(49일)",
+      "large_daily_move(56%)"
+    ],
+    "221800": [
+      "consecutive_same_close(23일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(73%)"
+    ],
+    "221840": [
+      "low_trading_value(2.7억)"
+    ],
+    "221980": [
+      "low_trading_value(0.2억)"
+    ],
+    "222040": [
+      "low_trading_value(2.2억)",
+      "large_daily_move(51%)"
+    ],
+    "222080": [
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(38일)"
+    ],
+    "222110": [
+      "low_trading_value(1.5억)"
+    ],
+    "222160": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(553일)",
+      "consecutive_zero_volume(553일)"
+    ],
+    "222420": [
+      "low_trading_value(3.6억)",
+      "consecutive_same_close(51일)",
+      "consecutive_zero_volume(51일)"
+    ],
+    "222810": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(243일)",
+      "consecutive_zero_volume(461일)",
+      "large_daily_move(400%)"
+    ],
+    "222980": [
+      "low_trading_value(7.8억)"
+    ],
+    "223250": [
+      "large_daily_move(67%)"
+    ],
+    "223310": [
+      "low_trading_value(18.5억)",
+      "consecutive_same_close(718일)",
+      "consecutive_zero_volume(781일)",
+      "large_daily_move(1900%)"
+    ],
+    "224060": [
+      "low_trading_value(0.7억)",
+      "consecutive_same_close(20일)",
+      "consecutive_zero_volume(20일)",
+      "large_daily_move(1825%)"
+    ],
+    "224110": [
+      "low_trading_value(18.6억)"
+    ],
+    "225190": [
+      "large_daily_move(81%)"
+    ],
+    "225220": [
+      "low_trading_value(4.5억)",
+      "large_daily_move(51%)"
+    ],
+    "225430": [
+      "low_trading_value(1.3억)",
+      "consecutive_same_close(88일)",
+      "consecutive_zero_volume(88일)",
+      "large_daily_move(352%)"
+    ],
+    "225530": [
+      "low_trading_value(7.7억)"
+    ],
+    "225570": [
+      "consecutive_same_close(106일)",
+      "consecutive_zero_volume(106일)",
+      "large_daily_move(359%)"
+    ],
+    "225590": [
+      "low_trading_value(0.4억)",
+      "consecutive_same_close(37일)",
+      "consecutive_zero_volume(37일)",
+      "large_daily_move(363%)"
+    ],
+    "226320": [
+      "low_trading_value(3.6억)",
+      "large_daily_move(50%)"
+    ],
+    "226340": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(63일)",
+      "consecutive_zero_volume(63일)",
+      "large_daily_move(310%)"
+    ],
+    "226360": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(410일)",
+      "consecutive_zero_volume(667일)",
+      "large_daily_move(701%)"
+    ],
+    "226950": [
+      "large_daily_move(52%)"
+    ],
+    "227100": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(339일)",
+      "consecutive_zero_volume(339일)"
+    ],
+    "227610": [
+      "low_trading_value(2.2억)",
+      "large_daily_move(57%)"
+    ],
+    "227840": [
+      "low_trading_value(2.8억)"
+    ],
+    "227950": [
+      "low_trading_value(7.1억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)",
+      "large_daily_move(299%)"
+    ],
+    "228340": [
+      "low_trading_value(0.5억)"
+    ],
+    "228670": [
+      "low_trading_value(9.5억)"
+    ],
+    "228760": [
+      "consecutive_same_close(32일)",
+      "large_daily_move(63%)"
+    ],
+    "228850": [
+      "low_trading_value(1.3억)"
+    ],
+    "229000": [
+      "low_trading_value(3.8억)",
+      "consecutive_same_close(22일)"
+    ],
+    "230240": [
+      "consecutive_same_close(41일)",
+      "consecutive_zero_volume(40일)",
+      "large_daily_move(495%)"
+    ],
+    "230360": [
+      "low_trading_value(16.8억)",
+      "large_daily_move(51%)"
+    ],
+    "230980": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(525일)",
+      "consecutive_zero_volume(525일)",
+      "large_daily_move(94%)"
+    ],
+    "232140": [
+      "consecutive_same_close(54일)",
+      "consecutive_zero_volume(54일)"
+    ],
+    "232680": [
+      "large_daily_move(59%)"
+    ],
+    "232830": [
+      "low_trading_value(5.8억)",
+      "large_daily_move(77%)"
+    ],
+    "234080": [
+      "low_trading_value(6.8억)",
+      "large_daily_move(53%)"
+    ],
+    "234100": [
+      "consecutive_same_close(46일)",
+      "consecutive_zero_volume(46일)",
+      "large_daily_move(325%)"
+    ],
+    "234300": [
+      "low_trading_value(5.0억)"
+    ],
+    "234690": [
+      "low_trading_value(9.0억)"
+    ],
+    "234920": [
+      "low_trading_value(19.6억)",
+      "consecutive_same_close(140일)",
+      "consecutive_zero_volume(140일)"
+    ],
+    "236200": [
+      "low_trading_value(13.7억)"
+    ],
+    "237750": [
+      "low_trading_value(2.0억)"
+    ],
+    "237820": [
+      "low_trading_value(11.5억)"
+    ],
+    "238090": [
+      "low_trading_value(2.0억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(184%)"
+    ],
+    "238120": [
+      "low_trading_value(2.4억)",
+      "large_daily_move(52%)"
+    ],
+    "238200": [
+      "low_trading_value(0.5억)",
+      "consecutive_same_close(63일)",
+      "consecutive_zero_volume(63일)",
+      "large_daily_move(51%)"
+    ],
+    "238490": [
+      "low_trading_value(2.9억)",
+      "large_daily_move(50%)"
+    ],
+    "239340": [
+      "consecutive_same_close(96일)",
+      "consecutive_zero_volume(96일)"
+    ],
+    "239610": [
+      "low_trading_value(1.0억)"
+    ],
+    "239890": [
+      "low_trading_value(6.8억)",
+      "consecutive_same_close(214일)",
+      "consecutive_zero_volume(234일)"
+    ],
+    "240600": [
+      "low_trading_value(4.6억)"
+    ],
+    "241590": [
+      "low_trading_value(17.4억)"
+    ],
+    "241690": [
+      "low_trading_value(12.1억)",
+      "large_daily_move(52%)"
+    ],
+    "241710": [
+      "no_2025_data",
+      "large_daily_move(inf%)"
+    ],
+    "241770": [
+      "low_trading_value(7.3억)"
+    ],
+    "241790": [
+      "low_trading_value(6.3억)"
+    ],
+    "241820": [
+      "low_trading_value(0.8억)",
+      "consecutive_same_close(148일)",
+      "consecutive_zero_volume(287일)",
+      "large_daily_move(1900%)"
+    ],
+    "241840": [
+      "low_trading_value(10.8억)"
+    ],
+    "242040": [
+      "low_trading_value(15.4억)",
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(38일)",
+      "large_daily_move(50%)"
+    ],
+    "243070": [
+      "low_trading_value(8.2억)"
+    ],
+    "243840": [
+      "large_daily_move(81%)"
+    ],
+    "244460": [
+      "low_trading_value(1.7억)",
+      "consecutive_same_close(276일)",
+      "consecutive_zero_volume(276일)",
+      "large_daily_move(937%)"
+    ],
+    "244920": [
+      "low_trading_value(12.8억)"
+    ],
+    "245620": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(517일)",
+      "consecutive_zero_volume(517일)"
+    ],
+    "246250": [
+      "low_trading_value(9.0억)",
+      "consecutive_same_close(235일)",
+      "consecutive_zero_volume(235일)"
+    ],
+    "246710": [
+      "low_trading_value(17.6억)"
+    ],
+    "246720": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)"
+    ],
+    "246960": [
+      "low_trading_value(4.7억)",
+      "large_daily_move(68%)"
+    ],
+    "247540": [
+      "large_daily_move(73%)"
+    ],
+    "247660": [
+      "low_trading_value(1.7억)"
+    ],
+    "248170": [
+      "low_trading_value(7.4억)"
+    ],
+    "250000": [
+      "low_trading_value(2.7억)"
+    ],
+    "250060": [
+      "consecutive_same_close(48일)",
+      "consecutive_zero_volume(48일)"
+    ],
+    "250930": [
+      "low_trading_value(3.1억)",
+      "consecutive_same_close(40일)",
+      "consecutive_zero_volume(40일)"
+    ],
+    "251120": [
+      "low_trading_value(7.0억)"
+    ],
+    "251370": [
+      "low_trading_value(15.3억)"
+    ],
+    "251630": [
+      "low_trading_value(7.5억)",
+      "large_daily_move(52%)"
+    ],
+    "251970": [
+      "large_daily_move(86%)"
+    ],
+    "252500": [
+      "low_trading_value(1.4억)",
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "253590": [
+      "consecutive_same_close(42일)",
+      "consecutive_zero_volume(42일)"
+    ],
+    "253840": [
+      "consecutive_same_close(48일)",
+      "consecutive_zero_volume(48일)"
+    ],
+    "254120": [
+      "low_trading_value(4.7억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)"
+    ],
+    "255220": [
+      "large_daily_move(67%)"
+    ],
+    "255440": [
+      "low_trading_value(3.8억)"
+    ],
+    "256150": [
+      "low_trading_value(0.6억)"
+    ],
+    "256630": [
+      "low_trading_value(0.3억)",
+      "consecutive_same_close(31일)",
+      "consecutive_zero_volume(30일)",
+      "large_daily_move(291%)"
+    ],
+    "256840": [
+      "consecutive_same_close(54일)",
+      "consecutive_zero_volume(54일)"
+    ],
+    "256940": [
+      "consecutive_same_close(33일)",
+      "consecutive_zero_volume(59일)",
+      "large_daily_move(61%)"
+    ],
+    "257370": [
+      "low_trading_value(1.5억)",
+      "consecutive_same_close(937일)",
+      "consecutive_zero_volume(937일)"
+    ],
+    "257720": [
+      "large_daily_move(78%)"
+    ],
+    "258610": [
+      "low_trading_value(2.2억)"
+    ],
+    "258790": [
+      "low_trading_value(13.9억)",
+      "consecutive_same_close(56일)",
+      "consecutive_zero_volume(56일)",
+      "large_daily_move(284%)"
+    ],
+    "258830": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(522일)",
+      "consecutive_zero_volume(522일)",
+      "large_daily_move(81%)"
+    ],
+    "259630": [
+      "low_trading_value(15.8억)",
+      "large_daily_move(54%)"
+    ],
+    "260970": [
+      "consecutive_same_close(300일)",
+      "consecutive_zero_volume(405일)",
+      "large_daily_move(91%)"
+    ],
+    "261200": [
+      "low_trading_value(9.6억)",
+      "consecutive_same_close(116일)",
+      "consecutive_zero_volume(115일)",
+      "large_daily_move(401%)"
+    ],
+    "261780": [
+      "low_trading_value(3.0억)"
+    ],
+    "262260": [
+      "low_trading_value(10.7억)",
+      "large_daily_move(52%)"
+    ],
+    "262840": [
+      "low_trading_value(2.3억)",
+      "large_daily_move(95%)"
+    ],
+    "263020": [
+      "low_trading_value(2.3억)",
+      "large_daily_move(51%)"
+    ],
+    "263050": [
+      "low_trading_value(5.1억)",
+      "consecutive_same_close(71일)",
+      "consecutive_zero_volume(71일)",
+      "large_daily_move(50%)"
+    ],
+    "263600": [
+      "low_trading_value(3.5억)",
+      "large_daily_move(54%)"
+    ],
+    "263690": [
+      "low_trading_value(3.6억)"
+    ],
+    "263700": [
+      "low_trading_value(8.1억)"
+    ],
+    "263720": [
+      "low_trading_value(11.0억)",
+      "large_daily_move(64%)"
+    ],
+    "263750": [
+      "no_2025_data",
+      "large_daily_move(80%)"
+    ],
+    "263770": [
+      "low_trading_value(1.7억)",
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(35일)"
+    ],
+    "263810": [
+      "low_trading_value(5.1억)"
+    ],
+    "263860": [
+      "low_trading_value(14.0억)"
+    ],
+    "263920": [
+      "low_trading_value(0.9억)",
+      "consecutive_same_close(584일)",
+      "consecutive_zero_volume(584일)",
+      "large_daily_move(343%)"
+    ],
+    "264450": [
+      "low_trading_value(1.8억)",
+      "large_daily_move(50%)"
+    ],
+    "264660": [
+      "large_daily_move(52%)"
+    ],
+    "264850": [
+      "consecutive_same_close(107일)",
+      "consecutive_zero_volume(107일)"
+    ],
+    "264900": [
+      "low_trading_value(3.5억)"
+    ],
+    "265560": [
+      "low_trading_value(2.0억)",
+      "large_daily_move(52%)"
+    ],
+    "265740": [
+      "large_daily_move(54%)"
+    ],
+    "267250": [
+      "large_daily_move(79%)"
+    ],
+    "267260": [
+      "large_daily_move(334%)"
+    ],
+    "267290": [
+      "low_trading_value(2.4억)"
+    ],
+    "267320": [
+      "consecutive_same_close(105일)",
+      "consecutive_zero_volume(105일)"
+    ],
+    "267790": [
+      "low_trading_value(0.5억)"
+    ],
+    "267850": [
+      "low_trading_value(1.1억)",
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(36일)"
+    ],
+    "267980": [
+      "low_trading_value(2.7억)"
+    ],
+    "268280": [
+      "low_trading_value(1.9억)"
+    ],
+    "269620": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(1022일)",
+      "consecutive_zero_volume(1022일)",
+      "large_daily_move(56%)"
+    ],
+    "270520": [
+      "low_trading_value(13.5억)",
+      "consecutive_same_close(61일)",
+      "consecutive_zero_volume(61일)",
+      "large_daily_move(725%)"
+    ],
+    "270660": [
+      "large_daily_move(72%)"
+    ],
+    "270870": [
+      "low_trading_value(5.5억)"
+    ],
+    "271830": [
+      "low_trading_value(9.5억)"
+    ],
+    "271940": [
+      "low_trading_value(10.4억)"
+    ],
+    "271980": [
+      "low_trading_value(17.1억)"
+    ],
+    "272290": [
+      "large_daily_move(51%)"
+    ],
+    "272450": [
+      "low_trading_value(10.9억)"
+    ],
+    "272550": [
+      "low_trading_value(3.7억)"
+    ],
+    "273060": [
+      "low_trading_value(17.6억)",
+      "consecutive_same_close(55일)",
+      "consecutive_zero_volume(55일)"
+    ],
+    "273640": [
+      "low_trading_value(2.5억)"
+    ],
+    "274400": [
+      "low_trading_value(1.3억)"
+    ],
+    "275630": [
+      "low_trading_value(0.3억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "276040": [
+      "low_trading_value(9.8억)",
+      "consecutive_same_close(33일)",
+      "consecutive_zero_volume(33일)"
+    ],
+    "276730": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(1467%)"
+    ],
+    "277070": [
+      "low_trading_value(13.7억)"
+    ],
+    "277410": [
+      "low_trading_value(6.4억)",
+      "consecutive_same_close(42일)",
+      "consecutive_zero_volume(42일)"
+    ],
+    "277880": [
+      "low_trading_value(8.8억)",
+      "consecutive_same_close(21일)",
+      "consecutive_zero_volume(21일)"
+    ],
+    "278470": [
+      "large_daily_move(81%)"
+    ],
+    "278650": [
+      "low_trading_value(9.0억)",
+      "large_daily_move(276%)"
+    ],
+    "279600": [
+      "low_trading_value(1.1억)",
+      "consecutive_same_close(157일)",
+      "consecutive_zero_volume(157일)"
+    ],
+    "280360": [
+      "low_trading_value(18.9억)"
+    ],
+    "281740": [
+      "consecutive_same_close(45일)",
+      "consecutive_zero_volume(45일)"
+    ],
+    "282720": [
+      "low_trading_value(13.8억)"
+    ],
+    "284620": [
+      "low_trading_value(2.4억)",
+      "consecutive_same_close(188일)",
+      "consecutive_zero_volume(188일)",
+      "large_daily_move(397%)"
+    ],
+    "284740": [
+      "low_trading_value(9.0억)",
+      "large_daily_move(80%)"
+    ],
+    "285800": [
+      "low_trading_value(10.7억)"
+    ],
+    "286750": [
+      "low_trading_value(9.2억)",
+      "large_daily_move(55%)"
+    ],
+    "286940": [
+      "low_trading_value(6.9억)"
+    ],
+    "288330": [
+      "consecutive_same_close(33일)",
+      "consecutive_zero_volume(33일)",
+      "large_daily_move(65%)"
+    ],
+    "288620": [
+      "low_trading_value(19.1억)"
+    ],
+    "288980": [
+      "low_trading_value(6.8억)",
+      "large_daily_move(78%)"
+    ],
+    "289080": [
+      "low_trading_value(8.3억)"
+    ],
+    "289220": [
+      "low_trading_value(6.5억)"
+    ],
+    "289930": [
+      "low_trading_value(17.6억)"
+    ],
+    "290090": [
+      "low_trading_value(1.3억)"
+    ],
+    "290120": [
+      "low_trading_value(1.6억)"
+    ],
+    "290270": [
+      "low_trading_value(3.6억)"
+    ],
+    "290520": [
+      "low_trading_value(2.0억)"
+    ],
+    "290550": [
+      "low_trading_value(14.7억)",
+      "large_daily_move(52%)"
+    ],
+    "290560": [
+      "low_trading_value(1.3억)",
+      "large_daily_move(83%)"
+    ],
+    "290650": [
+      "large_daily_move(66%)"
+    ],
+    "290660": [
+      "low_trading_value(3.8억)"
+    ],
+    "290670": [
+      "large_daily_move(50%)"
+    ],
+    "290690": [
+      "large_daily_move(413%)"
+    ],
+    "290720": [
+      "low_trading_value(1.2억)",
+      "large_daily_move(54%)"
+    ],
+    "290740": [
+      "low_trading_value(3.7억)"
+    ],
+    "291230": [
+      "low_trading_value(4.1억)",
+      "consecutive_same_close(59일)",
+      "consecutive_zero_volume(59일)"
+    ],
+    "291650": [
+      "low_trading_value(7.6억)",
+      "large_daily_move(51%)"
+    ],
+    "291810": [
+      "low_trading_value(3.9억)"
+    ],
+    "293480": [
+      "low_trading_value(2.5억)"
+    ],
+    "293580": [
+      "large_daily_move(90%)"
+    ],
+    "293780": [
+      "low_trading_value(19.9억)",
+      "large_daily_move(53%)"
+    ],
+    "294090": [
+      "low_trading_value(6.7억)",
+      "consecutive_same_close(287일)",
+      "consecutive_zero_volume(287일)"
+    ],
+    "294140": [
+      "low_trading_value(5.3억)",
+      "large_daily_move(71%)"
+    ],
+    "294630": [
+      "low_trading_value(11.9억)"
+    ],
+    "296640": [
+      "low_trading_value(2.5억)"
+    ],
+    "297090": [
+      "low_trading_value(17.9억)"
+    ],
+    "297570": [
+      "low_trading_value(2.3억)",
+      "consecutive_same_close(40일)",
+      "consecutive_zero_volume(40일)",
+      "large_daily_move(53%)"
+    ],
+    "297890": [
+      "low_trading_value(11.5억)",
+      "large_daily_move(74%)"
+    ],
+    "298000": [
+      "low_trading_value(0.5억)",
+      "consecutive_same_close(301일)",
+      "consecutive_zero_volume(301일)"
+    ],
+    "298060": [
+      "low_trading_value(4.8억)",
+      "large_daily_move(300%)"
+    ],
+    "298540": [
+      "low_trading_value(3.2억)"
+    ],
+    "298690": [
+      "low_trading_value(8.1억)",
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(36일)",
+      "large_daily_move(191%)"
+    ],
+    "299030": [
+      "low_trading_value(18.8억)"
+    ],
+    "299170": [
+      "consecutive_same_close(47일)",
+      "consecutive_zero_volume(47일)"
+    ],
+    "299900": [
+      "low_trading_value(9.0억)",
+      "large_daily_move(71%)"
+    ],
+    "300080": [
+      "large_daily_move(63%)"
+    ],
+    "300120": [
+      "low_trading_value(7.5억)"
+    ],
+    "300720": [
+      "low_trading_value(18.3억)",
+      "large_daily_move(91%)"
+    ],
+    "301300": [
+      "low_trading_value(6.2억)",
+      "large_daily_move(50%)"
+    ],
+    "302430": [
+      "low_trading_value(14.6억)"
+    ],
+    "302550": [
+      "low_trading_value(9.2억)",
+      "large_daily_move(80%)"
+    ],
+    "303030": [
+      "low_trading_value(1.9억)",
+      "consecutive_same_close(107일)",
+      "consecutive_zero_volume(107일)",
+      "large_daily_move(347%)"
+    ],
+    "303360": [
+      "low_trading_value(4.5억)",
+      "large_daily_move(50%)"
+    ],
+    "303530": [
+      "low_trading_value(2.5억)"
+    ],
+    "303810": [
+      "large_daily_move(53%)"
+    ],
+    "304100": [
+      "large_daily_move(51%)"
+    ],
+    "304840": [
+      "low_trading_value(6.9억)"
+    ],
+    "305090": [
+      "low_trading_value(12.6억)",
+      "large_daily_move(51%)"
+    ],
+    "306040": [
+      "low_trading_value(13.2억)",
+      "large_daily_move(68%)"
+    ],
+    "306620": [
+      "low_trading_value(13.0억)",
+      "consecutive_same_close(45일)",
+      "consecutive_zero_volume(45일)"
+    ],
+    "307180": [
+      "low_trading_value(6.6억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)"
+    ],
+    "307280": [
+      "low_trading_value(1.4억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)",
+      "large_daily_move(395%)"
+    ],
+    "307750": [
+      "consecutive_same_close(52일)",
+      "consecutive_zero_volume(52일)"
+    ],
+    "307870": [
+      "low_trading_value(9.4억)",
+      "consecutive_same_close(59일)",
+      "consecutive_zero_volume(59일)",
+      "large_daily_move(112%)"
+    ],
+    "308080": [
+      "large_daily_move(69%)"
+    ],
+    "308170": [
+      "low_trading_value(1.7억)"
+    ],
+    "309930": [
+      "low_trading_value(3.4억)",
+      "consecutive_same_close(45일)",
+      "consecutive_zero_volume(45일)",
+      "large_daily_move(65%)"
+    ],
+    "310200": [
+      "consecutive_same_close(78일)",
+      "consecutive_zero_volume(78일)"
+    ],
+    "310870": [
+      "low_trading_value(4.0억)",
+      "consecutive_same_close(58일)",
+      "consecutive_zero_volume(58일)",
+      "large_daily_move(70%)"
+    ],
+    "311320": [
+      "low_trading_value(4.6억)"
+    ],
+    "311390": [
+      "low_trading_value(9.2억)"
+    ],
+    "311690": [
+      "low_trading_value(3.7억)"
+    ],
+    "312610": [
+      "low_trading_value(3.7억)",
+      "large_daily_move(53%)"
+    ],
+    "313760": [
+      "low_trading_value(8.3억)",
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(38일)"
+    ],
+    "314130": [
+      "low_trading_value(15.6억)"
+    ],
+    "314140": [
+      "low_trading_value(6.4억)"
+    ],
+    "314930": [
+      "large_daily_move(77%)"
+    ],
+    "315640": [
+      "no_2025_data",
+      "large_daily_move(81%)"
+    ],
+    "317240": [
+      "low_trading_value(11.6억)",
+      "consecutive_same_close(96일)",
+      "consecutive_zero_volume(96일)",
+      "large_daily_move(404%)"
+    ],
+    "317400": [
+      "low_trading_value(3.4억)"
+    ],
+    "317530": [
+      "low_trading_value(3.1억)"
+    ],
+    "317770": [
+      "large_daily_move(81%)"
+    ],
+    "317850": [
+      "low_trading_value(19.2억)"
+    ],
+    "317870": [
+      "low_trading_value(8.4억)"
+    ],
+    "318000": [
+      "low_trading_value(7.5억)"
+    ],
+    "318010": [
+      "low_trading_value(1.6억)"
+    ],
+    "318020": [
+      "low_trading_value(2.8억)",
+      "consecutive_same_close(511일)",
+      "consecutive_zero_volume(511일)"
+    ],
+    "318160": [
+      "low_trading_value(7.9억)"
+    ],
+    "318410": [
+      "low_trading_value(1.4억)"
+    ],
+    "319400": [
+      "consecutive_same_close(73일)",
+      "consecutive_zero_volume(72일)",
+      "large_daily_move(66%)"
+    ],
+    "319660": [
+      "large_daily_move(51%)"
+    ],
+    "320000": [
+      "low_trading_value(5.8억)",
+      "consecutive_same_close(61일)",
+      "consecutive_zero_volume(60일)",
+      "large_daily_move(550%)"
+    ],
+    "321260": [
+      "low_trading_value(9.1억)",
+      "consecutive_same_close(50일)",
+      "consecutive_zero_volume(50일)",
+      "large_daily_move(160%)"
+    ],
+    "321370": [
+      "low_trading_value(10.5억)"
+    ],
+    "321550": [
+      "low_trading_value(10.3억)"
+    ],
+    "321820": [
+      "low_trading_value(14.6억)"
+    ],
+    "322180": [
+      "low_trading_value(19.1억)",
+      "large_daily_move(60%)"
+    ],
+    "322510": [
+      "low_trading_value(13.6억)"
+    ],
+    "322780": [
+      "low_trading_value(9.1억)",
+      "consecutive_same_close(64일)",
+      "consecutive_zero_volume(64일)",
+      "large_daily_move(423%)"
+    ],
+    "323280": [
+      "consecutive_same_close(50일)",
+      "consecutive_zero_volume(50일)"
+    ],
+    "323350": [
+      "low_trading_value(7.2억)",
+      "consecutive_same_close(108일)",
+      "consecutive_zero_volume(105일)",
+      "large_daily_move(80%)"
+    ],
+    "323990": [
+      "low_trading_value(17.6억)"
+    ],
+    "327260": [
+      "low_trading_value(19.5억)",
+      "large_daily_move(53%)"
+    ],
+    "328380": [
+      "low_trading_value(4.0억)",
+      "consecutive_same_close(80일)",
+      "consecutive_zero_volume(80일)",
+      "large_daily_move(342%)"
+    ],
+    "330730": [
+      "low_trading_value(9.8억)"
+    ],
+    "330860": [
+      "low_trading_value(18.9억)"
+    ],
+    "331380": [
+      "low_trading_value(4.1억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)",
+      "large_daily_move(126%)"
+    ],
+    "331520": [
+      "low_trading_value(16.0억)",
+      "consecutive_same_close(64일)",
+      "consecutive_zero_volume(64일)",
+      "large_daily_move(399%)"
+    ],
+    "331920": [
+      "low_trading_value(0.8억)"
+    ],
+    "332290": [
+      "low_trading_value(10.6억)",
+      "consecutive_same_close(86일)",
+      "consecutive_zero_volume(86일)"
+    ],
+    "332370": [
+      "low_trading_value(1.1억)",
+      "large_daily_move(51%)"
+    ],
+    "333050": [
+      "low_trading_value(7.8억)",
+      "consecutive_same_close(66일)",
+      "consecutive_zero_volume(66일)",
+      "large_daily_move(381%)"
+    ],
+    "333430": [
+      "consecutive_same_close(92일)",
+      "consecutive_zero_volume(92일)",
+      "large_daily_move(53%)"
+    ],
+    "333620": [
+      "low_trading_value(3.2억)"
+    ],
+    "334970": [
+      "low_trading_value(6.3억)"
+    ],
+    "335810": [
+      "low_trading_value(2.0억)"
+    ],
+    "335870": [
+      "low_trading_value(2.6억)",
+      "consecutive_same_close(66일)",
+      "consecutive_zero_volume(66일)"
+    ],
+    "336060": [
+      "low_trading_value(4.1억)",
+      "consecutive_same_close(42일)",
+      "consecutive_zero_volume(42일)"
+    ],
+    "336570": [
+      "consecutive_same_close(115일)",
+      "consecutive_zero_volume(114일)",
+      "large_daily_move(71%)"
+    ],
+    "336680": [
+      "low_trading_value(9.1억)",
+      "large_daily_move(51%)"
+    ],
+    "337930": [
+      "low_trading_value(11.6억)"
+    ],
+    "339770": [
+      "low_trading_value(5.5억)",
+      "large_daily_move(51%)"
+    ],
+    "339950": [
+      "low_trading_value(12.0억)",
+      "consecutive_same_close(44일)",
+      "consecutive_zero_volume(44일)"
+    ],
+    "340360": [
+      "low_trading_value(10.5억)",
+      "consecutive_same_close(124일)",
+      "consecutive_zero_volume(124일)"
+    ],
+    "340440": [
+      "consecutive_same_close(59일)",
+      "consecutive_zero_volume(58일)",
+      "large_daily_move(82%)"
+    ],
+    "340570": [
+      "large_daily_move(52%)"
+    ],
+    "340810": [
+      "low_trading_value(18.1억)"
+    ],
+    "340930": [
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(38일)",
+      "large_daily_move(67%)"
+    ],
+    "344820": [
+      "low_trading_value(10.1억)"
+    ],
+    "344860": [
+      "low_trading_value(4.7억)",
+      "consecutive_same_close(36일)",
+      "consecutive_zero_volume(79일)",
+      "large_daily_move(77%)"
+    ],
+    "347000": [
+      "low_trading_value(11.8억)",
+      "large_daily_move(75%)"
+    ],
+    "347740": [
+      "low_trading_value(5.1억)",
+      "large_daily_move(68%)"
+    ],
+    "347770": [
+      "low_trading_value(4.3억)",
+      "large_daily_move(66%)"
+    ],
+    "347850": [
+      "large_daily_move(73%)"
+    ],
+    "347890": [
+      "low_trading_value(3.8억)"
+    ],
+    "348030": [
+      "low_trading_value(0.4억)"
+    ],
+    "348080": [
+      "low_trading_value(15.0억)"
+    ],
+    "348150": [
+      "low_trading_value(14.7억)"
+    ],
+    "348210": [
+      "large_daily_move(66%)"
+    ],
+    "348350": [
+      "low_trading_value(19.7억)",
+      "large_daily_move(50%)"
+    ],
+    "351320": [
+      "low_trading_value(4.8억)",
+      "consecutive_same_close(67일)",
+      "consecutive_zero_volume(67일)",
+      "large_daily_move(69%)"
+    ],
+    "351870": [
+      "low_trading_value(18.3억)"
+    ],
+    "352090": [
+      "low_trading_value(10.1억)",
+      "large_daily_move(51%)"
+    ],
+    "352700": [
+      "low_trading_value(1.0억)",
+      "large_daily_move(56%)"
+    ],
+    "352770": [
+      "low_trading_value(8.9억)",
+      "consecutive_same_close(261일)",
+      "consecutive_zero_volume(278일)",
+      "large_daily_move(1400%)"
+    ],
+    "352910": [
+      "low_trading_value(1.7억)"
+    ],
+    "352940": [
+      "low_trading_value(0.3억)"
+    ],
+    "353190": [
+      "low_trading_value(0.6억)",
+      "consecutive_same_close(49일)",
+      "consecutive_zero_volume(49일)",
+      "large_daily_move(412%)"
+    ],
+    "353590": [
+      "low_trading_value(4.0억)"
+    ],
+    "353810": [
+      "low_trading_value(18.4억)",
+      "large_daily_move(74%)"
+    ],
+    "354200": [
+      "low_trading_value(2.4억)"
+    ],
+    "355150": [
+      "low_trading_value(18.0억)",
+      "consecutive_same_close(77일)",
+      "consecutive_zero_volume(77일)",
+      "large_daily_move(337%)"
+    ],
+    "355690": [
+      "low_trading_value(4.8억)"
+    ],
+    "356860": [
+      "large_daily_move(50%)"
+    ],
+    "356890": [
+      "large_daily_move(62%)"
+    ],
+    "357230": [
+      "low_trading_value(1.6억)",
+      "large_daily_move(51%)"
+    ],
+    "357550": [
+      "low_trading_value(7.8억)"
+    ],
+    "357580": [
+      "low_trading_value(10.9억)"
+    ],
+    "358570": [
+      "large_daily_move(52%)"
+    ],
+    "359090": [
+      "low_trading_value(5.7억)",
+      "consecutive_same_close(65일)",
+      "consecutive_zero_volume(65일)"
+    ],
+    "360070": [
+      "low_trading_value(16.3억)"
+    ],
+    "360350": [
+      "low_trading_value(1.9억)"
+    ],
+    "361390": [
+      "low_trading_value(13.4억)",
+      "large_daily_move(57%)"
+    ],
+    "361570": [
+      "low_trading_value(5.7억)",
+      "large_daily_move(65%)"
+    ],
+    "361670": [
+      "low_trading_value(0.4억)"
+    ],
+    "362990": [
+      "low_trading_value(6.4억)"
+    ],
+    "363250": [
+      "low_trading_value(4.1억)"
+    ],
+    "363260": [
+      "consecutive_same_close(101일)",
+      "consecutive_zero_volume(101일)",
+      "large_daily_move(336%)"
+    ],
+    "363280": [
+      "low_trading_value(4.4억)"
+    ],
+    "365270": [
+      "low_trading_value(20.0억)"
+    ],
+    "365340": [
+      "low_trading_value(14.7억)"
+    ],
+    "365590": [
+      "low_trading_value(3.0억)",
+      "consecutive_same_close(43일)",
+      "consecutive_zero_volume(43일)",
+      "large_daily_move(555%)"
+    ],
+    "365900": [
+      "low_trading_value(1.2억)"
+    ],
+    "366030": [
+      "large_daily_move(78%)"
+    ],
+    "367000": [
+      "low_trading_value(0.6억)"
+    ],
+    "368600": [
+      "low_trading_value(2.9억)",
+      "large_daily_move(57%)"
+    ],
+    "368770": [
+      "consecutive_same_close(57일)",
+      "consecutive_zero_volume(57일)"
+    ],
+    "368970": [
+      "low_trading_value(2.6억)",
+      "large_daily_move(67%)"
+    ],
+    "369370": [
+      "low_trading_value(1.6억)",
+      "consecutive_same_close(59일)",
+      "consecutive_zero_volume(59일)"
+    ],
+    "371950": [
+      "low_trading_value(4.7억)"
+    ],
+    "372170": [
+      "low_trading_value(9.6억)"
+    ],
+    "372800": [
+      "low_trading_value(4.3억)"
+    ],
+    "372910": [
+      "low_trading_value(18.4억)"
+    ],
+    "373110": [
+      "low_trading_value(9.3억)"
+    ],
+    "373170": [
+      "low_trading_value(2.7억)",
+      "large_daily_move(66%)"
+    ],
+    "373200": [
+      "low_trading_value(4.3억)",
+      "consecutive_same_close(51일)",
+      "consecutive_zero_volume(51일)",
+      "large_daily_move(371%)"
+    ],
+    "375500": [
+      "large_daily_move(51%)"
+    ],
+    "376180": [
+      "large_daily_move(78%)"
+    ],
+    "376270": [
+      "low_trading_value(12.5억)"
+    ],
+    "376290": [
+      "low_trading_value(0.5억)"
+    ],
+    "376980": [
+      "low_trading_value(14.5억)"
+    ],
+    "377030": [
+      "large_daily_move(448%)"
+    ],
+    "377330": [
+      "low_trading_value(2.5억)"
+    ],
+    "377450": [
+      "low_trading_value(11.8억)"
+    ],
+    "377460": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(409일)",
+      "consecutive_zero_volume(605일)",
+      "large_daily_move(141%)"
+    ],
+    "377740": [
+      "low_trading_value(3.8억)"
+    ],
+    "378340": [
+      "large_daily_move(51%)"
+    ],
+    "378850": [
+      "low_trading_value(8.4억)"
+    ],
+    "380540": [
+      "low_trading_value(18.7억)",
+      "consecutive_same_close(40일)",
+      "consecutive_zero_volume(44일)",
+      "large_daily_move(100%)"
+    ],
+    "381620": [
+      "large_daily_move(68%)"
+    ],
+    "381970": [
+      "low_trading_value(15.1억)"
+    ],
+    "382480": [
+      "low_trading_value(13.0억)",
+      "large_daily_move(81%)"
+    ],
+    "382800": [
+      "low_trading_value(4.1억)",
+      "large_daily_move(75%)"
+    ],
+    "382840": [
+      "low_trading_value(9.7억)",
+      "large_daily_move(66%)"
+    ],
+    "383220": [
+      "large_daily_move(81%)"
+    ],
+    "383310": [
+      "large_daily_move(67%)"
+    ],
+    "383800": [
+      "low_trading_value(17.3억)"
+    ],
+    "383930": [
+      "low_trading_value(14.8억)",
+      "large_daily_move(54%)"
+    ],
+    "388050": [
+      "large_daily_move(74%)"
+    ],
+    "388610": [
+      "large_daily_move(66%)"
+    ],
+    "388790": [
+      "low_trading_value(12.1억)",
+      "consecutive_same_close(85일)",
+      "consecutive_zero_volume(85일)"
+    ],
+    "389030": [
+      "low_trading_value(14.5억)",
+      "large_daily_move(65%)"
+    ],
+    "389680": [
+      "low_trading_value(7.6억)",
+      "large_daily_move(549%)"
+    ],
+    "391710": [
+      "consecutive_same_close(80일)",
+      "consecutive_zero_volume(80일)"
+    ],
+    "393210": [
+      "large_daily_move(67%)"
+    ],
+    "393970": [
+      "consecutive_same_close(55일)",
+      "consecutive_zero_volume(55일)"
+    ],
+    "398120": [
+      "low_trading_value(16.1억)"
+    ],
+    "402490": [
+      "large_daily_move(53%)"
+    ],
+    "403550": [
+      "low_trading_value(0.9억)"
+    ],
+    "403870": [
+      "large_daily_move(75%)"
+    ],
+    "405000": [
+      "low_trading_value(1.7억)",
+      "large_daily_move(947%)"
+    ],
+    "405100": [
+      "low_trading_value(11.3억)",
+      "large_daily_move(57%)"
+    ],
+    "405920": [
+      "low_trading_value(1.3억)"
+    ],
+    "406820": [
+      "low_trading_value(5.4억)",
+      "large_daily_move(67%)"
+    ],
+    "408900": [
+      "large_daily_move(78%)"
+    ],
+    "408920": [
+      "low_trading_value(2.8억)",
+      "consecutive_same_close(80일)",
+      "consecutive_zero_volume(80일)"
+    ],
+    "412350": [
+      "low_trading_value(5.2억)"
+    ],
+    "412540": [
+      "low_trading_value(2.4억)",
+      "consecutive_same_close(277일)",
+      "consecutive_zero_volume(277일)"
+    ],
+    "413630": [
+      "consecutive_same_close(98일)",
+      "consecutive_zero_volume(98일)",
+      "large_daily_move(50%)"
+    ],
+    "415380": [
+      "low_trading_value(5.2억)",
+      "large_daily_move(62%)"
+    ],
+    "415640": [
+      "low_trading_value(13.1억)"
+    ],
+    "417010": [
+      "low_trading_value(11.8억)"
+    ],
+    "417180": [
+      "large_daily_move(281%)"
+    ],
+    "417500": [
+      "low_trading_value(7.3억)",
+      "large_daily_move(67%)"
+    ],
+    "417790": [
+      "low_trading_value(3.0억)"
+    ],
+    "417840": [
+      "large_daily_move(62%)"
+    ],
+    "417860": [
+      "low_trading_value(10.9억)"
+    ],
+    "418250": [
+      "low_trading_value(0.0억)",
+      "consecutive_same_close(517일)",
+      "consecutive_zero_volume(517일)"
+    ],
+    "418420": [
+      "low_trading_value(13.0억)"
+    ],
+    "418470": [
+      "low_trading_value(8.3억)"
+    ],
+    "418550": [
+      "low_trading_value(16.4억)"
+    ],
+    "418620": [
+      "low_trading_value(9.8억)"
+    ],
+    "419050": [
+      "large_daily_move(67%)"
+    ],
+    "419080": [
+      "low_trading_value(17.3억)"
+    ],
+    "419120": [
+      "large_daily_move(53%)"
+    ],
+    "419540": [
+      "low_trading_value(8.2억)",
+      "large_daily_move(311%)"
+    ],
+    "420570": [
+      "low_trading_value(15.7억)"
+    ],
+    "420770": [
+      "low_trading_value(17.2억)"
+    ],
+    "424760": [
+      "low_trading_value(4.2억)",
+      "consecutive_same_close(38일)",
+      "consecutive_zero_volume(38일)",
+      "large_daily_move(62%)"
+    ],
+    "424980": [
+      "low_trading_value(8.4억)"
+    ],
+    "425040": [
+      "low_trading_value(11.4억)",
+      "large_daily_move(51%)"
+    ],
+    "429270": [
+      "low_trading_value(10.1억)"
+    ],
+    "432430": [
+      "low_trading_value(16.1억)"
+    ],
+    "432470": [
+      "low_trading_value(9.9억)",
+      "large_daily_move(53%)"
+    ],
+    "432980": [
+      "low_trading_value(5.6억)"
+    ],
+    "437730": [
+      "large_daily_move(68%)"
+    ],
+    "438700": [
+      "low_trading_value(17.0억)"
+    ],
+    "439580": [
+      "large_daily_move(57%)"
+    ],
+    "440110": [
+      "consecutive_same_close(29일)",
+      "consecutive_zero_volume(29일)"
+    ],
+    "440290": [
+      "low_trading_value(2.5억)"
+    ],
+    "440320": [
+      "low_trading_value(19.0억)"
+    ],
+    "443250": [
+      "low_trading_value(12.7억)"
+    ],
+    "445180": [
+      "low_trading_value(9.9억)"
+    ],
+    "446070": [
+      "low_trading_value(2.3억)"
+    ],
+    "448280": [
+      "large_daily_move(57%)"
+    ],
+    "448900": [
+      "consecutive_same_close(52일)",
+      "consecutive_zero_volume(47일)"
+    ],
+    "450330": [
+      "low_trading_value(12.6억)"
+    ],
+    "450520": [
+      "large_daily_move(61%)"
+    ],
+    "451760": [
+      "low_trading_value(9.7억)"
+    ],
+    "452200": [
+      "low_trading_value(4.6억)"
+    ],
+    "452300": [
+      "low_trading_value(14.3억)"
+    ],
+    "453340": [
+      "low_trading_value(7.0억)"
+    ],
+    "453450": [
+      "low_trading_value(16.9억)"
+    ],
+    "453860": [
+      "low_trading_value(5.8억)"
+    ],
+    "456160": [
+      "large_daily_move(67%)"
+    ],
+    "457190": [
+      "large_daily_move(82%)"
+    ],
+    "457370": [
+      "low_trading_value(10.7억)"
+    ],
+    "458870": [
+      "large_daily_move(70%)"
+    ],
+    "459100": [
+      "low_trading_value(17.6억)"
+    ],
+    "460470": [
+      "low_trading_value(12.6억)"
+    ],
+    "460850": [
+      "low_trading_value(4.1억)"
+    ],
+    "460940": [
+      "large_daily_move(53%)"
+    ],
+    "461300": [
+      "low_trading_value(15.5억)"
+    ],
+    "462510": [
+      "low_trading_value(11.1억)"
+    ],
+    "462520": [
+      "low_trading_value(3.3억)"
+    ],
+    "462860": [
+      "large_daily_move(61%)"
+    ],
+    "462980": [
+      "low_trading_value(11.9억)"
+    ],
+    "464280": [
+      "low_trading_value(4.7억)"
+    ],
+    "464580": [
+      "low_trading_value(17.5억)",
+      "large_daily_move(54%)"
+    ],
+    "466410": [
+      "low_trading_value(15.8억)"
+    ],
+    "471820": [
+      "low_trading_value(11.0억)"
+    ],
+    "472850": [
+      "low_trading_value(13.3억)"
+    ],
+    "475560": [
+      "low_trading_value(15.8억)"
+    ],
+    "475660": [
+      "low_trading_value(6.3억)"
+    ],
+    "476060": [
+      "large_daily_move(68%)"
+    ],
+    "480370": [
+      "large_daily_move(68%)"
+    ],
+    "900070": [
+      "low_trading_value(1.4억)"
+    ],
+    "900100": [
+      "low_trading_value(5.2억)",
+      "consecutive_same_close(324일)",
+      "consecutive_zero_volume(627일)",
+      "large_daily_move(400%)"
+    ],
+    "900110": [
+      "low_trading_value(13.8억)",
+      "consecutive_same_close(335일)",
+      "consecutive_zero_volume(335일)",
+      "large_daily_move(2187%)"
+    ],
+    "900120": [
+      "low_trading_value(3.6억)",
+      "large_daily_move(792%)"
+    ],
+    "900140": [
+      "low_trading_value(11.6억)"
+    ],
+    "900250": [
+      "low_trading_value(7.0억)"
+    ],
+    "900260": [
+      "low_trading_value(4.1억)",
+      "large_daily_move(366%)"
+    ],
+    "900270": [
+      "low_trading_value(11.2억)",
+      "large_daily_move(864%)"
+    ],
+    "900290": [
+      "consecutive_same_close(273일)",
+      "consecutive_zero_volume(273일)"
+    ],
+    "900300": [
+      "low_trading_value(12.3억)",
+      "large_daily_move(897%)"
+    ],
+    "900310": [
+      "low_trading_value(2.2억)"
+    ],
+    "900340": [
+      "low_trading_value(4.4억)"
+    ],
+    "950130": [
+      "low_trading_value(19.1억)",
+      "consecutive_same_close(30일)",
+      "consecutive_zero_volume(30일)"
+    ],
+    "950160": [
+      "consecutive_same_close(841일)",
+      "consecutive_zero_volume(841일)",
+      "large_daily_move(160%)"
+    ],
+    "950170": [
+      "low_trading_value(11.7억)"
+    ],
+    "950190": [
+      "low_trading_value(15.2억)"
+    ],
+    "950200": [
+      "low_trading_value(1.6억)"
+    ]
+  },
+  "passed": [
+    "000150",
+    "000210",
+    "000250",
+    "000270",
+    "000390",
+    "000500",
+    "000650",
+    "000810",
+    "000880",
+    "000990",
+    "001270",
+    "001720",
+    "002380",
+    "002800",
+    "003160",
+    "003230",
+    "003490",
+    "003530",
+    "003540",
+    "004000",
+    "004020",
+    "004830",
+    "004980",
+    "005180",
+    "005380",
+    "005490",
+    "005830",
+    "005940",
+    "006260",
+    "006360",
+    "006400",
+    "006650",
+    "006660",
+    "006800",
+    "006880",
+    "006910",
+    "006920",
+    "007070",
+    "007310",
+    "007660",
+    "007810",
+    "008040",
+    "008730",
+    "008770",
+    "009150",
+    "009470",
+    "010130",
+    "010140",
+    "010690",
+    "010770",
+    "010950",
+    "011070",
+    "011170",
+    "011210",
+    "011420",
+    "011780",
+    "011790",
+    "012330",
+    "012450",
+    "012750",
+    "013030",
+    "013580",
+    "014620",
+    "014680",
+    "015750",
+    "015760",
+    "016360",
+    "017510",
+    "017800",
+    "017960",
+    "018000",
+    "018260",
+    "018500",
+    "019990",
+    "020150",
+    "020180",
+    "020710",
+    "021240",
+    "023160",
+    "023530",
+    "023590",
+    "024110",
+    "024740",
+    "025320",
+    "025540",
+    "025550",
+    "025950",
+    "026040",
+    "027050",
+    "027360",
+    "027830",
+    "028050",
+    "028260",
+    "029780",
+    "030200",
+    "031210",
+    "032190",
+    "032500",
+    "032640",
+    "032830",
+    "032940",
+    "033160",
+    "033240",
+    "033320",
+    "033500",
+    "033530",
+    "033780",
+    "034020",
+    "034120",
+    "034220",
+    "034230",
+    "034730",
+    "035250",
+    "036200",
+    "036460",
+    "036540",
+    "036810",
+    "036890",
+    "036930",
+    "037070",
+    "038110",
+    "039030",
+    "039130",
+    "039200",
+    "039490",
+    "039610",
+    "039830",
+    "039860",
+    "040300",
+    "041020",
+    "041190",
+    "041440",
+    "041510",
+    "041910",
+    "042370",
+    "042520",
+    "042670",
+    "043260",
+    "046120",
+    "047050",
+    "047810",
+    "047920",
+    "048430",
+    "048470",
+    "050890",
+    "051600",
+    "051900",
+    "051910",
+    "052220",
+    "052690",
+    "053030",
+    "053290",
+    "053300",
+    "053690",
+    "053800",
+    "054450",
+    "054950",
+    "055550",
+    "056080",
+    "056360",
+    "058610",
+    "059210",
+    "060720",
+    "062040",
+    "062970",
+    "063170",
+    "064260",
+    "064290",
+    "064350",
+    "064400",
+    "064550",
+    "064760",
+    "064820",
+    "064960",
+    "065370",
+    "066570",
+    "066970",
+    "067080",
+    "067630",
+    "068050",
+    "069620",
+    "069960",
+    "071050",
+    "071320",
+    "072710",
+    "075580",
+    "078140",
+    "078150",
+    "078340",
+    "078350",
+    "078520",
+    "078600",
+    "078930",
+    "079550",
+    "079900",
+    "080220",
+    "080580",
+    "081180",
+    "082270",
+    "082740",
+    "082850",
+    "084670",
+    "084690",
+    "086390",
+    "086790",
+    "086900",
+    "088340",
+    "088350",
+    "088980",
+    "089010",
+    "089890",
+    "089970",
+    "090080",
+    "090360",
+    "090460",
+    "091810",
+    "092460",
+    "092730",
+    "092790",
+    "092870",
+    "093240",
+    "093320",
+    "093370",
+    "093520",
+    "094170",
+    "094480",
+    "094850",
+    "094940",
+    "095340",
+    "095610",
+    "096250",
+    "096530",
+    "096770",
+    "097950",
+    "098070",
+    "098120",
+    "099220",
+    "099320",
+    "099440",
+    "100090",
+    "100790",
+    "101160",
+    "101170",
+    "101490",
+    "102120",
+    "102710",
+    "103140",
+    "103590",
+    "103840",
+    "105560",
+    "107600",
+    "108380",
+    "108490",
+    "109610",
+    "110990",
+    "111770",
+    "112290",
+    "112610",
+    "113810",
+    "114090",
+    "114450",
+    "115450",
+    "115500",
+    "117730",
+    "119850",
+    "120110",
+    "121600",
+    "122870",
+    "123330",
+    "123690",
+    "125020",
+    "126730",
+    "127120",
+    "128940",
+    "130660",
+    "131970",
+    "134580",
+    "136150",
+    "136480",
+    "137400",
+    "138040",
+    "138610",
+    "138930",
+    "139130",
+    "139480",
+    "140670",
+    "140860",
+    "141080",
+    "142280",
+    "145720",
+    "147830",
+    "160190",
+    "161390",
+    "161890",
+    "163730",
+    "166090",
+    "170030",
+    "170920",
+    "171010",
+    "171090",
+    "172670",
+    "175330",
+    "177900",
+    "178920",
+    "180640",
+    "181710",
+    "183300",
+    "185750",
+    "188040",
+    "189300",
+    "192080",
+    "192820",
+    "194480",
+    "195870",
+    "195940",
+    "196170",
+    "199430",
+    "199480",
+    "199550",
+    "199820",
+    "200470",
+    "200670",
+    "200710",
+    "201490",
+    "204270",
+    "206650",
+    "207940",
+    "212710",
+    "213420",
+    "214420",
+    "214450",
+    "220100",
+    "222800",
+    "226330",
+    "226400",
+    "226590",
+    "229640",
+    "234030",
+    "234340",
+    "235980",
+    "236810",
+    "237690",
+    "237880",
+    "240550",
+    "240810",
+    "241520",
+    "241560",
+    "246690",
+    "248070",
+    "249420",
+    "251270",
+    "252990",
+    "253450",
+    "254490",
+    "259960",
+    "260660",
+    "260930",
+    "263800",
+    "265520",
+    "267270",
+    "271560",
+    "272110",
+    "272210",
+    "274090",
+    "277810",
+    "278280",
+    "281820",
+    "282330",
+    "282880",
+    "285130",
+    "285490",
+    "287840",
+    "289010",
+    "293490",
+    "294570",
+    "294870",
+    "295310",
+    "298020",
+    "298040",
+    "298050",
+    "298380",
+    "298830",
+    "299660",
+    "302440",
+    "304360",
+    "306200",
+    "307930",
+    "307950",
+    "308100",
+    "308430",
+    "309960",
+    "310210",
+    "316140",
+    "317120",
+    "317330",
+    "317690",
+    "317830",
+    "322000",
+    "322310",
+    "323410",
+    "326030",
+    "328130",
+    "329180",
+    "330350",
+    "331740",
+    "332570",
+    "336260",
+    "336370",
+    "338220",
+    "338840",
+    "340450",
+    "347700",
+    "347860",
+    "348340",
+    "348370",
+    "351330",
+    "352480",
+    "352820",
+    "353200",
+    "354320",
+    "355390",
+    "356680",
+    "357780",
+    "357880",
+    "361610",
+    "362320",
+    "364950",
+    "365330",
+    "370090",
+    "372320",
+    "373160",
+    "373220",
+    "376300",
+    "376900",
+    "376930",
+    "377220",
+    "377300",
+    "377480",
+    "378800",
+    "382150",
+    "382900",
+    "384470",
+    "387570",
+    "388720",
+    "388870",
+    "389020",
+    "389140",
+    "389260",
+    "389470",
+    "389500",
+    "389650",
+    "393890",
+    "394280",
+    "394800",
+    "396270",
+    "396300",
+    "396470",
+    "397030",
+    "399720",
+    "402030",
+    "402340",
+    "403490",
+    "407400",
+    "411080",
+    "413390",
+    "413640",
+    "416180",
+    "417200",
+    "417970",
+    "419530",
+    "424870",
+    "424960",
+    "425420",
+    "430690",
+    "431190",
+    "432720",
+    "434480",
+    "435570",
+    "439090",
+    "441270",
+    "443060",
+    "443670",
+    "444530",
+    "445090",
+    "445680",
+    "446540",
+    "448710",
+    "450080",
+    "450140",
+    "450950",
+    "451220",
+    "451250",
+    "452160",
+    "452190",
+    "452260",
+    "452280",
+    "452400",
+    "452430",
+    "452450",
+    "454910",
+    "455180",
+    "455900",
+    "456010",
+    "456040",
+    "456070",
+    "457550",
+    "457600",
+    "458650",
+    "459510",
+    "460860",
+    "460870",
+    "460930",
+    "461030",
+    "462310",
+    "462350",
+    "462870",
+    "463020",
+    "463480",
+    "464080",
+    "464500",
+    "465480",
+    "465770",
+    "466100",
+    "469750",
+    "473980",
+    "474170",
+    "474610",
+    "474650",
+    "475150",
+    "475400",
+    "475430",
+    "475460",
+    "475580",
+    "475830",
+    "475960",
+    "476040",
+    "476080",
+    "478560",
+    "479960",
+    "481070",
+    "482630",
+    "483650",
+    "484120",
+    "484810",
+    "484870",
+    "487570",
+    "489460",
+    "489500",
+    "489790",
+    "499790",
+    "950140",
+    "950210",
+    "950220"
+  ]
+}

@@ -20,3 +20,34 @@ __pycache__/
 *.pyc
 .idea/
 venv/
+
+# ── 자격증명/키 (config 폴더 전체: appkey/secretkey txt·secrets.py·대용량 API문서 포함) ──
+config/
+*appkey*.txt
+*secretkey*.txt
+
+# ── 모델·스케일러·캐시 (대용량, 재생성 가능) ──
+*.h5
+*.scaler
+*.pkl
+
+# ── 로그·마커·백업 ──
+*.log
+*.marker
+*.bak
+*.bak_*
+*.bak_full
+*.trunc.bak
+
+# ── 분석/결과 산출물 (대용량 디렉토리) ──
+Model_backup_orig_*/
+model_archive_prefilter_*/
+analysis_holdout*/
+analysis_strategy_opt/
+holdout_caches/
+walk_forward_rolling7y/
+
+# ── 결과/차트 산출물 (재생성 가능) ──
+*.csv
+*.png
+*.xlsx
