@@ -1,6 +1,13 @@
 # 보안 파일 (절대 올리지 마세요!)
 config/secrets.py
 kis_api_token.txt
+.env
+*.env
+# API 토큰/인증 파일 (KIS·키움 OAuth 토큰 등)
+*.dat
+**/token.dat
+**/kiwoom_token.dat
+kis_api/*.dat
 
 # 데이터 및 모델 (용량이 크고 변동이 잦음)
 Data/
