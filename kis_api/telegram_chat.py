@@ -13,13 +13,15 @@ telegram_chat.py - 텔레그램 종목 조회 봇
 import os
 import sys
 import csv
+import json
 import time
+import shutil
 import pickle
 import warnings
 import requests
 import pandas as pd
 import tensorflow as tf
-from datetime import datetime
+from datetime import datetime, timedelta
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -97,6 +99,35 @@ def get_updates(offset):
 #    ⚠️ 명령어 이름은 소문자 영문/숫자/_ 만 허용 → 한글 명령(/보유종목)은 메뉴 불가.
 #       영문 별칭(holdings/cleanup)을 등록하고 한글 명령도 그대로 동작하게 유지.
 # ====================================================
+# ====================================================
+# 📉 관심종목 평활점수 (B 매도전략 sell_state_b.json)
+# ====================================================
+SELL_STATE_FILE = os.path.join(LOG_DIR, "sell_state_b.json")
+SMOOTH_THRESH   = 0.20   # 평활 매도임계 (sell_strategy_b 와 동일)
+SMOOTH_CONFIRM  = 2      # 연속 거래일수
+
+
+def get_smoothed_scores():
+    """sell_state_b.json 을 매번 새로 읽어 code별 평활점수 상태 반환(다른 프로세스가 갱신).
+       {code: {"smoothed": float|None, "raw": float|None, "below_days": int}}"""
+    try:
+        with open(SELL_STATE_FILE, encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception:
+        return {}
+    out = {}
+    for code, e in state.items():
+        if not isinstance(e, dict):
+            continue
+        c = str(code).split('.')[0].zfill(6)
+        out[c] = {
+            "smoothed":   e.get("last_smoothed"),
+            "raw":        e.get("last_raw"),
+            "below_days": e.get("below_days", 0),
+        }
+    return out
+
+
 def set_bot_commands():
     # 공통(모든 사용자에게 노출) — 매매/보유 관련 명령 제외
     common = [
@@ -112,6 +143,7 @@ def set_bot_commands():
     owner_only = [
         {"command": "holdings", "description": "📥 키움 보유종목을 추적목록에 추가 (=/보유종목)"},
         {"command": "cleanup",  "description": "🧹 키움 미보유 종목 정리 (=/종목정리)"},
+        {"command": "smooth",   "description": "📉 관심종목 평활점수 (=/평활)"},
     ]
     try:
         # 1) 기본 스코프(모든 사용자): 공통 명령만
@@ -515,7 +547,9 @@ def add_holdings_to_history(holdings, chat_id, today_str):
 
     if rows_to_add:
         try:
-            with open(hist_path, "a", newline="", encoding="utf-8-sig") as f:
+            # append 는 utf-8(무BOM). utf-8-sig 로 열면 append 위치(파일 중간)에 BOM 이 끼어
+            # 뒤 재작성 시 행 파싱이 깨질 수 있으므로 사용하지 않는다.
+            with open(hist_path, "a", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=hist_fields, extrasaction="ignore")
                 if not hist_exists:
                     w.writeheader()
@@ -533,6 +567,11 @@ def cleanup_history_by_holdings(chat_id, today_str, holding_codes):
     hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
     if not os.path.exists(hist_path):
         return []
+    # 보유 목록이 비면(조회 실패·부분응답 등) 추적목록 전체가 삭제되는 사고 방지 → 정리 건너뜀
+    holding_set = set(str(c).strip().zfill(6) for c in (holding_codes or []) if str(c).strip())
+    if not holding_set:
+        print("⚠️ 종목정리: 보유종목 코드 0개 → 전체 삭제 방지 위해 건너뜀")
+        return []
     try:
         df = _read_history_csv(hist_path)
         if 'code' not in df.columns or 'chat_id' not in df.columns:
@@ -540,7 +579,6 @@ def cleanup_history_by_holdings(chat_id, today_str, holding_codes):
         df['code'] = df['code'].apply(
             lambda x: str(x).strip().zfill(6) if str(x).strip().isdigit() else str(x).strip())
         cid = str(chat_id)
-        holding_set = set(str(c).strip().zfill(6) for c in holding_codes)
         mask_mine   = df['chat_id'].fillna('') == cid
         mask_remove = mask_mine & (~df['code'].isin(holding_set))
 
@@ -550,11 +588,54 @@ def cleanup_history_by_holdings(chat_id, today_str, holding_codes):
             if c not in seen:
                 seen.add(c)
                 removed.append((c, r.get('name', '')))
-        df[~mask_remove].to_csv(hist_path, index=False, encoding='utf-8-sig')
+        # 원자적 저장(temp + os.replace) — 동시 재작성으로 인한 파일 손상/행 유실 방지
+        _tmp = hist_path + ".tmp"
+        df[~mask_remove].to_csv(_tmp, index=False, encoding='utf-8-sig')
+        os.replace(_tmp, hist_path)
         return removed
     except Exception as e:
         print(f"⚠️ 종목정리 실패: {e}")
         return None
+
+
+def sync_owner_holdings(today_str):
+    """정규장 마감 후 소유자(TELEGRAM_CHAT_ID) 추적목록을 키움 보유종목과 동기화.
+    보유종목 추가(중복 제외) + 미보유 종목 삭제 (=/holdings + /cleanup 자동 수행).
+    조회 실패 시 아무것도 지우지 않고 건너뛴다."""
+    owner = secrets.TELEGRAM_CHAT_ID
+    holdings = kiwoom_trading.fetch_all_holdings()
+    if holdings is None:                      # 조회 실패 → 깜깜이 삭제 금지
+        print("   ⚠️ [장마감 동기화] 보유종목 조회 실패 → 건너뜀", flush=True)
+        return
+    added, skipped = add_holdings_to_history(holdings, owner, today_str)
+    holding_codes  = [h['code'] for h in holdings]
+    removed = cleanup_history_by_holdings(owner, today_str, holding_codes)
+    if removed is None:                       # 정리 오류 → 삭제 0 처리
+        print("   ⚠️ [장마감 동기화] 종목정리 실패", flush=True)
+        removed = []
+
+    # 정리(add+cleanup) 완료 후에 다음 거래일 파일로 복사한다.
+    # 스케줄러가 20:00 에 먼저 복사하지만 그건 정리 전 스냅샷이므로, 여기서 정리본으로 덮어써
+    # 익일 추적목록이 '보유종목 = 추적목록' 상태로 시작되게 한다.
+    try:
+        src = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
+        if os.path.exists(src):
+            nd = datetime.strptime(today_str, "%Y%m%d").date() + timedelta(days=1)
+            while nd.weekday() >= 5:           # 5=토, 6=일 → 다음 평일(거래일)
+                nd += timedelta(days=1)
+            dst = os.path.join(LOG_DIR, f"{nd.strftime('%Y%m%d')}_Search_History.csv")
+            shutil.copy2(src, dst)
+            print(f"   📋 [장마감 동기화] 정리본 → 다음거래일 복사: {today_str} → {nd.strftime('%Y%m%d')}", flush=True)
+    except Exception as e:
+        print(f"   ⚠️ [장마감 동기화] 다음거래일 복사 실패: {e}", flush=True)
+    lines = ["🔄 [장마감 자동 동기화] 추적목록 = 키움 보유종목",
+             f"📥 추가 {len(added)}개 · 기존 {len(skipped)}개 · 🧹 삭제 {len(removed)}개"]
+    if added:
+        lines.append("추가: " + ", ".join(f"{n}({c})" for c, n in added[:20]))
+    if removed:
+        lines.append("삭제: " + ", ".join(f"{n}({c})" for c, n in removed[:20]))
+    send_message(owner, "\n".join(lines))
+    print(f"   🔄 [장마감 동기화] 추가{len(added)}/기존{len(skipped)}/삭제{len(removed)}", flush=True)
 
 
 def get_all_watchlists(today_str):
@@ -652,9 +733,24 @@ def run():
 
     offset   = None
     visitors = {}  # {chat_id: {"name": ..., "username": ..., "last_seen": ..., "count": ...}}
+    last_sync_date = None  # 장마감 보유종목 동기화 실행일(YYYYMMDD) — 하루 1회
 
     while True:
         try:
+            # ── 장 마감 후 1회: 소유자 추적목록 ↔ 키움 보유종목 동기화 ──
+            #    20:05 로 잡는다. Update_Promising_Stocks(장중 08:00~20:00, 30초마다 Search_History
+            #    전체 재작성)와 평가 파이프라인(~16:30)이 모두 멈춘 뒤라야, sync 가 추가·정리한
+            #    행(특히 담보대출 보유종목)이 동시 재작성에 덮여 유실되지 않는다.
+            #    (16:35 에 돌리면 Update_Promising 의 오래된 스냅샷 재작성과 충돌해 담보 유실)
+            _now = datetime.now()
+            if (last_sync_date != _now.strftime("%Y%m%d") and _now.weekday() < 5
+                    and (_now.hour > 20 or (_now.hour == 20 and _now.minute >= 5))):
+                last_sync_date = _now.strftime("%Y%m%d")
+                try:
+                    sync_owner_holdings(last_sync_date)
+                except Exception as e:
+                    print(f"   ⚠️ 장마감 동기화 오류: {e}", flush=True)
+
             updates = get_updates(offset)
             for update in updates:
                 offset = update["update_id"] + 1
@@ -729,6 +825,9 @@ def run():
                             "🧹 /종목정리 (또는 /cleanup)\n"
                             "  내 추적 목록에서 키움 미보유 종목 삭제\n"
                             "\n"
+                            "📉 /평활 (또는 /smooth)\n"
+                            "  내 관심종목의 평활점수(3일 이동평균) 조회\n"
+                            "\n"
                         )
                     help_text += (
                         "💡 입력란의 '/' 버튼을 누르면 명령어 메뉴가 표시됩니다.\n"
@@ -785,6 +884,46 @@ def run():
                         lines += [f"• {n} ({c})" for c, n in removed]
                         send_message(chat_id, "\n".join(lines))
                     print(f"   🧹 [{chat_id}] 종목정리 삭제 {0 if not removed else len(removed)}개", flush=True)
+                    continue
+
+                # /평활 (=/smooth /sm) — 소유자 전용: 내 관심종목(추적목록)의 평활점수 출력
+                if text in ("/평활", "/smooth", "/sm"):
+                    if str(chat_id) != secrets.TELEGRAM_CHAT_ID:
+                        send_message(chat_id, "🔒 이 명령은 봇 소유자만 사용할 수 있습니다.")
+                        continue
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    watch = get_my_watchlist(chat_id, today_str_now)   # [(code,name,score,ts)]
+                    if not watch:
+                        send_message(chat_id, "📭 관심종목(추적목록)이 없습니다.")
+                        continue
+                    sm  = get_smoothed_scores()
+                    thr = int(SMOOTH_THRESH * 100)
+                    rows = [(c, n, sm.get(c)) for c, n, _s, _t in watch]
+                    # 평활 낮은 순(위험 우선), 이력 없는 종목은 뒤로
+                    rows.sort(key=lambda r: (
+                        r[2] is None or r[2].get("smoothed") is None,
+                        r[2]["smoothed"] if (r[2] and r[2].get("smoothed") is not None) else 9,
+                    ))
+                    lines = [f"📉 관심종목 평활점수  (매도임계 {thr}점)\n"]
+                    for c, n, info in rows:
+                        if not info or info.get("smoothed") is None:
+                            lines.append(f"• {n} ({c})  평활 이력없음")
+                            continue
+                        smv = info["smoothed"]
+                        rawv = info.get("raw")
+                        raw_str = f"{rawv * 100:.0f}" if rawv is not None else "-"
+                        below  = smv < SMOOTH_THRESH
+                        streak = (info.get("below_days", 0) + 1) if below else 0
+                        if below and streak >= SMOOTH_CONFIRM:
+                            tag = f"🚨 매도구간({streak}일 연속)"
+                        elif below:
+                            tag = f"⚠️ 평활<{thr} ({streak}일)"
+                        else:
+                            tag = "✅"
+                        lines.append(f"• {n} ({c})  현재 {raw_str} / 평활 {smv * 100:.1f}  {tag}")
+                    lines.append(f"\n※ 평활점수 < {thr}점 이 {SMOOTH_CONFIRM}거래일 연속이면 B전략 전량청산")
+                    send_message(chat_id, "\n".join(lines))
+                    print(f"   📉 [{chat_id}] 평활점수 조회 {len(rows)}종목", flush=True)
                     continue
 
                 # 그 외 슬래시 커맨드

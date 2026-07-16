@@ -121,21 +121,43 @@ def fetch_all_holdings():
     """
     반환: list of {"code": 6자리, "name": 종목명, "qty": 총보유수량}
           조회 실패 시 None (빈 계좌의 [] 와 구분 — 호출부 오삭제 방지용)
+    연속조회(cont-yn/next-key)로 전 페이지를 모두 수집한다. 한 페이지라도 실패하면
+    부분목록으로 인한 오삭제를 막기 위해 None 을 반환한다.
     """
-    data = _post("kt00018", "/api/dostk/acnt", {"qry_tp": "2", "dmst_stex_tp": "KRX"})
-    if not data or data.get("return_code") != 0:
-        return None
-
     agg = {}  # code -> {"code", "name", "qty"}
-    for item in data.get("acnt_evlt_remn_indv_tot", []):
-        raw_cd = item.get("stk_cd", "")
-        code = raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
-        qty = _pint(item.get("rmnd_qty"))
-        if not code or qty <= 0:
+    cont_yn, next_key = "N", ""
+    while True:
+        headers = _headers("kt00018")
+        headers["cont-yn"]  = cont_yn
+        headers["next-key"] = next_key
+        try:
+            res = requests.post(KIWOOM_URL_BASE + "/api/dostk/acnt", headers=headers,
+                                json={"qry_tp": "2", "dmst_stex_tp": "KRX"}, timeout=5)
+        except Exception as e:
+            print(f"   ❌ API 오류 [kt00018]: {e}")
+            return None
+        if res.status_code != 200:
+            print(f"   ❌ API HTTP 실패 [kt00018]: {res.status_code} → {res.text[:200]}")
+            return None
+        data = res.json()
+        if data.get("return_code", 0) != 0:
+            print(f"   ❌ [kt00018] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
+            return None
+
+        for item in data.get("acnt_evlt_remn_indv_tot", []):
+            raw_cd = item.get("stk_cd", "")
+            code = raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
+            qty = _pint(item.get("rmnd_qty"))
+            if not code or qty <= 0:
+                continue
+            if code not in agg:
+                agg[code] = {"code": code, "name": item.get("stk_nm", "").strip(), "qty": 0}
+            agg[code]["qty"] += qty
+
+        if res.headers.get("cont-yn") == "Y" and res.headers.get("next-key"):
+            cont_yn, next_key = "Y", res.headers.get("next-key")
             continue
-        if code not in agg:
-            agg[code] = {"code": code, "name": item.get("stk_nm", "").strip(), "qty": 0}
-        agg[code]["qty"] += qty
+        break
     return list(agg.values())
 
 
