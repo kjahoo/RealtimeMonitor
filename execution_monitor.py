@@ -56,7 +56,7 @@ OWNER_ID = str(secrets.TELEGRAM_CHAT_ID)
 POLL_SEC  = float(getattr(secrets, "MONITOR_POLL_SEC", 4))     # 호가 폴링 주기(초)
 MAX_CODES = int(getattr(secrets, "MONITOR_MAX_CODES", 15))     # 동시 감시 종목 상한(rate-limit)
 SCORE_MIN = 60.0                                              # 매수 직전 재확인 최소 점수(점) — auto_buy plan 진입기준(1안: 60점)과 통일
-SMOOTHED_SELL_THRESH = 0.20                                   # 평활 하락(청산 예정) 매수 금지 임계 — sell_strategy_b.SELL_THRESH 와 동일
+SMOOTHED_SELL_THRESH = 0.10                                   # 평활 하락(청산 예정) 매수 금지 임계 — sell_strategy_b.SELL_THRESH(0.10)와 동일하게 유지(변경 시 함께 수정)
 
 
 def _fmt(x):
@@ -317,14 +317,14 @@ def _tick(today_str):
 
         # ── 평활 하락(청산 예정) 종목 매수 금지(실격 → 예약 없음).
         if code in sell_warn:
-            _log_once(f"buy:{code}", f"  ⏭️ {name}({code}) 평활 {sell_warn[code]*100:.1f}점<20 하락구간 — 매수 보류")
+            _log_once(f"buy:{code}", f"  ⏭️ {name}({code}) 평활 {sell_warn[code]*100:.1f}점<{SMOOTHED_SELL_THRESH*100:.0f} 하락구간 — 매수 보류")
             if not cst.get("smwarn"):
                 cst["smwarn"] = True
                 changed = True
-                report.append(f"⏭️ {name}({code}) 평활 {sell_warn[code]*100:.1f}점<20(청산예정) — 매수 보류")
+                report.append(f"⏭️ {name}({code}) 평활 {sell_warn[code]*100:.1f}점<{SMOOTHED_SELL_THRESH*100:.0f}(청산예정) — 매수 보류")
             continue
         elif cst.get("smwarn"):
-            cst["smwarn"] = False        # 평활 회복(≥20) → 다음 하락 시 재알림
+            cst["smwarn"] = False        # 평활 회복(≥임계) → 다음 하락 시 재알림
             changed = True
 
         # ── 매수 직전 실시간 점수 재확인(순간 스파이크 매수 방지)(실격 → 예약 없음).
