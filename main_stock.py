@@ -27,7 +27,7 @@ if gpus:
 
 # 모듈 불러오기
 from config import secrets
-from kis_api import auth, inquiry, indicators
+from kis_api import auth, inquiry, indicators, kiwoom_trading as kt
 
 # ====== 설정 변수 (사용자 수정 영역) ======
 # [변경 전]
@@ -56,26 +56,24 @@ V3_FEATURES = [
 ]
 
 
-# 점수 구간(tier) 반환 — None이면 진입선(0.50) 미만 (알림 재발송 트리거용)
-# 0.5 이상부터 매수권장 알림(2안 확대), 0.9=고확신. 0.50 미만은 알림 없음
+# 점수 구간(tier) 반환 — None이면 진입선(0.60) 미만 (알림 재발송 트리거용)
+# 0.6 이상부터 매수권장 알림, 0.9=고확신. 0.60 미만은 알림 없음
 def get_score_tier(score):
     if score >= 0.9: return 0.9
     elif score >= 0.8: return 0.8
     elif score >= 0.7: return 0.7
     elif score >= 0.6: return 0.6
-    elif score >= 0.5: return 0.5
     return None
 
 
-# 매수 추천 라벨 — 2안(확대): 진입 0.50, 구간별 5%씩, 상한 30%
-#   0.5~0.6→5% · 0.6~0.7→10% · 0.7~0.8→15% · 0.8~0.9→20% · 0.9~1.0→25% · ≥1.0→30%
+# 매수 추천 라벨 — 1안(현재): 진입 0.60, 구간별 5%씩, 상한 25%
+#   0.6~0.7→5% · 0.7~0.8→10% · 0.8~0.9→15% · 0.9~1.0→20% · ≥1.0→25%
 def get_buy_label(score):
-    if score >= 1.00:   alloc = 30
-    elif score >= 0.90: alloc = 25
-    elif score >= 0.80: alloc = 20
-    elif score >= 0.70: alloc = 15
-    elif score >= 0.60: alloc = 10
-    else:               alloc = 5    # 0.50~0.60
+    if score >= 1.00:   alloc = 25
+    elif score >= 0.90: alloc = 20
+    elif score >= 0.80: alloc = 15
+    elif score >= 0.70: alloc = 10
+    else:               alloc = 5    # 0.60~0.70
     return f"[포착-{alloc}%매수추천]"
 
 
@@ -493,6 +491,13 @@ if __name__ == "__main__":
 
     try:
         while True:
+            # ── 휴장일(주말/공휴일) 가드: 스캔·데이터 기록 안 함(휴일 날짜 stale 기록→다운스트림 오류 방지).
+            _now = datetime.now()
+            if not kt.is_trading_day(_now):
+                print(f"📴 [{_now:%H:%M:%S}] 휴장(주말/공휴일) — 스캔·기록 스킵(10분 후 재확인)")
+                time.sleep(600)
+                continue
+
             # [이전 위치] 여기서 지수를 한 번만 가져오던 것을 아래 for 루프 안으로 이동합니다.
 
             # 매 사이클 스캔 대상 새로고침 — 장중 수동 추가(Search_History) 종목 즉시 반영

@@ -24,10 +24,14 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from claude_eval_pipeline import build_pending_from_v3
+from kis_api import kiwoom_trading as kt
 
 
 def main():
     d = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%Y%m%d")
+    if not kt.is_trading_day():
+        print("📴 휴장일(주말/공휴일) — build_pending 스킵(pending/brief 미기록)")
+        return
     print(build_pending_from_v3(d))
 
 

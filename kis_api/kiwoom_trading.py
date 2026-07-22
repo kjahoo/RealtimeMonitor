@@ -21,13 +21,48 @@ KIWOOM_URL_BASE = "https://api.kiwoom.com"
 MARKET_OPEN  = datetime.time(9, 0)
 MARKET_CLOSE = datetime.time(15, 30)
 
+# KRX 공휴일(휴장일) — 결정적 판정용 하드코딩 목록. 휴장은 '오직 이 목록·주말'로만 판정한다.
+#   ※ 시세 유무/신선도로 휴장을 '단정'하지 않는다 — 일시적 API·토큰 실패에 거래일을 휴장으로
+#     오판하면 하루 매매·데이터를 통째로 놓친다(2026-07-21 삼성 시세 실패 → false holiday 사례).
+#   ※ 신규/변경 공휴일은 반드시 여기에 "YYYYMMDD" 로 추가·관리한다(매년 갱신). 제헌절 2026 재지정.
+#   ※ 목록에 없는 공휴일엔 시스템이 개장으로 간주해 돌지만, 실주문은 거래소가 거부(체결 0)한다.
+KRX_HOLIDAYS = {
+    # 2026 KRX 휴장일 (주말 제외 실효일). KRX 공식 캘린더와 대조 유지, 매년 갱신.
+    "20260101",   # 신정
+    "20260216", "20260217", "20260218",   # 설날 연휴
+    "20260302",   # 삼일절 대체(3/1 일)
+    "20260505",   # 어린이날
+    "20260525",   # 부처님오신날 대체(5/24 일)
+    "20260603",   # 제9회 전국동시지방선거
+    "20260717",   # 제헌절 (2026년 공휴일 재지정)
+    "20260817",   # 광복절 대체(8/15 토)
+    "20260924", "20260925",   # 추석 연휴
+    "20260928",   # 추석 대체(9/26 토)
+    "20261005",   # 개천절 대체(10/3 토)
+    "20261009",   # 한글날
+    "20261225",   # 성탄절
+    "20261231",   # 연말 폐장일
+}
+
+
+def is_trading_day(now=None):
+    """오늘이 KRX 거래일인가 — 주말·KRX_HOLIDAYS 만으로 판정(결정적, 무-API).
+       시세/데이터에 의존하지 않는다: 일시적 조회 실패로 거래일을 휴장으로 오판하지 않기 위함."""
+    now = now or datetime.datetime.now()
+    if now.weekday() >= 5:
+        return False
+    return now.strftime("%Y%m%d") not in KRX_HOLIDAYS
+
 
 def is_market_open(now=None):
-    """평일 정규장 시간(09:00~15:30) 여부"""
+    """평일 정규장(09:00~15:30) + 거래일(주말·공휴일 제외) 여부.
+       휴장일엔 시간이 정규장이어도 False → 매수/매도 집행 안 함."""
     now = now or datetime.datetime.now()
     if now.weekday() >= 5:           # 토(5)·일(6) 휴장
         return False
-    return MARKET_OPEN <= now.time() <= MARKET_CLOSE
+    if not (MARKET_OPEN <= now.time() <= MARKET_CLOSE):
+        return False
+    return is_trading_day(now)
 
 
 def _pint(v):

@@ -600,38 +600,53 @@ def promote_and_notify(results, today_str):
         return {"sent": 0, "added": 0}
 
     done = load_done(today_str)
+
+    # [1순위] results_all(누적 평가풀)·통합리포트를 텔레그램 발송 前에 먼저 확정한다.
+    #   auto_buy._build_plan 이 results_all 을 읽어 plan(매수 감시 대상)을 만들므로, 느린
+    #   텔레그램 발송/타임아웃에 묶여 results_all 이 늦게 써지면 그만큼 매수 감시가 밀린다.
+    #   → 파일부터 최우선 기록(멱등적 머지라 재실행 무해).
+    _update_consolidated(results, today_str)
+
     added_cnt, sent_cnt = 0, 0
 
     # ── 발송 디덥: 이미 발송한(done) 종목은 제외 → 종목당 1회만 발송.
-    #    results.json 은 사이클마다 남아있으므로, done 게이트가 없으면 30분마다
-    #    같은 종목을 반복 발송(본인·친구 도배)하게 된다. done 에 없는 신규만 보낸다.
     fresh = [r for r in results if _fmt_code(r.get("code", "")) and
              _fmt_code(r.get("code", "")) not in done]
     if not fresh:
         print("ℹ️ 신규 발송 대상 없음(모두 발송 완료) — 텔레그램 생략")
-        _update_consolidated(results, today_str)   # results_all 은 최신 유지(auto_buy plan 용)
-        return {"sent": 0, "added": 0}
+        return {"sent": 0, "added": 0}   # results_all 은 위에서 이미 갱신됨
+
+    # [2차 a] BUY 우선 + AI점수 높은 순 → BUY 리포트·promising 이 가장 먼저 확정된다.
+    fresh.sort(key=lambda r: (
+        0 if str(r.get("recommendation", "")).upper() == "BUY" else 1,
+        -float(r.get("claude_score", 0) or 0),
+    ))
+
+    # [2차 b] 파일 우선 2단계 — (1) 리포트·BUY promising 을 먼저 전부 확정한 뒤
+    #   (2) 텔레그램을 발송한다. 파일 파이프라인(results_all·promising·리포트)이 느린
+    #   발송에 묶이지 않아 auto_buy plan 이 즉시 생성된다. done 은 발송 후 기록(재발송 방지 정확성).
+    queued = []
+    for ev in fresh:
+        is_buy = str(ev.get("recommendation", "")).upper() == "BUY"
+        added = _append_to_history(ev, today_str) if is_buy else False
+        if added:
+            added_cnt += 1
+        report_path = _write_stock_report(ev, today_str)   # 종목별 13항목 풀리포트
+        queued.append((ev, added, report_path))
 
     buys = [r for r in fresh if str(r.get("recommendation", "")).upper() == "BUY"]
     header = (f"🤖 60점+ 종목 AI평가 {len(fresh)}건 "
               f"(매수 {len(buys)} / 관망·회피 {len(fresh) - len(buys)}) · {today_str}")
     _send_owner(header)
     _send_friends(header)          # 친구에게도 AI평가 공개 (요약 헤더)
-
-    for ev in fresh:
+    for ev, added, report_path in queued:
         code6 = _fmt_code(ev.get("code", ""))
-        is_buy = str(ev.get("recommendation", "")).upper() == "BUY"
-        added = _append_to_history(ev, today_str) if is_buy else False
-        if added:
-            added_cnt += 1
-        report_path = _write_stock_report(ev, today_str)   # 종목별 13항목 풀리포트
         _send_owner(_format_stock_msg(ev, added, report_path, public=False))
         _send_friends(_format_stock_msg(ev, added, report_path, public=True))
-        sent_cnt += 1
         done.add(code6)            # 발송 완료 기록 → 다음 사이클 재발송 방지
+        sent_cnt += 1
 
     save_done(today_str, done)
-    _update_consolidated(results, today_str)   # 통합 리포트 1개 파일 갱신
     print(f"✅ 텔레그램 {sent_cnt}건 발송(신규만) · promising 추가 {added_cnt}개 · done {len(done)}개 기록")
     return {"sent": sent_cnt, "added": added_cnt}
 

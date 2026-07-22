@@ -53,8 +53,8 @@ from kis_api import auth, kiwoom_trading as kt
 LOG_DIR = secrets.LOCAL_DATA_PATH
 OWNER_ID = str(secrets.TELEGRAM_CHAT_ID)
 
-ALLOC_MAX = 30.0          # 비중 상한 % (2안 확대: 100점 30%)
-SCORE_MIN = 50.0          # Total score 최소(점) (2안 확대: 진입 50점)
+ALLOC_MAX = 25.0          # 비중 상한 % (1안: 100점 25%)
+SCORE_MIN = 60.0          # Total score 최소(점) (1안: 진입 60점)
 
 
 def _fmt(x):
@@ -174,11 +174,11 @@ def _send_owner(msg):
 
 
 def _alloc_pct(total_score100):
-    """구간제 매수 비중(%). 2안(확대): 진입 50점, 10점 구간마다 5%p, 상한 30.
-       50~59=5 · 60~69=10 · 70~79=15 · 80~89=20 · 90~99=25 · 100=30. 50 미만은 별도 컷에서 제외.
-       예) 55→5%, 67→10%, 89→20%. (main_stock 알림과 동일)"""
-    bucket = int(float(total_score100) // 10)      # 50~59→5, 60~69→6 … 100→10
-    return max(0.0, min(ALLOC_MAX, (bucket - 4) * 5.0))
+    """구간제 매수 비중(%). 1안(현재): 진입 60점, 10점 구간마다 5%p, 상한 25.
+       60~69=5 · 70~79=10 · 80~89=15 · 90~99=20 · 100=25. 60 미만은 별도 컷에서 제외.
+       예) 67→5%, 70→10%, 89→15%. (main_stock 알림과 동일)"""
+    bucket = int(float(total_score100) // 10)      # 60~69→6, 70~79→7 … 100→10
+    return max(0.0, min(ALLOC_MAX, (bucket - 5) * 5.0))
 
 
 # ── 당일 기준금액(총자산) 스냅샷 ──────────────────────────────────────
@@ -207,8 +207,13 @@ def _build_plan(today_str):
         print("ℹ️ KRX 정규장 아님 — plan 빌드 생략(장전/장후 NXT 점수로 매수 방지)")
         return
     rpath = _p(f"{today_str}_claude_results_all.json")
-    if not os.path.exists(rpath):
-        print("ℹ️ 평가풀(results_all) 없음 — plan 생략")
+    results_all = _load_json(rpath, [])
+    # 당일 신규 평가(results.json)도 병합 — 같은 코드는 최신값 우선.
+    fresh = _load_json(_results_path(today_str), [])
+    # [2순위] results_all(누적)이 아직 없어도 당일 results.json(평가세션 확정분)만으로 plan 생성.
+    #   promote 가 results_all 을 늦게 쓰거나 타임아웃에 잘려도 매수 감시가 밀리지 않게 한다.
+    if not results_all and not fresh:
+        print("ℹ️ 평가결과 전무(results_all·results 모두 없음) — plan 생략")
         return
 
     base = _get_base(today_str)
@@ -216,16 +221,13 @@ def _build_plan(today_str):
         print("   ⚠️ 총자산 조회 실패 — plan 생략")
         return
 
-    results = _load_json(rpath, [])
-    # 당일 신규 평가(results.json)도 병합 — 같은 코드는 최신값 우선.
-    fresh = _load_json(_results_path(today_str), [])
-    if fresh:
-        merged = {}
-        for r in (results + fresh):     # fresh가 뒤 → 같은 코드면 최신값으로 갱신
-            c = _fmt(r.get("code", ""))
-            if c:
-                merged[c] = r
-        results = list(merged.values())
+    # 병합 — 같은 코드는 최신값(fresh) 우선.
+    merged = {}
+    for r in (results_all + fresh):     # fresh가 뒤 → 같은 코드면 최신값으로 갱신
+        c = _fmt(r.get("code", ""))
+        if c:
+            merged[c] = r
+    results = list(merged.values())
 
     v3_latest = _load_v3_latest(today_str)          # 폴백: 전 종목 최신 score_total·close_price
     promising = _load_promising_latest(today_str)   # 우선: Search_History 실시간값
@@ -297,6 +299,9 @@ def run(today_str=None):
     today_str = today_str or datetime.now().strftime("%Y%m%d")
     if not getattr(secrets, "AUTO_BUY_ENABLED", False):
         print("ℹ️ AUTO_BUY_ENABLED=False — 자동매수 비활성")
+        return
+    if not kt.is_trading_day():
+        print("📴 휴장일(주말/공휴일) — auto_buy 스킵(base/plan 미기록)")
         return
     auth.get_access_token()        # 토큰 준비 (한투/공용)
     _get_base(today_str)           # 기준금액 스냅샷(장 시작 전이라도 확보)

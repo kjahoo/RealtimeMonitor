@@ -74,6 +74,14 @@ def get_market_mode():
     if now.weekday() >= 5:
         return "WEEKEND"
 
+    # 공휴일(하드코딩 휴일집합)도 휴장 → WEEKEND 처리(시장봇 정지, 휴일 데이터 기록 방지)
+    try:
+        from kis_api import kiwoom_trading as _kt
+        if now.strftime("%Y%m%d") in _kt.KRX_HOLIDAYS:
+            return "WEEKEND"
+    except Exception:
+        pass
+
     t = now.time().replace(second=0, microsecond=0)
 
     if TIME_NXT_START <= t < TIME_KRX_START:
@@ -111,33 +119,21 @@ def next_weekday_start():
 
 
 # ====================================================
-# 📴 공휴일 감지 — 삼성전자(005930) 시세 조회
+# 📴 공휴일 감지 — 하드코딩 휴일목록(kt.KRX_HOLIDAYS)만으로 결정적 판정
+#    ※ 삼성 시세 유무로 휴장을 단정하지 않는다: 아침 토큰/API 일시 실패에 거래일을
+#      휴장으로 오판(2026-07-21 사례) → 하루 매매·데이터 통째 손실. fail-safe = 개장.
 # ====================================================
 def is_market_open_today():
-    """
-    NXT 아침 개장(08:00) 시 삼성전자 시세로 공휴일 여부 판단.
-    30초 간격 3회 시도 후에도 시세 없으면 False(공휴일) 반환.
-    API 오류 / 토큰 실패는 True(장 열림)로 처리해 오탐 방지.
-    """
+    """오늘 개장 여부. 주말·KRX_HOLIDAYS 만으로 판정하고, 그 외엔 개장(True)으로 간주."""
     try:
-        from kis_api import auth, inquiry
-        if not auth.get_access_token():
-            log("   ⚠️ 공휴일 체크: 토큰 발급 실패 → 장 열린 것으로 처리")
-            return True
-        for attempt in range(3):
-            rt = inquiry.fetch_realtime_price("005930")
-            price = inquiry.safe_int(rt.get("stck_prpr", 0)) if rt else 0
-            if price > 0:
-                log(f"   ✅ 삼성전자 현재가 {price:,}원 확인 → 장 열림")
-                return True
-            if attempt < 2:
-                log(f"   ⏳ 삼성전자 시세 없음 (시도 {attempt + 1}/3) — 30초 후 재시도")
-                time.sleep(30)
-        log("   📴 삼성전자 시세 없음 (3회 시도) → 공휴일 판단")
-        return False
+        from kis_api import kiwoom_trading as kt
+        now = datetime.now()
+        if now.weekday() >= 5 or now.strftime("%Y%m%d") in kt.KRX_HOLIDAYS:
+            log(f"   📴 {now:%Y%m%d} 주말/공휴일(KRX_HOLIDAYS) → 휴장")
+            return False
     except Exception as e:
-        log(f"   ⚠️ 공휴일 체크 오류: {e} → 장 열린 것으로 처리")
-        return True
+        log(f"   ⚠️ 휴일 확인 오류: {e} → 개장으로 간주")
+    return True   # 목록에 없으면 개장. 시세 실패로 휴장 단정하지 않음(거래일 오판 방지)
 
 
 # ====================================================
@@ -451,7 +447,7 @@ def run_build_buylist():
 
 # ====================================================
 # 📈 60점+ AI 평가 파이프라인 (build_pending → promote → auto_buy)
-#    - 평일 08:00~16:30, 30분 간격으로 1사이클
+#    - 평일 08:00~16:30, 10분 간격으로 1사이클 (EVAL_INTERVAL 참조)
 #    - auto_buy 는 내부적으로 KRX 정규장(09:00~15:30)에만 실주문 → NXT 세션 미주문
 #    - 별도 스레드로 실행해 메인 폴링 루프를 막지 않음
 #    - AI 평가(2단계)는 Cowork(Claude) 작업이 pending CSV를 읽어 results.json 저장,
@@ -499,11 +495,18 @@ def _eval_pipeline_worker():
 
 
 def run_eval_pipeline_if_due():
-    """평일 08:00~16:30, 30분마다 평가 파이프라인을 백그라운드로 1회 기동."""
+    """평일 08:00~16:30, 10분마다(EVAL_INTERVAL) 평가 파이프라인을 백그라운드로 1회 기동."""
     global _eval_last_run
     now = datetime.now()
     if now.weekday() >= 5:
         return
+    # 공휴일(휴장)엔 평가 파이프라인(build_pending→promote→auto_buy) 미실행 — 휴일 데이터 생성 방지
+    try:
+        from kis_api import kiwoom_trading as _kt
+        if now.strftime("%Y%m%d") in _kt.KRX_HOLIDAYS:
+            return
+    except Exception:
+        pass
     if not (EVAL_START <= now.time() <= EVAL_END):
         return
     if _eval_last_run and (now - _eval_last_run).total_seconds() < EVAL_INTERVAL - 30:
@@ -608,7 +611,7 @@ def main():
         ensure_telegram_bot_alive()  # telegram_chat (항상)
         ensure_exec_monitor_alive()  # execution_monitor (항상)
 
-        # ── 60점+ 평가 파이프라인 (평일 08:00~16:30, 30분마다 / 백그라운드)
+        # ── 60점+ 평가 파이프라인 (평일 08:00~16:30, 10분마다 / 백그라운드)
         run_eval_pipeline_if_due()
 
         # ── 현재 상태 주기적 출력 (폴링 주기 내 첫 번째 틱)
