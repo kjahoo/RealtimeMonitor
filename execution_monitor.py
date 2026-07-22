@@ -24,7 +24,7 @@ auto_buy.py 가 매 30분 세션마다 산출한 매수 계획(logs/{날짜}_aut
   - 우리(이 데몬)가 낸 주문만 추적·취소. '직접 낸 주문'은 절대 건드리지 않음.
   - 호가 lag/보유 lag 안전장치: 한 종목에 동시 1개 주문만. 주문 해소(체결/취소)된
     틱에는 그 종목 재주문을 건너뛰어 보유잔고가 갱신될 시간을 준다(중복매수 방지).
-  - 매매는 KRX 정규장(09:00~15:30)에만. 매수 직전 '정규장 점수'가 SCORE_MIN(50)+ 인지 재확인한다.
+  - 매매는 KRX 정규장(09:00~15:30)에만. 매수 직전 '정규장 점수'가 SCORE_MIN(60)+ 인지 재확인한다.
     ▶ NXT(장전/장후) 점수는 매수/매도에 관여하지 않는다(참고용). 정규장 시각 행만 사용.
   - 콘솔(모니터 창)에 매 틱 감시 현황·체결 현황을 출력한다(무엇을 보고 왜 대기/집행하는지).
 
@@ -55,7 +55,7 @@ OWNER_ID = str(secrets.TELEGRAM_CHAT_ID)
 
 POLL_SEC  = float(getattr(secrets, "MONITOR_POLL_SEC", 4))     # 호가 폴링 주기(초)
 MAX_CODES = int(getattr(secrets, "MONITOR_MAX_CODES", 15))     # 동시 감시 종목 상한(rate-limit)
-SCORE_MIN = 50.0                                              # 매수 직전 재확인 최소 점수(점) — auto_buy plan 기준(2안 확대: 진입 50점)과 통일
+SCORE_MIN = 60.0                                              # 매수 직전 재확인 최소 점수(점) — auto_buy plan 진입기준(1안: 60점)과 통일
 SMOOTHED_SELL_THRESH = 0.20                                   # 평활 하락(청산 예정) 매수 금지 임계 — sell_strategy_b.SELL_THRESH 와 동일
 
 
@@ -144,7 +144,7 @@ def _is_krx_session_ts(ts):
 
 def _load_live_scores(today_str):
     """코드별 '정규장' 최신 점수(×100). Stock_V3(폴백) → promising(Search_History, 우선)으로 덮어씀.
-       매수 직전 '현재도 SCORE_MIN(50)+인가' 재확인용.
+       매수 직전 '현재도 SCORE_MIN(60)+인가' 재확인용.
        ※ NXT 점수 배제: Search_History 는 KRX 정규장(09:00~15:30) 시각 행만 사용한다.
          장전/장후 NXT 세션의 순간 점수는 매매에 관여시키지 않는다(참고용일 뿐)."""
     import csv
@@ -210,7 +210,7 @@ def _tick(today_str):
     if cash < 1:
         return          # 미수 없이 매수 가능한 현금(D+2) 0 → 조용히 대기(매 틱 알림 방지)
 
-    live_scores = _load_live_scores(today_str)   # 매수 직전 SCORE_MIN(50)+ 재확인용(전 종목 공용, 1회 로드)
+    live_scores = _load_live_scores(today_str)   # 매수 직전 SCORE_MIN(60)+ 재확인용(전 종목 공용, 1회 로드)
 
     exec_state = _load_json(_exec_path(today_str), None)
     if not isinstance(exec_state, dict) or exec_state.get("date") != today_str:
@@ -225,7 +225,7 @@ def _tick(today_str):
                       if int((v or {}).get("sold", 0) or 0) > 0}
 
     # 평활 하락(청산 예정) 종목 → 매수 금지. sell_state_b.json(=Update_Promising 이 갱신)에서
-    # last_smoothed < 0.20 인 종목은 곧 팔릴/약해지는 종목이므로, raw 가 잠깐 50+로 튀어도 사지 않음.
+    # last_smoothed < SMOOTHED_SELL_THRESH 인 종목은 곧 팔릴/약해지는 종목이므로, raw 가 잠깐 60+로 튀어도 사지 않음.
     sm_state  = _load_json(_p("sell_state_b.json"), None)
     sell_warn = {}   # {code(6): 평활점수}
     if isinstance(sm_state, dict):
