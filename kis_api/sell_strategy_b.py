@@ -4,23 +4,28 @@ sell_strategy_b.py — B 매도전략 (전량청산 결정 엔진)  [평활 방�
 =====================================================
 규칙:
   · 3일 평활 점수(최근 3 거래일 raw 점수 이동평균) < SELL_THRESH 가
-    CONFIRM_DAYS 일 연속이면 → 전량청산
-  · 현재가가 평단(API 잔고 평균매입단가) 대비 STOP_PCT 이하(예: -12%)면 → 즉시 전량청산
+    CONFIRM_DAYS 일 연속이면 → 전량청산 (단, 오늘 raw ≥ SELL_THRESH 회복 시 보류[A])
+  · raw(total_score) < RAW_SELL_THRESH 가 RAW_NEG_HOLD_SEC(30분) '연속' 지속되면 → 전량청산
+    (0 밑으로 잠깐 찍고 회복하는 휩쏘 방지 — raw 가 한 번이라도 0 이상 회복하면 타이머 리셋)
+  · 현재가가 평단(API 잔고 평균매입단가) 대비 STOP_PCT 이하(예: -14%)면 → 즉시 전량청산
     단, total_score(raw) 가 STOP_SCORE_KEEP(0.60) 이상이면 손절 면제(강한 종목은 홀드)
 교차일(cross-day) 상태를 logs/sell_state_b.json 에 영속 (재시작/재부팅 생존).
 
   ※ 2026-06-30 시뮬 결과 '평활<0.2·2일연속'(①) 최고 강건 → raw→평활 전환.
   ※ 2026-07-02 startup 자동 backfill 추가: 리셋/재부팅으로 hist 가 비면
     일별 Stock_V3.csv 로그(최근 며칠)에서 평활 이력을 자동 복원.
+  ※ 2026-07-22 그리드 최적화: SELL_THRESH 0.20→0.10, STOP_PCT -0.12→-0.14, raw<0 즉시청산 추가.
+  ※ 2026-07-27 raw<0 즉시 → 30분 연속(RAW_NEG_HOLD_SEC) 지속 조건으로 변경(휩쏘 방지).
 
-파라미터: SELL_THRESH=0.20, CONFIRM_DAYS=2, SMOOTH_N=3, STOP_PCT=-0.12, STOP_SCORE_KEEP=0.60
+파라미터: SELL_THRESH=0.10, RAW_SELL_THRESH=0.0, RAW_NEG_HOLD_SEC=1800, CONFIRM_DAYS=2, SMOOTH_N=3, STOP_PCT=-0.14, STOP_SCORE_KEEP=0.60
 """
-import json, os, re
+import json, os, re, time
 
 STATE_FILE   = r"C:\Projects\RealtimeMonitor\logs\sell_state_b.json"
 LOG_DIR      = r"C:\Projects\RealtimeMonitor\logs"
 SELL_THRESH  = 0.10    # 청산 점수 임계 (평활 점수 기준) — 그리드 최적: 0.20→0.10
-RAW_SELL_THRESH = 0.0  # raw total_score 즉시청산 임계: raw < 이 값이면 즉시 전량 (A + raw<0)
+RAW_SELL_THRESH = 0.0  # raw total_score 즉시청산 임계: raw < 이 값 (단, RAW_NEG_HOLD_SEC 연속 유지 시에만 매도)
+RAW_NEG_HOLD_SEC = 1800  # raw<0 이 이 초(30분) 연속 지속돼야 매도 — 0 밑 잠깐 찍고 회복하는 휩쏘 방지
 CONFIRM_DAYS = 2       # 연속 청산구간 확인일수
 SMOOTH_N     = 3       # 평활 기간(거래일)
 STOP_PCT     = -0.14   # 가격 손절 (-14%) — 그리드 최적: -0.12→-0.14
@@ -127,6 +132,7 @@ def _roll_day(e, today):
         e["below_days"] = 0
     if e.get("last_raw") is not None:
         e["hist"] = (e.get("hist", []) + [e["last_raw"]])[-(SMOOTH_N - 1):]
+    e["raw_neg_since"] = None    # 날짜 바뀌면 raw<0 연속 타이머 리셋(30분 연속은 당일 기준)
     e["day"] = today
 
 
@@ -139,11 +145,14 @@ def is_stop_loss(cur_price, avg_price):
     return False
 
 
-def decide(code, raw_score, cur_price, avg_price, today):
+def decide(code, raw_score, cur_price, avg_price, today, now_ts=None):
     """
     전량청산 여부 결정.
     반환: (full_sell: bool, smoothed: float, reason: str)  reason ∈ {"", "score", "stop12", "raw_neg"}
+    now_ts: 현재 epoch(초). 생략 시 time.time(). raw<0 연속 30분 판정용.
     """
+    if now_ts is None:
+        now_ts = time.time()
     e = _STATE.setdefault(code, {"day": today, "hist": [], "below_days": 0,
                                  "last_raw": None, "last_smoothed": None})
     _roll_day(e, today)
@@ -159,10 +168,16 @@ def decide(code, raw_score, cur_price, avg_price, today):
     if raw_score < STOP_SCORE_KEEP and is_stop_loss(cur_price, avg_price):
         return True, smoothed, "stop12"
 
-    # raw 즉시청산 (A + raw<0): total_score(raw) 가 RAW_SELL_THRESH 미만이면
-    #   평활·연속일 무관하게 즉시 전량 (하락신호 우세 → 빠른 이탈).
+    # raw 청산 (A + raw<0): raw < RAW_SELL_THRESH 가 RAW_NEG_HOLD_SEC(30분) 연속 지속되면 전량.
+    #   0 아래로 잠깐 찍고 곧 회복하는 휩쏘(단타 매도) 방지 — 30분 연속 유지되어야 매도한다.
+    #   raw 가 한 번이라도 0 이상으로 회복하면 연속 타이머를 리셋한다.
     if raw_score < RAW_SELL_THRESH:
-        return True, smoothed, "raw_neg"
+        if e.get("raw_neg_since") is None:
+            e["raw_neg_since"] = now_ts            # 음수 진입 시각(연속 시작) 기록
+        elif now_ts - e["raw_neg_since"] >= RAW_NEG_HOLD_SEC:
+            return True, smoothed, "raw_neg"
+    else:
+        e["raw_neg_since"] = None                   # 0 이상 회복 → 연속 타이머 리셋
 
     # 점수 청산: 평활<thr 가 오늘 포함 CONFIRM_DAYS 연속.
     #   [A] 단, 오늘 raw(raw_score) 가 SELL_THRESH 이상으로 회복했으면 보류한다
