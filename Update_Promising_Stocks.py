@@ -394,10 +394,14 @@ def run_updater():
     max_lb       = max([m['lookback'] for m in models.values()])
     market_mode  = os.environ.get("MARKET_MODE", "KRX")
 
+    _sb = sell_strategy_b
     print(f"\n🚀 [Promising Updater] 시작 (마켓 모드: {market_mode})")
-    print(f"   - 자동발굴 : 점수 {TARGET_SCORE}점 이상만 추적")
+    print(f"   - 자동발굴 : 점수 {TARGET_SCORE*100:.0f}점 이상만 추적")
     print(f"   - 검색기록 : 점수 무관 무조건 추적")
-    print(f"   - 매도시그널: {DROP_THRESHOLDS} 이하 하락 시 알림")
+    print(f"   - 매도규칙 : ①-{abs(_sb.STOP_PCT)*100:.0f}% 손절(raw≥{_sb.STOP_SCORE_KEEP*100:.0f} 면제) "
+          f"②raw<0 {_sb.RAW_NEG_HOLD_SEC//60}분연속(15:20~ 동시호가 시장가) "
+          f"③평활<{_sb.SELL_THRESH*100:.0f}점 2일연속(오늘 raw≥{_sb.SELL_THRESH*100:.0f} 회복시 보류)")
+    print(f"   - 하락경고 : 평활/raw < {_sb.SELL_THRESH*100:.0f}점 시 텔레그램 알림(자동매매는 본인 등록종목만)")
     print(f"   - 주기      : {CYCLE_DELAY}초\n")
 
     last_scores      = load_last_scores()   # 재시작 후에도 이전 점수 복원

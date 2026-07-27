@@ -200,9 +200,13 @@ def fetch_all_holdings():
 # 📉 지정가 매도 주문
 #    loan_dt 있으면 kt10007(담보=crd_deal_tp:88 / 신용=33), 없으면 kt10001 현금 매도
 # ====================================================
-def place_sell_order(code, qty, price, loan_dt="", crd_type="00"):
+def place_sell_order(code, qty, price, loan_dt="", crd_type="00", market=False):
+    """매도 주문. market=True 면 시장가(trde_tp=3, 호가 0) — 장마감 동시호가(15:20~)
+       raw<0 즉시청산 등 '반드시 체결' 이 필요할 때 사용. 기본은 지정가(trde_tp=0)."""
     if qty <= 0:
         return None
+    trde_tp = "3" if market else "0"          # 3=시장가, 0=지정가
+    ord_uv  = "0" if market else str(price)    # 시장가는 호가 0
     if loan_dt:
         # 담보(crd_type=08): crd_deal_tp="88", 신용융자(crd_type=01): crd_deal_tp="33"
         crd_deal_tp = "88" if crd_type == "08" else "33"
@@ -210,8 +214,8 @@ def place_sell_order(code, qty, price, loan_dt="", crd_type="00"):
             "dmst_stex_tp": "KRX",
             "stk_cd":       code,
             "ord_qty":      str(qty),
-            "ord_uv":       str(price),
-            "trde_tp":      "0",     # 지정가
+            "ord_uv":       ord_uv,
+            "trde_tp":      trde_tp,   # 0=지정가 / 3=시장가
             "crd_deal_tp":  crd_deal_tp,
             "crd_loan_dt":  loan_dt,
         }
@@ -221,8 +225,8 @@ def place_sell_order(code, qty, price, loan_dt="", crd_type="00"):
             "dmst_stex_tp": "KRX",
             "stk_cd":       code,
             "ord_qty":      str(qty),
-            "ord_uv":       str(price),
-            "trde_tp":      "0",     # 지정가
+            "ord_uv":       ord_uv,
+            "trde_tp":      trde_tp,   # 0=지정가 / 3=시장가
             "cond_uv":      "",
         }
         return _post("kt10001", "/api/dostk/ordr", body)

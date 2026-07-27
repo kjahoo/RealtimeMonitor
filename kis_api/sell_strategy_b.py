@@ -20,12 +20,14 @@ sell_strategy_b.py — B 매도전략 (전량청산 결정 엔진)  [평활 방�
 파라미터: SELL_THRESH=0.10, RAW_SELL_THRESH=0.0, RAW_NEG_HOLD_SEC=1800, CONFIRM_DAYS=2, SMOOTH_N=3, STOP_PCT=-0.14, STOP_SCORE_KEEP=0.60
 """
 import json, os, re, time
+from datetime import datetime as _dt, time as _dtime
 
 STATE_FILE   = r"C:\Projects\RealtimeMonitor\logs\sell_state_b.json"
 LOG_DIR      = r"C:\Projects\RealtimeMonitor\logs"
 SELL_THRESH  = 0.10    # 청산 점수 임계 (평활 점수 기준) — 그리드 최적: 0.20→0.10
 RAW_SELL_THRESH = 0.0  # raw total_score 즉시청산 임계: raw < 이 값 (단, RAW_NEG_HOLD_SEC 연속 유지 시에만 매도)
 RAW_NEG_HOLD_SEC = 1800  # raw<0 이 이 초(30분) 연속 지속돼야 매도 — 0 밑 잠깐 찍고 회복하는 휩쏘 방지
+CLOSE_AUCTION_START = _dtime(15, 20)  # 종가 단일가(동시호가) 시작 — 이후 raw<0 이면 30분 대기 없이 즉시청산(시장가)
 CONFIRM_DAYS = 2       # 연속 청산구간 확인일수
 SMOOTH_N     = 3       # 평활 기간(거래일)
 STOP_PCT     = -0.14   # 가격 손절 (-14%) — 그리드 최적: -0.12→-0.14
@@ -148,8 +150,10 @@ def is_stop_loss(cur_price, avg_price):
 def decide(code, raw_score, cur_price, avg_price, today, now_ts=None):
     """
     전량청산 여부 결정.
-    반환: (full_sell: bool, smoothed: float, reason: str)  reason ∈ {"", "score", "stop12", "raw_neg"}
-    now_ts: 현재 epoch(초). 생략 시 time.time(). raw<0 연속 30분 판정용.
+    반환: (full_sell: bool, smoothed: float, reason: str)
+          reason ∈ {"", "score", "stop12", "raw_neg", "raw_neg_close"}
+          raw_neg_close = 장마감 동시호가(15:20~) raw<0 → execution_monitor 가 '시장가'로 집행.
+    now_ts: 현재 epoch(초). 생략 시 time.time(). raw<0 연속 30분/장마감 판정용.
     """
     if now_ts is None:
         now_ts = time.time()
@@ -167,6 +171,11 @@ def decide(code, raw_score, cur_price, avg_price, today, now_ts=None):
     #   단, total_score(raw_score) 가 STOP_SCORE_KEEP 이상이면 손절 면제(강한 종목 홀드).
     if raw_score < STOP_SCORE_KEEP and is_stop_loss(cur_price, avg_price):
         return True, smoothed, "stop12"
+
+    # 장마감 동시호가(15:20~) + raw<0: 30분 연속을 채울 시간이 없으므로 즉시 청산.
+    #   execution_monitor 가 이 reason 은 '시장가'로 집행한다(동시호가엔 호가 sweep 불가).
+    if raw_score < RAW_SELL_THRESH and _dt.fromtimestamp(now_ts).time() >= CLOSE_AUCTION_START:
+        return True, smoothed, "raw_neg_close"
 
     # raw 청산 (A + raw<0): raw < RAW_SELL_THRESH 가 RAW_NEG_HOLD_SEC(30분) 연속 지속되면 전량.
     #   0 아래로 잠깐 찍고 곧 회복하는 휩쏘(단타 매도) 방지 — 30분 연속 유지되어야 매도한다.
