@@ -44,6 +44,30 @@ DROP_THRESHOLDS = [0.40, 0.35, 0.30, 0.25, 0.20, 0]
 API_TIMEOUT_SEC = 4   # 단건 API 호출 타임아웃 (초)
 MAX_FAIL_SKIP   = 3   # 연속 실패 N회면 해당 종목 이번 사이클 건너뜀
 
+# promising 자동정리: 60+ 자동등록(claude_eval_pipeline.SCORE_THRESHOLD=0.60) 종목이
+# 미보유 & 현재점수 < 이 값이면 promising 에서 제거해 목록 비대화·지연 방지.
+PROMISING_KEEP_MIN   = 0.60
+HOLDINGS_REFRESH_SEC = 300   # 보유종목 조회 캐시 주기(초)
+
+
+# ====================================================
+# 💼 보유종목 코드 set 캐시 (promising 정리용, 5분 주기)
+# ====================================================
+_holdings_cache = {"ts": 0.0, "set": None}
+
+def get_holdings_set():
+    """키움 보유 코드 set. 조회 실패 시 직전 캐시(없으면 None) 반환 → 정리 생략용."""
+    now = time.time()
+    if _holdings_cache["set"] is not None and (now - _holdings_cache["ts"]) < HOLDINGS_REFRESH_SEC:
+        return _holdings_cache["set"]
+    hs = trading.fetch_all_holdings()
+    if hs is None:                       # 조회 실패 → 직전 캐시 유지(오삭제 방지)
+        return _holdings_cache["set"]
+    s = set(format_code(h["code"]) for h in hs if h.get("code"))
+    _holdings_cache["ts"]  = now
+    _holdings_cache["set"] = s
+    return s
+
 MODEL_SETTINGS = {
     "target1":  {"lb": 65, "thr": 0.5256, "weight": 0.1775},
     "target5":  {"lb": 55, "thr": 0.6484, "weight": 0.3639},
@@ -339,16 +363,20 @@ def update_split_logs(stock_results, etf_results, today_str):
 # ====================================================
 # 🔄 Search_History 점수 업데이트
 # ====================================================
-def update_search_history_scores(updates, today_str):
+def update_search_history_scores(updates, today_str, holdings_set=None):
     """
     updates: {code: {'total_score': ..., 'close_price': ..., 'net_hits': ...,
                      'surge_hits': ..., 'drop_hits': ...}}
     Search_History.csv의 해당 code 행 점수·현재가를 일괄 덮어씁니다.
+    holdings_set 이 주어지면(=키움 보유 코드 set): 자동등록(60+)인데 미보유 & 점수<임계
+    종목을 promising 에서 제거한다(목록 비대화 방지). None 이면(조회 실패 등) 정리 생략.
+    ※ signal 컬럼은 출처 마커(60+자동등록/보유종목/클로드평가/수동)로 쓰이므로 덮어쓰지 않는다
+      (Target/Drop 카운트는 surge_hits/drop_hits 컬럼에 그대로 저장됨).
     """
-    if not updates:
-        return
     hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
     if not os.path.exists(hist_path):
+        return
+    if not updates and holdings_set is None:
         return
     try:
         df = pd.read_csv(hist_path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
@@ -356,7 +384,7 @@ def update_search_history_scores(updates, today_str):
             return
         df['code'] = df['code'].apply(format_code)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for code, vals in updates.items():
+        for code, vals in (updates or {}).items():
             mask = df['code'] == code
             if not mask.any():
                 continue
@@ -369,8 +397,22 @@ def update_search_history_scores(updates, today_str):
             df.loc[mask, 'net_hits']      = str(vals.get('net_hits', ''))
             df.loc[mask, 'surge_hits']    = str(vals.get('surge_hits', ''))
             df.loc[mask, 'drop_hits']     = str(vals.get('drop_hits', ''))
-            df.loc[mask, 'signal']        = f"Target {vals.get('surge_hits',0)} / Drop {vals.get('drop_hits',0)}"
             df.loc[mask, 'timestamp']     = now_str
+
+        # ── promising 정리: 60+ 자동등록 종목이 미보유 & 점수<임계면 제거 ──────────
+        if holdings_set is not None and 'signal' in df.columns and 'total_score' in df.columns:
+            sc = pd.to_numeric(df['total_score'], errors='coerce').fillna(1.0)  # 파싱실패=보존
+            is_auto  = df['signal'].astype(str).str.strip() == "60+자동등록"
+            not_held = ~df['code'].isin(holdings_set)
+            low      = sc < PROMISING_KEEP_MIN
+            drop_mask = is_auto & not_held & low
+            n_drop = int(drop_mask.sum())
+            if n_drop:
+                dropped = df.loc[drop_mask, ['code', 'name']].values.tolist()
+                df = df[~drop_mask]
+                print(f"   🧹 promising 정리: 60+자동등록·미보유·{PROMISING_KEEP_MIN*100:.0f}점미만 "
+                      f"{n_drop}개 제거 → {dropped[:10]}")
+
         _tmp = hist_path + ".tmp"
         df.to_csv(_tmp, index=False, encoding='utf-8-sig')
         os.replace(_tmp, hist_path)
@@ -857,7 +899,9 @@ def run_updater():
 
             # 3. 로그 저장
             update_split_logs(results_stock, results_etf, today_str)
-            update_search_history_scores(history_updates, today_str)
+            # 보유종목 set(5분 캐시) — promising 자동정리(60+미달·미보유 제거)에 사용
+            holdings_set = get_holdings_set()
+            update_search_history_scores(history_updates, today_str, holdings_set)
             save_last_scores(last_scores)
             save_sell_plan(sell_plan_targets, today_str)   # 매도 sweep 계획 → execution_monitor
             sell_strategy_b.persist()   # B 전략 교차일 상태 영속
