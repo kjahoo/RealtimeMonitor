@@ -267,14 +267,20 @@ def save_and_backup_results(results, date_str, is_stock=False):
     file_name = f"{date_str}_{type_str}_V3.csv"
 
     local_path = os.path.join(secrets.LOCAL_DATA_PATH, file_name)
-    drive_path = os.path.join(secrets.G_DRIVE_PATH, file_name)
+    backup_path = os.path.join(secrets.BACKUP_PATH, file_name)
 
     try:
         # csv 저장
         df_final.to_csv(local_path, index=False, encoding='utf-8-sig')
-        shutil.copy2(local_path, drive_path)
     except Exception as e:
         print(f"⚠️ 저장 실패: {e}")
+        return
+
+    try:
+        os.makedirs(secrets.BACKUP_PATH, exist_ok=True)
+        shutil.copy2(local_path, backup_path)
+    except Exception as e:
+        print(f"⚠️ 백업 복사 실패 (로컬 저장은 완료): {e}")
 
 
 # [추가] 기존 결과 파일 불러오기 (재시작 시 데이터 보존용)

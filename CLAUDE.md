@@ -27,6 +27,8 @@ description: 평일 08:00~16:30 15분마다 60점+ 종목 AI 평가(13항목). �
 - **주가(close_price)는 promising = logs/{날짜}_Search_History.csv 의 current_price 를 기준으로 한다.** 해당 code 가 Search_History 에 있으면 current_price(있으면 market_cap 도 그 값)를 close_price 로 쓰고, 없으면 Stock_V3 의 close_price 로 폴백한다. 밸류에이션도 이 기준가로 한다.
 - **시세분석(가격·수급·차트·시장분위기 등)은 V3 스코어링 모델이 이미 정량 반영했으므로 AI 평가에서 별도로 하지 않는다.** 기술적/차트 분석 항목은 제외하고, 펀더멘털(사업·실적·성장·밸류에이션·리스크) 중심으로만 평가한다.
 
+(리서치 효율화 — Report_AI 참고) 평가 리서치 전, C:\Users\JH_Signature\OneDrive\Documents\Report_AI 폴더에서 **최신일자 하위폴더**를 찾아, 이번에 평가할 종목과 **중복되는 종목의 기존 분석 보고서가 있으면 참고자료로 먼저 읽는다**(장마감 후 score 0.6+ 종목 보고서가 날짜별로 저장됨). 중복 종목은 해당 보고서 내용을 토대로 하되 web_search 로 최신 실적·뉴스만 보강해 작성하면 효율적이다. 폴더/파일이 없거나 중복 종목이 없으면 무시하고 평소대로 web_search 로 새로 평가한다. (이 폴더는 참고 전용 — 쓰기·수정 금지, 결과는 여전히 logs 폴더에만 저장.)
+
 (평가 수행) C:\Projects\RealtimeMonitor\ai_eval_prompt.txt 를 읽어 그 지침을 그대로 따라 각 종목을 web_search(최근 2026 자료, 한국어)로 평가해 logs/{날짜}_claude_results.json 에 스키마대로 저장한다. **저장까지만** 하면 된다(이후 처리는 데몬의 promote/auto_buy 담당).
 - **각 종목 analysis 는 아래 13항목을 모두 빠짐없이 채운다(누락 금지):** 1 business(주요 사업·제품별 매출 비중) 2 customers(주요 고객사·고객별 매출 비중) 3 financials(작년 vs 올해 최근 분기까지 비교) 4 growth(최신 정보 기반 성장성) 5 competition(경쟁사 대비 장단점) 6 valuation(밸류에이션+peer 비교, 최근 분기 실적·재무 중심, PER/PBR 등) 7 invest_points(최신 투자 포인트+최신 주요 뉴스) 8 gossip(웹상의 의견) 9 dilution(메자닌 CB/BW 등 희석 요인 — **단, 대략 6개월 전~6개월 후 사이에 실제로 출회·전환되는 물량이 아니거나, 규모가 유통주식/시총 대비 미미하면 감점요인으로 보지 않고 사실만 기재**. 임박·대규모 오버행만 리스크로 반영) 10 risks(리스크) 11 verdict(종합 판단+매수/관망/회피 근거) 12 report(6개월 내 애널리스트 분석보고서가 있는지, 보고서 내용 긍정적인지) 13 extra(이외 도움될 사항). 시세·차트(기술적) 분석 항목은 두지 않는다(스코어링 모델이 이미 수행). 확인 안 되는 항목은 "자료 부족"으로 명시(추측 금지).
 - **위 13항목 종합으로 투자 매력도를 100점 만점

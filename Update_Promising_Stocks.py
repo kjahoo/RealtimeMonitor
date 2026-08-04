@@ -455,6 +455,7 @@ def run_updater():
     prev_market_mode = None   # 모드 전환 감지용
     drop_warn_sent   = {}     # {(chat_id, code): (dir, day, streak)} — 평활<0.2 하락/회복 경고 중복 방지
     raw_warn_sent    = {}     # {(chat_id, code): (dir, day)} — raw<0.2 조기경보(하락/회복) 중복 방지
+    rawneg_warn_sent = {}     # {(chat_id, code): (day, 5분버킷)} — raw<0 30분 카운트다운 진입/5분단위/회복 중복 방지
     nxt_carry_reported = None  # 평활<0.2 이월 리포트 발송한 날짜(YYYYMMDD) — NXT 아침 1회
 
     while True:
@@ -839,6 +840,45 @@ def run_updater():
                                         send_telegram(recover_raw, [_cid])
                                     else:
                                         raw_warn_sent.pop((_cid, code), None)
+
+                        # ── raw<0 30분 카운트다운 진행 알림: 진입 1회 + 5분 단위 + 회복 1회.
+                        #    raw_neg_status(active/elapsed/remaining). 30분 도달 시엔 execution_monitor 가
+                        #    매도(체결)를 보고하므로, 카운트다운 알림은 매도 직전(25분)까지만 보낸다.
+                        _rn = sell_strategy_b.raw_neg_status(code)
+                        _rn_hold_m = sell_strategy_b.RAW_NEG_HOLD_SEC // 60
+                        if _rn and _rn["active"]:
+                            _el_m = int(_rn["elapsed"] // 60)
+                            _rm_m = max(0, int((_rn["remaining"] + 59) // 60))   # 남은 분(올림)
+                            _ms   = int(_rn["elapsed"] // 300)                   # 5분 버킷(0=진입)
+                            if _ms <= (_rn_hold_m // 5) - 1:                     # 25분까지만(30분은 매도가 대신)
+                                _rnk = (_today_b, _ms)
+                                for _cid in registrants:
+                                    _prev = rawneg_warn_sent.get((_cid, code))
+                                    if _prev != _rnk:
+                                        _is_entry = (_ms == 0 and (_prev is None or _prev[0] != _today_b))
+                                        rawneg_warn_sent[(_cid, code)] = _rnk
+                                        if _is_entry:
+                                            rn_msg = (f"⚠️ [raw<0 진입] {stock_name} ({code})\n"
+                                                      f"raw {total_score*100:.1f}점 (0 미만) — {_rn_hold_m}분 연속 시 전량매도\n"
+                                                      f"현재가: {curr:,}원")
+                                        else:
+                                            rn_msg = (f"⏳ [raw<0 {_el_m}분째] {stock_name} ({code})\n"
+                                                      f"약 {_rm_m}분 후 전량매도 (raw {total_score*100:.1f}점)\n"
+                                                      f"현재가: {curr:,}원")
+                                        if str(_cid) == secrets.TELEGRAM_CHAT_ID:
+                                            print(f"   ⚠️ {rn_msg.replace(chr(10), '  ')}")
+                                        send_telegram(rn_msg, [_cid])
+                        elif _rn is not None:
+                            # raw 0 이상 회복 → 직전에 raw<0 진입 알림 받은 사람에게 1회 해소 알림.
+                            for _cid in list(registrants):
+                                if (_cid, code) in rawneg_warn_sent:
+                                    rawneg_warn_sent.pop((_cid, code), None)
+                                    rn_rec = (f"✅ [raw<0 해소] {stock_name} ({code})\n"
+                                              f"raw {total_score*100:.1f}점 (0 이상) 회복 — 매도 타이머 리셋\n"
+                                              f"현재가: {curr:,}원")
+                                    if str(_cid) == secrets.TELEGRAM_CHAT_ID:
+                                        print(f"   ✅ {rn_rec.replace(chr(10), '  ')}")
+                                    send_telegram(rn_rec, [_cid])
 
                         if not is_my_code:
                             # 자동매매는 '내 ID로 등록된 종목'만 실행 (소유자 계좌 조회/주문)

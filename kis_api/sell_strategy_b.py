@@ -229,6 +229,28 @@ def status_after_decide(code):
     }
 
 
+def raw_neg_status(code, now_ts=None):
+    """decide() 직후 호출 — raw<0 연속 30분 카운트다운 진행 알림용 진단 정보.
+    반환 None(데이터 없음) 또는 dict:
+      active    : 현재 raw<0 연속 진행 중 여부(raw_neg_since 설정됨)
+      elapsed   : 연속 경과 초(active=False 면 0)
+      remaining : 매도(RAW_NEG_HOLD_SEC)까지 남은 초(0 이하면 조건 충족)
+      last_raw  : 마지막 raw 점수
+    """
+    if now_ts is None:
+        now_ts = time.time()
+    e = _STATE.get(code)
+    if not e:
+        return None
+    since = e.get("raw_neg_since")
+    if since is None:
+        return {"active": False, "elapsed": 0.0,
+                "remaining": float(RAW_NEG_HOLD_SEC), "last_raw": e.get("last_raw")}
+    elapsed = max(0.0, now_ts - since)
+    return {"active": True, "elapsed": elapsed,
+            "remaining": max(0.0, RAW_NEG_HOLD_SEC - elapsed), "last_raw": e.get("last_raw")}
+
+
 def carryover_below(code):
     """NXT 아침 시작 시점(오늘 decide 전) 진단 — 어제(마지막 기록일) 평활이
     SELL_THRESH 미만이었던 종목만 반환. 오늘도 미만이면 2일 연속 → 매도.

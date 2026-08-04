@@ -267,10 +267,16 @@ def save_results(results, date_str):
     local_path = os.path.join(secrets.LOCAL_DATA_PATH, file_name)
     try:
         df.to_csv(local_path, index=False, encoding='utf-8-sig')
-        drive_path = os.path.join(secrets.G_DRIVE_PATH, file_name)
-        shutil.copy2(local_path, drive_path)
     except Exception as e:
         print(f"⚠️ 저장 실패: {e}")
+        return
+
+    try:
+        os.makedirs(secrets.BACKUP_PATH, exist_ok=True)
+        backup_path = os.path.join(secrets.BACKUP_PATH, file_name)
+        shutil.copy2(local_path, backup_path)
+    except Exception as e:
+        print(f"⚠️ 백업 복사 실패 (로컬 저장은 완료): {e}")
 
 
 def load_existing_results(date_str):

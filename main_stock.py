@@ -289,7 +289,7 @@ def save_and_backup_results(results, date_str, is_stock=True):
     file_name = f"{date_str}_{type_str}_V3.csv"
 
     local_path = os.path.join(secrets.LOCAL_DATA_PATH, file_name)
-    drive_path = os.path.join(secrets.G_DRIVE_PATH, file_name)
+    backup_path = os.path.join(secrets.BACKUP_PATH, file_name)
 
     # 디스크 파일과 병합 — Search_Stock_V3/Update_Promising이 쓴 행을 지우지 않도록
     # code별로 'time'(HH:MM:SS)이 더 늦은 행을 채택 (외부 갱신이 더 최신이면 그쪽 유지)
@@ -325,9 +325,15 @@ def save_and_backup_results(results, date_str, is_stock=True):
         tmp_path = local_path + ".tmp"
         df_final.to_csv(tmp_path, index=False, encoding='utf-8-sig')
         os.replace(tmp_path, local_path)
-        shutil.copy2(local_path, drive_path)
     except Exception as e:
         print(f"⚠️ 저장 실패: {e}")
+        return
+
+    try:
+        os.makedirs(secrets.BACKUP_PATH, exist_ok=True)
+        shutil.copy2(local_path, backup_path)
+    except Exception as e:
+        print(f"⚠️ 백업 복사 실패 (로컬 저장은 완료): {e}")
 
 
 # [추가] 기존 결과 파일 불러오기 (재시작 시 데이터 보존용)
