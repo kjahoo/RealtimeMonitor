@@ -30,7 +30,9 @@ LOG_DIR          = r"C:\Projects\RealtimeMonitor\logs"
 LAST_SCORES_FILE = os.path.join(LOG_DIR, "last_scores.json")
 
 TARGET_SCORE   = 0.2
-CYCLE_DELAY    = 30
+CYCLE_DELAY    = 5    # 사이클 간 숨고르기(초). 사이클 자체가 수십 초라 idle 최소화(30→5).
+                      # 0으로 두지 않는 이유: 키움 REST 를 execution_monitor(4초 폴링, 실주문)와
+                      # 공유 — 핫루프 시 rate-limit 경합으로 주문 집행이 느려질 수 있음.
 
 # 실제 매매(주문 접수/취소/정정) 알림은 소유자(나)만 수신 — 친구는 시그널만
 OWNER_IDS = [secrets.TELEGRAM_CHAT_ID]

@@ -559,8 +559,8 @@ if __name__ == "__main__":
             save_and_backup_results(list(today_results.values()), today_str)
             # 참고: 60점+ Claude AI 평가는 main_stock 과 분리되어 30분 스케줄
             #       (run_ai_eval.ps1)로 별도 실행된다. 여기서는 호출하지 않는다.
-            print(f"✅ {datetime.now().strftime('%H:%M:%S')} 전 종목 분석 완료. 1분 대기.")
-            time.sleep(60)
+            print(f"✅ {datetime.now().strftime('%H:%M:%S')} 전 종목 분석 완료. 5초 후 다음 사이클.")
+            time.sleep(5)   # 사이클이 수 분 이상이라 idle 은 낭비 — 숨고르기 최소화(60→5초)
 
     except KeyboardInterrupt:
         print("\n🛑 사용자 종료")
