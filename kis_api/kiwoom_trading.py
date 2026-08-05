@@ -2,6 +2,7 @@
 # 주문 API: 키움증권 REST (kt10001/kt10007/kt10003/kt10009)
 # 잔고 조회: kt00018, 미체결 조회: ka10075
 import math
+import time
 import datetime
 import requests
 import sys
@@ -168,9 +169,61 @@ def fetch_stock_holdings(code):
 
         if res.headers.get("cont-yn") == "Y" and res.headers.get("next-key"):
             cont_yn, next_key = "Y", res.headers.get("next-key")
+            time.sleep(0.25)   # 페이지 간 간격 — 유량(5req/s) 보호
             continue
         break
     return holdings
+
+
+def fetch_holdings_tranche_map():
+    """전 보유종목의 트랜치(현금/신용/담보 분할) 맵: {code6: [fetch_stock_holdings 와
+       동일 스키마 dict, ...]}. 조회 실패 시 None.
+       매도 틱처럼 여러 종목 잔고가 동시에 필요할 때 종목당 개별조회(kt00018 × 종목수
+       × 페이지수) 대신 전 페이지 1세트로 끝내 유량(5req/s) 429 를 피한다."""
+    tranche_map = {}
+    cont_yn, next_key = "N", ""
+    while True:
+        headers = _headers("kt00018")
+        headers["cont-yn"]  = cont_yn
+        headers["next-key"] = next_key
+        try:
+            res = requests.post(KIWOOM_URL_BASE + "/api/dostk/acnt", headers=headers,
+                                json={"qry_tp": "2", "dmst_stex_tp": "KRX"}, timeout=5)
+        except Exception as e:
+            print(f"   ❌ API 오류 [kt00018/맵]: {e}")
+            return None
+        if res.status_code != 200:
+            print(f"   ❌ API HTTP 실패 [kt00018/맵]: {res.status_code} → {res.text[:200]}")
+            return None
+        data = res.json()
+        if data.get("return_code", 0) != 0:
+            print(f"   ❌ [kt00018/맵] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
+            return None
+
+        for item in data.get("acnt_evlt_remn_indv_tot", []):
+            raw_cd = item.get("stk_cd", "")
+            item_code = raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
+            qty = _pint(item.get("rmnd_qty"))
+            if not item_code or qty <= 0:
+                continue
+            crd_type = item.get("crd_tp", "00").strip()
+            tranche_map.setdefault(item_code, []).append({
+                "qty":               qty,
+                "sell_possible_qty": _pint(item.get("trde_able_qty")),
+                "avg_buy_price":     float(_pint(item.get("pur_pric"))),
+                "purchase_amount":   _pint(item.get("pur_amt")),
+                "loan_dt":           item.get("crd_loan_dt", "").strip(),
+                "crd_type":          crd_type,
+                "loan_amt":          0,
+                "order_type":        _CRD_TYPE_NAME.get(crd_type, "현금"),
+            })
+
+        if res.headers.get("cont-yn") == "Y" and res.headers.get("next-key"):
+            cont_yn, next_key = "Y", res.headers.get("next-key")
+            time.sleep(0.25)   # 페이지 간 간격 — 유량(5req/s) 보호
+            continue
+        break
+    return tranche_map
 
 
 # ====================================================
@@ -225,11 +278,35 @@ def fetch_all_holdings():
 # 📉 지정가 매도 주문
 #    loan_dt 있으면 kt10007(담보=crd_deal_tp:88 / 신용=33), 없으면 kt10001 현금 매도
 # ====================================================
+def krx_tick_size(price):
+    """KRX 호가단위(2023-01 개편, KOSPI/KOSDAQ 공통)."""
+    if price < 2000:    return 1
+    if price < 5000:    return 5
+    if price < 20000:   return 10
+    if price < 50000:   return 50
+    if price < 200000:  return 100
+    if price < 500000:  return 500
+    return 1000
+
+
+def normalize_krx_price(price):
+    """주문가를 KRX 호가단위로 내림 정규화. promising 현재가에 NXT 체결가(더 잘게
+       쪼개진 호가단위)가 섞이면 KRX 지정가 주문이 '주문단가 오류'로 거부됨
+       (예: NAVER 230,750 — 500원 단위 위반, 2026-08-05 kt10007 반복 거부 사례).
+       내림이라 매도는 더 공격적(체결 유리), 매수도 지정가 이하 sweep 이라 안전."""
+    price = int(price)
+    if price <= 0:
+        return price
+    return price - (price % krx_tick_size(price))
+
+
 def place_sell_order(code, qty, price, loan_dt="", crd_type="00", market=False):
     """매도 주문. market=True 면 시장가(trde_tp=3, 호가 0) — 장마감 동시호가(15:20~)
        raw<0 즉시청산 등 '반드시 체결' 이 필요할 때 사용. 기본은 지정가(trde_tp=0)."""
     if qty <= 0:
         return None
+    if not market:
+        price = normalize_krx_price(price)     # NXT 가격 섞임 → 호가단위 거부 방지
     trde_tp = "3" if market else "0"          # 3=시장가, 0=지정가
     ord_uv  = "0" if market else str(price)    # 시장가는 호가 0
     if loan_dt:
@@ -264,6 +341,7 @@ def place_buy_order(code, qty, price):
     """현금 지정가 매수. 반환: API dict (return_code=0 성공) or None"""
     if qty <= 0 or price <= 0:
         return None
+    price = normalize_krx_price(price)   # NXT 가격 섞임 → 호가단위 거부 방지
     body = {
         "dmst_stex_tp": "KRX",
         "stk_cd":       code,

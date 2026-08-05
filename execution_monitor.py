@@ -438,6 +438,14 @@ def _sell_tick(today_str):
     report, changed = [], False
     _log_once("sellhdr", f"📤 매도감시 {min(len(targets), MAX_CODES)}종목")
 
+    # 잔고는 틱당 1회 통합조회(kt00018 전 페이지 1세트) — 종목별 개별조회는
+    # 종목수×페이지수 연사로 유량(5req/s) 429 를 유발했음(2026-08-05).
+    tranche_map = kt.fetch_holdings_tranche_map()   # None = 조회실패
+    if tranche_map is None:
+        # 실패를 '잔고 0'으로 오판하면 가짜 체결보고·'청산완료' 조기종료가 남 → 틱 스킵.
+        _log_once("sellhdr-fail", "  ⚠️ 잔고 통합조회 실패 — 이번 매도 틱 대기")
+        return
+
     for code in list(targets.keys())[:MAX_CODES]:
         t = targets[code]
         code = _fmt(code)
@@ -446,12 +454,7 @@ def _sell_tick(today_str):
         if sell_price <= 0:
             continue
 
-        positions = kt.fetch_stock_holdings(code)   # [] = 보유 없음 · None = 조회실패
-        if positions is None:
-            # 조회 실패를 '잔고 0'으로 오판하면 가짜 체결보고·'청산완료' 조기종료가 남
-            # (트랜치 분할·페이지 누락 사고 재발 방지) → 이번 틱은 판정 없이 건너뜀.
-            _log_once(f"sell:{code}", f"  ⚠️ {name}({code}) 잔고조회 실패 — 이번 틱 대기")
-            continue
+        positions = tranche_map.get(code, [])   # [] = 보유 없음
         held = sum(p["qty"] for p in positions)
 
         cst = codes_state.get(code)
