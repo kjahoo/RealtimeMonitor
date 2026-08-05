@@ -849,27 +849,37 @@ def run_updater():
                         _rn = sell_strategy_b.raw_neg_status(code)
                         _rn_hold_m = sell_strategy_b.RAW_NEG_HOLD_SEC // 60
                         if _rn and _rn["active"]:
-                            _el_m = int(_rn["elapsed"] // 60)
-                            _rm_m = max(0, int((_rn["remaining"] + 59) // 60))   # 남은 분(올림)
-                            _ms   = int(_rn["elapsed"] // 300)                   # 5분 버킷(0=진입)
-                            if _ms <= (_rn_hold_m // 5) - 1:                     # 25분까지만(30분은 매도가 대신)
-                                _rnk = (_today_b, _ms)
-                                for _cid in registrants:
-                                    _prev = rawneg_warn_sent.get((_cid, code))
-                                    if _prev != _rnk:
-                                        _is_entry = (_ms == 0 and (_prev is None or _prev[0] != _today_b))
-                                        rawneg_warn_sent[(_cid, code)] = _rnk
-                                        if _is_entry:
-                                            rn_msg = (f"⚠️ [raw<0 진입] {stock_name} ({code})\n"
-                                                      f"raw {total_score*100:.1f}점 (0 미만) — {_rn_hold_m}분 연속 시 전량매도\n"
-                                                      f"현재가: {curr:,}원")
-                                        else:
-                                            rn_msg = (f"⏳ [raw<0 {_el_m}분째] {stock_name} ({code})\n"
-                                                      f"약 {_rm_m}분 후 전량매도 (raw {total_score*100:.1f}점)\n"
-                                                      f"현재가: {curr:,}원")
-                                        if str(_cid) == secrets.TELEGRAM_CHAT_ID:
-                                            print(f"   ⚠️ {rn_msg.replace(chr(10), '  ')}")
-                                        send_telegram(rn_msg, [_cid])
+                            # 보유 게이트: '전량매도' 카운트다운은 실제 보유 종목만 의미 있음.
+                            #   decide() 는 평활 이력 유지를 위해 미보유 promising 에도 돌므로,
+                            #   미보유(매도완료 포함)면 알림 억제 + 발송상태 정리(회복알림도 안 나가게).
+                            #   (2026-08-05 대덕전자: 아침 전량매도 후 raw<0 재진입 알림 발송 사례)
+                            #   get_holdings_set()=None(최초 조회실패)이면 fail-open(발송) — 보유 매도경고 누락 방지.
+                            _hset = get_holdings_set()   # 5분 캐시
+                            if _hset is not None and code not in _hset:
+                                for _cid in list(registrants):
+                                    rawneg_warn_sent.pop((_cid, code), None)
+                            else:
+                                _el_m = int(_rn["elapsed"] // 60)
+                                _rm_m = max(0, int((_rn["remaining"] + 59) // 60))   # 남은 분(올림)
+                                _ms   = int(_rn["elapsed"] // 300)                   # 5분 버킷(0=진입)
+                                if _ms <= (_rn_hold_m // 5) - 1:                     # 25분까지만(30분은 매도가 대신)
+                                    _rnk = (_today_b, _ms)
+                                    for _cid in registrants:
+                                        _prev = rawneg_warn_sent.get((_cid, code))
+                                        if _prev != _rnk:
+                                            _is_entry = (_ms == 0 and (_prev is None or _prev[0] != _today_b))
+                                            rawneg_warn_sent[(_cid, code)] = _rnk
+                                            if _is_entry:
+                                                rn_msg = (f"⚠️ [raw<0 진입] {stock_name} ({code})\n"
+                                                          f"raw {total_score*100:.1f}점 (0 미만) — {_rn_hold_m}분 연속 시 전량매도\n"
+                                                          f"현재가: {curr:,}원")
+                                            else:
+                                                rn_msg = (f"⏳ [raw<0 {_el_m}분째] {stock_name} ({code})\n"
+                                                          f"약 {_rm_m}분 후 전량매도 (raw {total_score*100:.1f}점)\n"
+                                                          f"현재가: {curr:,}원")
+                                            if str(_cid) == secrets.TELEGRAM_CHAT_ID:
+                                                print(f"   ⚠️ {rn_msg.replace(chr(10), '  ')}")
+                                            send_telegram(rn_msg, [_cid])
                         elif _rn is not None:
                             # raw 0 이상 회복 → 직전에 raw<0 진입 알림 받은 사람에게 1회 해소 알림.
                             for _cid in list(registrants):
