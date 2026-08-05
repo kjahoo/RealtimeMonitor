@@ -446,8 +446,13 @@ def _sell_tick(today_str):
         if sell_price <= 0:
             continue
 
-        positions = kt.fetch_stock_holdings(code)   # None = 보유 없음/조회실패
-        held = sum(p["qty"] for p in positions) if positions else 0
+        positions = kt.fetch_stock_holdings(code)   # [] = 보유 없음 · None = 조회실패
+        if positions is None:
+            # 조회 실패를 '잔고 0'으로 오판하면 가짜 체결보고·'청산완료' 조기종료가 남
+            # (트랜치 분할·페이지 누락 사고 재발 방지) → 이번 틱은 판정 없이 건너뜀.
+            _log_once(f"sell:{code}", f"  ⚠️ {name}({code}) 잔고조회 실패 — 이번 틱 대기")
+            continue
+        held = sum(p["qty"] for p in positions)
 
         cst = codes_state.get(code)
         if cst is None:

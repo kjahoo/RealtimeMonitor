@@ -116,36 +116,61 @@ def fetch_stock_holdings(code):
         "loan_amt"         : 0 (미제공),
         "order_type"       : "현금" | "신용" | "담보",
     }
-    보유 없으면 None
+    조회 성공 & 보유 없으면 [] · 조회 실패면 None (호출부는 빈잔고/실패를 구분 가능.
+    기존 'if hs:' 패턴 호출부는 [] 도 falsy 라 동작 동일)
+    ※ 연속조회(cont-yn/next-key)로 전 페이지 수집 — 잔고가 현금/신용/담보 트랜치로
+      쪼개져 목록이 2페이지 이상이면 1페이지만 봐선 트랜치가 누락돼 '전량청산 완료'
+      오판→일부만 매도되는 사고가 남(2026-08-05 저스템 담보 600주 2페이지 누락 사례).
+      한 페이지라도 실패하면 부분목록 오판 방지 위해 None.
     """
     # qry_tp=2(개별): 담보(crd_tp=08)·신용(crd_tp=01) 구분 및 대출일자 정확히 반환
-    data = _post("kt00018", "/api/dostk/acnt", {"qry_tp": "2", "dmst_stex_tp": "KRX"})
-    if not data or data.get("return_code") != 0:
-        return None
-
     holdings = []
-    for item in data.get("acnt_evlt_remn_indv_tot", []):
-        raw_cd = item.get("stk_cd", "")
-        # stk_cd: "A005930" (접두어 1자리 + 6자리)
-        item_code = raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
-        if item_code != code:
+    cont_yn, next_key = "N", ""
+    while True:
+        headers = _headers("kt00018")
+        headers["cont-yn"]  = cont_yn
+        headers["next-key"] = next_key
+        try:
+            res = requests.post(KIWOOM_URL_BASE + "/api/dostk/acnt", headers=headers,
+                                json={"qry_tp": "2", "dmst_stex_tp": "KRX"}, timeout=5)
+        except Exception as e:
+            print(f"   ❌ API 오류 [kt00018/개별]: {e}")
+            return None
+        if res.status_code != 200:
+            print(f"   ❌ API HTTP 실패 [kt00018/개별]: {res.status_code} → {res.text[:200]}")
+            return None
+        data = res.json()
+        if data.get("return_code", 0) != 0:
+            print(f"   ❌ [kt00018/개별] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
+            return None
+
+        for item in data.get("acnt_evlt_remn_indv_tot", []):
+            raw_cd = item.get("stk_cd", "")
+            # stk_cd: "A005930" (접두어 1자리 + 6자리)
+            item_code = raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
+            if item_code != code:
+                continue
+            qty = _pint(item.get("rmnd_qty"))
+            if qty <= 0:
+                continue
+            loan_dt  = item.get("crd_loan_dt", "").strip()
+            crd_type = item.get("crd_tp", "00").strip()
+            holdings.append({
+                "qty":               qty,
+                "sell_possible_qty": _pint(item.get("trde_able_qty")),
+                "avg_buy_price":     float(_pint(item.get("pur_pric"))),
+                "purchase_amount":   _pint(item.get("pur_amt")),
+                "loan_dt":           loan_dt,
+                "crd_type":          crd_type,
+                "loan_amt":          0,
+                "order_type":        _CRD_TYPE_NAME.get(crd_type, "현금"),
+            })
+
+        if res.headers.get("cont-yn") == "Y" and res.headers.get("next-key"):
+            cont_yn, next_key = "Y", res.headers.get("next-key")
             continue
-        qty = _pint(item.get("rmnd_qty"))
-        if qty <= 0:
-            continue
-        loan_dt  = item.get("crd_loan_dt", "").strip()
-        crd_type = item.get("crd_tp", "00").strip()
-        holdings.append({
-            "qty":               qty,
-            "sell_possible_qty": _pint(item.get("trde_able_qty")),
-            "avg_buy_price":     float(_pint(item.get("pur_pric"))),
-            "purchase_amount":   _pint(item.get("pur_amt")),
-            "loan_dt":           loan_dt,
-            "crd_type":          crd_type,
-            "loan_amt":          0,
-            "order_type":        _CRD_TYPE_NAME.get(crd_type, "현금"),
-        })
-    return holdings if holdings else None
+        break
+    return holdings
 
 
 # ====================================================
