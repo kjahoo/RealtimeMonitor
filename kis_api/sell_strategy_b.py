@@ -27,7 +27,9 @@ LOG_DIR      = r"C:\Projects\RealtimeMonitor\logs"
 SELL_THRESH  = 0.10    # 청산 점수 임계 (평활 점수 기준) — 그리드 최적: 0.20→0.10
 RAW_SELL_THRESH = 0.0  # raw total_score 즉시청산 임계: raw < 이 값 (단, RAW_NEG_HOLD_SEC 연속 유지 시에만 매도)
 RAW_NEG_HOLD_SEC = 1800  # raw<0 이 이 초(30분) 연속 지속돼야 매도 — 0 밑 잠깐 찍고 회복하는 휩쏘 방지
-CLOSE_AUCTION_START = _dtime(15, 20)  # 종가 단일가(동시호가) 시작 — 이후 raw<0 이면 30분 대기 없이 즉시청산(시장가)
+CLOSE_AUCTION_START = _dtime(15, 20)  # 종가 단일가(동시호가) 시작 — 이후 raw<0 이면 즉시청산(시장가)
+LATE_RAW_NEG_START  = _dtime(15, 0)   # 장 후반 시작 — 이후 raw<0 이면 30분 대기 없이 즉시청산(현재가 sweep).
+                                      # 15:00 이후 진입은 마감(15:30)까지 30분을 못 채우므로 대기 무의미 + 종가까지 추가하락 노출 방지.
 CONFIRM_DAYS = 2       # 연속 청산구간 확인일수
 SMOOTH_N     = 3       # 평활 기간(거래일)
 STOP_PCT     = -0.14   # 가격 손절 (-14%) — 그리드 최적: -0.12→-0.14
@@ -172,10 +174,14 @@ def decide(code, raw_score, cur_price, avg_price, today, now_ts=None):
     if raw_score < STOP_SCORE_KEEP and is_stop_loss(cur_price, avg_price):
         return True, smoothed, "stop12"
 
-    # 장마감 동시호가(15:20~) + raw<0: 30분 연속을 채울 시간이 없으므로 즉시 청산.
-    #   execution_monitor 가 이 reason 은 '시장가'로 집행한다(동시호가엔 호가 sweep 불가).
-    if raw_score < RAW_SELL_THRESH and _dt.fromtimestamp(now_ts).time() >= CLOSE_AUCTION_START:
-        return True, smoothed, "raw_neg_close"
+    # 장 후반(15:00~) + raw<0: 마감까지 30분 연속을 채울 시간이 없으므로 즉시 청산.
+    #   15:00~15:20 정규장 → 현재가 sweep(reason raw_neg) / 15:20~ 동시호가 → 시장가(raw_neg_close).
+    if raw_score < RAW_SELL_THRESH:
+        _t = _dt.fromtimestamp(now_ts).time()
+        if _t >= CLOSE_AUCTION_START:
+            return True, smoothed, "raw_neg_close"
+        if _t >= LATE_RAW_NEG_START:
+            return True, smoothed, "raw_neg"
 
     # raw 청산 (A + raw<0): raw < RAW_SELL_THRESH 가 RAW_NEG_HOLD_SEC(30분) 연속 지속되면 전량.
     #   0 아래로 잠깐 찍고 곧 회복하는 휩쏘(단타 매도) 방지 — 30분 연속 유지되어야 매도한다.
