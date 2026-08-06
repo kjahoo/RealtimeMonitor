@@ -473,41 +473,44 @@ def _sell_tick(today_str):
             changed = True
 
         # ── 장마감 동시호가(15:20~) raw<0: 시장가 전량청산. 호가 sweep 불가 시간대라 시장가로 던진다.
-        #    한 번만 발주하고 종가 체결(15:30)까지 유지(취소/재발주 안 함).
+        #    잔고가 현금/신용/담보 트랜치로 쪼개져 있으면 트랜치마다 별도 주문이 필요
+        #    (신용·담보 kt10007 은 대출일자 지정) → 전 트랜치를 한 틱에 루프 발주하고,
+        #    대출일 키별 발주완료(close_ordered_keys)를 기록해 실패 트랜치만 다음 틱 재시도.
+        #    발주된 주문은 종가 체결(15:30)까지 유지(취소/재발주 안 함).
         if t.get("reason") == "raw_neg_close":
             if held < 1 or not positions:
                 continue
-            if cst.get("close_ordered"):        # 이미 시장가 발주 → 종가 체결 대기
-                _log_once(f"sell:{code}", f"  ⏳ {name}({code}) 종가 시장가 주문 대기(체결 15:30)")
-                continue
-            if cst.get("open_order_no"):          # 장중 sweep 미체결 있으면 취소 후 시장가 전환
+            done_keys = set(cst.get("close_ordered_keys") or [])
+            if cst.get("open_order_no") and not done_keys:   # 장중 sweep 미체결 → 취소 후 시장가 전환(최초 1회)
                 opens = kt.fetch_open_sell_orders(code)
                 mine = next((x for x in opens if x["order_no"] == cst["open_order_no"]), None)
                 if mine and mine.get("remaining_qty", 0) > 0:
                     kt.cancel_order(cst["open_order_no"], code, mine["remaining_qty"], cst.get("open_loan_dt", ""))
                 cst["open_order_no"] = ""; cst["open_order_qty"] = 0
                 cst["open_order_price"] = 0; cst["open_loan_dt"] = ""
-            positions.sort(key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"]))
-            pos = next((p for p in positions if p.get("sell_possible_qty", 0) > 0), None)
-            if pos is None:
-                _log_once(f"sell:{code}", f"  ⏳ {name}({code}) 매매가능수량 0 — 종가 시장가 대기")
-                continue
-            qty = min(held, pos["sell_possible_qty"])
-            if qty < 1:
-                continue
-            res = kt.place_sell_order(code, qty, 0, pos["loan_dt"], pos.get("crd_type", "00"), market=True)
-            if res and res.get("return_code") == 0:
-                ono = res.get("ord_no", "?")
-                cst["close_ordered"] = True
-                cst["open_order_no"] = ono; cst["open_order_qty"] = qty
-                cst["open_order_price"] = 0; cst["open_loan_dt"] = pos["loan_dt"]
                 changed = True
-                report.append(f"🔴 종가 시장가매도 {name}({code}) {qty}주 (동시호가 raw<0, 주문 {ono})")
-                _log_once(f"sell:{code}", f"  🔴 종가 시장가매도 {name}({code}) {qty}주 (주문 {ono})")
-            else:
-                err = (res or {}).get("return_msg", "응답 없음")
-                report.append(f"❌ 종가 시장가매도 실패 {name}({code}): {err}")
-                _log_once(f"sell:{code}", f"  ❌ 종가 시장가매도 실패 {name}({code}): {err}")
+            positions.sort(key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"]))
+            pending = [p for p in positions
+                       if p.get("sell_possible_qty", 0) > 0
+                       and (p["loan_dt"] or "CASH") not in done_keys]
+            if not pending:
+                _log_once(f"sell:{code}", f"  ⏳ {name}({code}) 종가 시장가 주문 대기(전 트랜치 발주완료, 체결 15:30)")
+                continue
+            for pos in pending:
+                key = pos["loan_dt"] or "CASH"
+                qty = pos["sell_possible_qty"]
+                res = kt.place_sell_order(code, qty, 0, pos["loan_dt"], pos.get("crd_type", "00"), market=True)
+                if res and res.get("return_code") == 0:
+                    ono = res.get("ord_no", "?")
+                    done_keys.add(key)
+                    changed = True
+                    report.append(f"🔴 종가 시장가매도 {name}({code}) {pos['order_type']} {qty}주 (동시호가 raw<0, 주문 {ono})")
+                    _log_once(f"sell:{code}:{key}", f"  🔴 종가 시장가매도 {name}({code}) {pos['order_type']} {qty}주 (주문 {ono})")
+                else:
+                    err = (res or {}).get("return_msg", "응답 없음")
+                    report.append(f"❌ 종가 시장가매도 실패 {name}({code}) {pos['order_type']} {qty}주: {err}")
+                    _log_once(f"sell:{code}:{key}", f"  ❌ 종가 시장가매도 실패 {name}({code}) {pos['order_type']}: {err}")
+            cst["close_ordered_keys"] = sorted(done_keys)
             continue
 
         # ── 직전 틱 주문 해소: 미체결 잔량 남았으면 취소(걸어두지 않음), 1틱 대기
