@@ -411,9 +411,9 @@ def _tick(today_str):
 
 # ── 매도 sweep ────────────────────────────────────────────────────────────
 def _new_sell_cst(held):
-    """종목별 매도 실행상태 초기값. held_seen = 베이스라인(체결=보유 감소로 판정)."""
-    return {"held_seen": int(held), "open_order_no": "", "open_order_qty": 0,
-            "open_order_price": 0, "open_loan_dt": "", "sold": 0}
+    """종목별 매도 실행상태 초기값. held_seen = 베이스라인(체결=보유 감소로 판정).
+       open_orders: 직전 틱에 낸 트랜치별 매도주문 [{no,qty,price,loan_dt}] (복수)."""
+    return {"held_seen": int(held), "open_orders": [], "sold": 0}
 
 
 # ── 1 틱: autosell_plan 을 읽어 '매수호가 sweep' 으로 전량청산 집행 ──────────
@@ -481,14 +481,20 @@ def _sell_tick(today_str):
             if held < 1 or not positions:
                 continue
             done_keys = set(cst.get("close_ordered_keys") or [])
-            if cst.get("open_order_no") and not done_keys:   # 장중 sweep 미체결 → 취소 후 시장가 전환(최초 1회)
-                opens = kt.fetch_open_sell_orders(code)
-                mine = next((x for x in opens if x["order_no"] == cst["open_order_no"]), None)
-                if mine and mine.get("remaining_qty", 0) > 0:
-                    kt.cancel_order(cst["open_order_no"], code, mine["remaining_qty"], cst.get("open_loan_dt", ""))
-                cst["open_order_no"] = ""; cst["open_order_qty"] = 0
-                cst["open_order_price"] = 0; cst["open_loan_dt"] = ""
-                changed = True
+            if not done_keys:   # 장중 sweep 미체결(트랜치별 복수) → 취소 후 시장가 전환(최초 1회)
+                _prev = list(cst.get("open_orders") or [])
+                if cst.get("open_order_no"):   # 구버전 단일필드 호환
+                    _prev.append({"no": cst["open_order_no"], "loan_dt": cst.get("open_loan_dt", "")})
+                    cst["open_order_no"] = ""; cst["open_order_qty"] = 0
+                    cst["open_order_price"] = 0; cst["open_loan_dt"] = ""
+                if _prev:
+                    opens = kt.fetch_open_sell_orders(code)
+                    for od in _prev:
+                        mine = next((x for x in opens if x["order_no"] == od.get("no")), None)
+                        if mine and mine.get("remaining_qty", 0) > 0:
+                            kt.cancel_order(od["no"], code, mine["remaining_qty"], od.get("loan_dt", ""))
+                    cst["open_orders"] = []
+                    changed = True
             positions.sort(key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"]))
             pending = [p for p in positions
                        if p.get("sell_possible_qty", 0) > 0
@@ -513,15 +519,21 @@ def _sell_tick(today_str):
             cst["close_ordered_keys"] = sorted(done_keys)
             continue
 
-        # ── 직전 틱 주문 해소: 미체결 잔량 남았으면 취소(걸어두지 않음), 1틱 대기
-        if cst.get("open_order_no"):
-            opens = kt.fetch_open_sell_orders(code)
-            mine = next((x for x in opens if x["order_no"] == cst["open_order_no"]), None)
-            if mine is not None and mine.get("remaining_qty", 0) > 0:
-                if kt.cancel_order(cst["open_order_no"], code, mine["remaining_qty"], cst.get("open_loan_dt", "")):
-                    report.append(f"🚫 미체결취소 {name}({code}) 잔량 {mine['remaining_qty']}주×{sell_price:,}원")
+        # ── 직전 틱 주문 해소(트랜치별 복수): 미체결 잔량 취소(걸어두지 않음), 1틱 대기
+        prev_orders = list(cst.get("open_orders") or [])
+        if cst.get("open_order_no"):     # 구버전 단일필드 호환(코드 교체 재시작 직후 잔존 상태)
+            prev_orders.append({"no": cst["open_order_no"], "qty": cst.get("open_order_qty", 0),
+                                "price": cst.get("open_order_price", 0), "loan_dt": cst.get("open_loan_dt", "")})
             cst["open_order_no"] = ""; cst["open_order_qty"] = 0
             cst["open_order_price"] = 0; cst["open_loan_dt"] = ""
+        if prev_orders:
+            opens = kt.fetch_open_sell_orders(code)
+            for od in prev_orders:
+                mine = next((x for x in opens if x["order_no"] == od.get("no")), None)
+                if mine is not None and mine.get("remaining_qty", 0) > 0:
+                    if kt.cancel_order(od["no"], code, mine["remaining_qty"], od.get("loan_dt", "")):
+                        report.append(f"🚫 미체결취소 {name}({code}) 잔량 {mine['remaining_qty']}주×{od.get('price', 0):,}원")
+            cst["open_orders"] = []
             changed = True
             _log_once(f"sell:{code}", f"  🔄 {name}({code}) 직전 매도주문 해소 → 이번 틱 대기")
             continue
@@ -536,32 +548,39 @@ def _sell_tick(today_str):
             _log_once(f"sell:{code}", f"  ⏳ {name}({code}) 보유{held} · 기준가{sell_price:,} 매수최우선 {best_bid:,} — 호가대기")
             continue
 
-        # 담보/신용 포지션 먼저 매도(이자 절감), 그다음 현금
+        # 담보/신용 포지션 먼저 매도(이자 절감), 그다음 현금.
+        # 트랜치 분할 잔고는 '한 틱에' 전 트랜치를 순차 발주(트랜치마다 별도 주문 —
+        # 신용·담보 kt10007 은 대출일자 지정 필요). 호가 잔량(avail)을 발주분만큼 차감
+        # 배분해, 매수호가가 충분할 때 다음 틱을 기다리다 기회를 놓치지 않는다.
+        # 각 주문은 해당 트랜치 매매가능수량 상한이라 과매도 없음. 잔량 소진 시 중단.
         positions.sort(key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"]))
-        pos = next((p for p in positions if p.get("sell_possible_qty", 0) > 0), None)
-        if pos is None:                 # 매매가능수량 없음 → 대기
+        sellable = [p for p in positions if p.get("sell_possible_qty", 0) > 0]
+        if not sellable:                # 매매가능수량 없음 → 대기
             _log_once(f"sell:{code}", f"  ⏳ {name}({code}) 매매가능수량 0 — 대기")
             continue
 
-        qty = min(held, avail, pos["sell_possible_qty"])
-        if qty < 1:
-            continue
-
-        res = kt.place_sell_order(code, qty, sell_price, pos["loan_dt"], pos.get("crd_type", "00"))
-        if res and res.get("return_code") == 0:
-            ono = res.get("ord_no", "?")
-            cst["open_order_no"] = ono
-            cst["open_order_qty"] = qty
-            cst["open_order_price"] = sell_price
-            cst["open_loan_dt"] = pos["loan_dt"]
+        rem_avail = avail
+        new_orders = []
+        for pos in sellable:
+            qty = min(pos["sell_possible_qty"], rem_avail)
+            if qty < 1:
+                break                   # 호가 잔량 소진 → 남은 트랜치는 다음 틱
+            _tkey = pos["loan_dt"] or "CASH"
+            res = kt.place_sell_order(code, qty, sell_price, pos["loan_dt"], pos.get("crd_type", "00"))
+            if res and res.get("return_code") == 0:
+                ono = res.get("ord_no", "?")
+                new_orders.append({"no": ono, "qty": qty, "price": sell_price, "loan_dt": pos["loan_dt"]})
+                rem_avail -= qty
+                report.append(f"🔴 sweep매도 {name}({code}) {pos['order_type']} {qty}주×{sell_price:,}원 "
+                              f"(보유 {held}·호가 {avail}·최우선 {best_bid:,}, 주문 {ono})")
+                _log_once(f"sell:{code}:{_tkey}", f"  🔴 sweep매도 {name}({code}) {pos['order_type']} {qty}주×{sell_price:,}원 (주문 {ono})")
+            else:
+                err = (res or {}).get("return_msg", "응답 없음")
+                report.append(f"❌ 매도실패 {name}({code}) {pos['order_type']} {qty}주: {err}")
+                _log_once(f"sell:{code}:{_tkey}", f"  ❌ 매도실패 {name}({code}) {pos['order_type']}: {err}")
+        if new_orders:
+            cst["open_orders"] = new_orders
             changed = True
-            report.append(f"🔴 sweep매도 {name}({code}) {qty}주×{sell_price:,}원 "
-                          f"(보유 {held}·호가 {avail}·최우선 {best_bid:,}, 주문 {ono})")
-            _log_once(f"sell:{code}", f"  🔴 sweep매도 {name}({code}) {qty}주×{sell_price:,}원 (보유{held}·호가{avail}, 주문 {ono})")
-        else:
-            err = (res or {}).get("return_msg", "응답 없음")
-            report.append(f"❌ 매도실패 {name}({code}): {err}")
-            _log_once(f"sell:{code}", f"  ❌ 매도실패 {name}({code}): {err}")
 
     if changed:
         _save_json(_sell_exec_path(today_str), exec_state)
