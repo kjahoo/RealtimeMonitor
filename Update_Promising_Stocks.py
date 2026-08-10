@@ -70,6 +70,26 @@ def get_holdings_set():
     _holdings_cache["set"] = s
     return s
 
+# ====================================================
+# 🏷️ V3 주식 마스터 등재 여부 (자동매도 게이트용, 1시간 캐시)
+# ====================================================
+_v3_master_cache = {"ts": 0.0, "set": None}
+
+def is_v3_master_code(code):
+    """V3 주식 마스터(logs/stock_master.json) 등재 여부. 자동매도(B전략) 게이트 —
+    미등재(ETF·ETN·우선주 등 수기 매수 영역)는 자동매도에서 제외한다.
+    로드 실패 시 True(fail-open: 마스터 손상으로 전 종목 자동매도가 멈추는 것 방지)."""
+    now = time.time()
+    if _v3_master_cache["set"] is None or (now - _v3_master_cache["ts"]) > 3600:
+        try:
+            with open(os.path.join(LOG_DIR, "stock_master.json"), encoding="utf-8") as f:
+                _v3_master_cache["set"] = set(json.load(f).get("stocks", {}).keys())
+            _v3_master_cache["ts"] = now
+        except Exception:
+            return True
+    return code in _v3_master_cache["set"]
+
+
 MODEL_SETTINGS = {
     "target1":  {"lb": 65, "thr": 0.5256, "weight": 0.1775},
     "target5":  {"lb": 55, "thr": 0.6484, "weight": 0.3639},
@@ -686,9 +706,17 @@ def run_updater():
                     if code in history_codes:
                         # ── B 매도전략 결정 (3일 평활 + 2일 확인 + -12% 손절 → 전량) ──
                         _today_b = datetime.now().strftime("%Y%m%d")
-                        _avg_b   = get_cached_avg_price(code) if is_my_code else None
-                        _full_sell, _smoothed_b, _sell_reason = sell_strategy_b.decide(
-                            code, total_score, curr, _avg_b, _today_b)
+                        # 자동매도 게이트: ETF·V3 마스터 미등재(=수기 매수 영역) 종목은 B전략 제외.
+                        #   장마감 동기화가 보유종목을 전부 추적목록에 넣으므로, 수기 매수한 ETF 가
+                        #   주식용 V3 점수로 자동매도되는 오작동 방지(2026-08-07 530107 점검).
+                        #   점수·가격 추적과 일반 알림은 유지 — 매도 결정(decide)·plan 등록만 차단.
+                        if is_etf or not is_v3_master_code(code):
+                            _avg_b = None
+                            _full_sell, _smoothed_b, _sell_reason = False, None, ""
+                        else:
+                            _avg_b   = get_cached_avg_price(code) if is_my_code else None
+                            _full_sell, _smoothed_b, _sell_reason = sell_strategy_b.decide(
+                                code, total_score, curr, _avg_b, _today_b)
                         # -12% 손절 확정 직전: 캐시 무효화 후 최신 평단으로 재확인.
                         #   장중 sweep 추가매수(물타기)로 평단이 내려가 -12% 미달이면 손절 취소.
                         #   재조회 실패(None)면 기존(캐시 평단) 판정을 그대로 유지(폴백).
