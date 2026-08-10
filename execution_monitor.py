@@ -131,6 +131,14 @@ def _new_cst(held):
             "open_order_price": 0, "bought": 0}
 
 
+def _is_closing_auction():
+    """장마감 동시호가(15:20~15:30) — 호가 접수만 되고 체결이 없는 시간대.
+       이 시간에는 sweep(취소·재주문 반복)이 무의미하므로 '1회 주문 후 유지' 모드로 전환."""
+    now = datetime.now()
+    sec = now.hour * 3600 + now.minute * 60 + now.second
+    return 15 * 3600 + 20 * 60 <= sec < 15 * 3600 + 30 * 60
+
+
 def _is_krx_session_ts(ts):
     """'YYYY-MM-DD HH:MM:SS' 가 KRX 정규장(09:00~15:30) 시각인가.
        장전/장후 NXT 세션 행을 매매 판단에서 배제하기 위한 필터. 파싱 실패 시 제외(False)."""
@@ -286,6 +294,18 @@ def _tick(today_str):
         #    이 종목은 이번 틱 재주문 안 함(보유 갱신 1틱 대기). 단, 잔여목표는 현금을 계속 '예약'한다
         #    (주문 중인 상위 종목의 몫을 하위가 뺏지 않도록).
         if cst.get("open_order_no"):
+            if _is_closing_auction():
+                # 동시호가(15:20~15:30): 체결 없는 호가접수 시간 — 취소/재주문 반복 금지(사용자 확정).
+                # 낸 주문 1건을 그대로 유지해 종가(15:30) 단일가 체결을 기다린다. 결과는 장마감 후 1회 알림.
+                if remaining >= 1:
+                    committed += remaining_amt
+                if not cst.get("close_buy_hold"):
+                    cst["close_buy_hold"] = True
+                    changed = True
+                    report.append(f"🕒 동시호가 — {name}({code}) 매수주문 유지 "
+                                  f"{cst['open_order_qty']}주×{cst['open_order_price']:,}원 · 종가 체결 대기(장마감 후 결과 알림)")
+                _log_once(f"buy:{code}", f"  🕒 {name}({code}) 동시호가 — 주문 유지, 종가 체결 대기")
+                continue
             opens = kt.fetch_open_buy_orders(code)
             mine = next((x for x in opens if x["order_no"] == cst["open_order_no"]), None)
             if mine is not None:
@@ -355,6 +375,39 @@ def _tick(today_str):
             continue
         if is_top_valid:
             exec_state["cash_short"] = None        # 최우선 종목은 예산 확보됨 → 부족 마커 해제
+
+        # ── 동시호가(15:20~15:30): sweep 불가(체결 없음) — 잔여목표를 지정가 1회 주문으로 내고
+        #    종가 체결(15:30)을 기다린다. 취소/재주문 없음. 체결 여부는 장마감 후 1회 알림.
+        if _is_closing_auction():
+            live_cash = kt.fetch_order_cash()
+            if live_cash is None:
+                continue
+            cash_room = min(cash - local_spent, live_cash)
+            qty = min(remaining, budget // price, cash_room // price)
+            if qty < 1:
+                _log_once(f"buy:{code}", f"  💸 {name}({code}) 동시호가 — 예산/현금 부족, 주문 없음")
+                continue
+            res = kt.place_buy_order(code, qty, price)
+            if res and res.get("return_code") == 0:
+                ono = res.get("ord_no", "?")
+                local_spent += qty * price
+                cst["last_fail"] = None
+                cst["open_order_no"] = ono
+                cst["open_order_qty"] = qty
+                cst["open_order_price"] = price
+                cst["close_buy_hold"] = True
+                changed = True
+                report.append(f"🕒 동시호가 지정가매수 {name}({code}) {qty}주×{price:,}원 = {qty*price:,}원 "
+                              f"— 종가 체결 대기(장마감 후 결과 알림, 주문 {ono})")
+                _log_once(f"buy:{code}", f"  🕒 동시호가 지정가매수 {name}({code}) {qty}주×{price:,}원 (주문 {ono})")
+            else:
+                err = (res or {}).get("return_msg", "응답 없음")
+                if cst.get("last_fail") != err:
+                    report.append(f"❌ 동시호가 매수실패 {name}({code}): {err}")
+                    cst["last_fail"] = err
+                    changed = True
+                _log_once(f"buy:{code}", f"  ❌ 동시호가 매수실패 {name}({code}): {err}")
+            continue
 
         # ── 매도호가 sweep: promising 이하 잔량만큼. 없으면(가격상승 등) 예약 유지한 채 다음 종목.
         avail, best_ask = kt.ask_qty_at_or_below(code, price)
@@ -526,6 +579,15 @@ def _sell_tick(today_str):
                                 "price": cst.get("open_order_price", 0), "loan_dt": cst.get("open_loan_dt", "")})
             cst["open_order_no"] = ""; cst["open_order_qty"] = 0
             cst["open_order_price"] = 0; cst["open_loan_dt"] = ""
+        if prev_orders and _is_closing_auction():
+            # 동시호가(15:20~15:30): 매도주문도 취소/재주문 없이 그대로 유지 — 종가 체결 대기.
+            cst["open_orders"] = prev_orders
+            if not cst.get("close_sell_hold"):
+                cst["close_sell_hold"] = True
+                report.append(f"🕒 동시호가 — {name}({code}) 매도주문 유지 · 종가 체결 대기(장마감 후 결과 알림)")
+            changed = True
+            _log_once(f"sell:{code}", f"  🕒 {name}({code}) 동시호가 — 매도주문 유지, 종가 체결 대기")
+            continue
         if prev_orders:
             opens = kt.fetch_open_sell_orders(code)
             for od in prev_orders:
@@ -540,6 +602,33 @@ def _sell_tick(today_str):
 
         if held < 1 or not positions:   # 전량청산 완료 → 더 팔 것 없음
             _log_once(f"sell:{code}", f"  ✔️ {name}({code}) 청산완료(잔여 {held}주) — 매도 없음")
+            continue
+
+        # ── 동시호가(15:20~15:30): sweep 불가 — 트랜치별 지정가 1회 주문 후 종가 체결 대기.
+        if _is_closing_auction():
+            positions.sort(key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"]))
+            sellable = [p for p in positions if p.get("sell_possible_qty", 0) > 0]
+            if not sellable:
+                continue
+            new_orders = []
+            for pos in sellable:
+                qty = pos["sell_possible_qty"]
+                res = kt.place_sell_order(code, qty, sell_price, pos["loan_dt"], pos.get("crd_type", "00"))
+                if res and res.get("return_code") == 0:
+                    ono = res.get("ord_no", "?")
+                    new_orders.append({"no": ono, "qty": qty, "price": sell_price, "loan_dt": pos["loan_dt"]})
+                    report.append(f"🕒 동시호가 지정가매도 {name}({code}) {pos['order_type']} {qty}주×{sell_price:,}원 "
+                                  f"— 종가 체결 대기(장마감 후 결과 알림, 주문 {ono})")
+                    _log_once(f"sell:{code}:{pos['loan_dt'] or 'CASH'}",
+                              f"  🕒 동시호가 지정가매도 {name}({code}) {qty}주×{sell_price:,}원 (주문 {ono})")
+                else:
+                    err = (res or {}).get("return_msg", "응답 없음")
+                    report.append(f"❌ 동시호가 매도실패 {name}({code}) {pos['order_type']}: {err}")
+                    _log_once(f"sell:{code}:{pos['loan_dt'] or 'CASH'}", f"  ❌ 동시호가 매도실패 {name}({code}): {err}")
+            if new_orders:
+                cst["open_orders"] = new_orders
+                cst["close_sell_hold"] = True
+                changed = True
             continue
 
         # ── 매수호가 sweep: sell_price 이상(포함)에 쌓인 잔량만큼만(=즉시 체결 수량)
@@ -588,6 +677,82 @@ def _sell_tick(today_str):
         _send_owner("📤 실시간 sweep 매도\n" + "\n".join(report))
 
 
+# ── 장마감 후: 동시호가 주문 체결 확인·알림(1회) ────────────────────────────
+def _maybe_post_close_report(today_str):
+    """15:30 종가 단일가 체결 확인. 동시호가에 유지한 매수/매도 주문(+종가 시장가 매도)의
+       체결 여부를 보유잔고 변화로 판정해 장마감 후 1회만 텔레그램 알림(15:30:30~17:00 사이 실행)."""
+    now = datetime.now()
+    sec = now.hour * 3600 + now.minute * 60 + now.second
+    if now.weekday() >= 5 or not (15 * 3600 + 30 * 60 + 30 <= sec <= 17 * 3600):
+        return
+
+    exec_state = _load_json(_exec_path(today_str), None)
+    sell_exec  = _load_json(_sell_exec_path(today_str), None)
+    if not isinstance(exec_state, dict) or exec_state.get("date") != today_str:
+        exec_state = None
+    if not isinstance(sell_exec, dict) or sell_exec.get("date") != today_str:
+        sell_exec = None
+    if (exec_state or {}).get("close_report_sent") or (sell_exec or {}).get("close_report_sent"):
+        return                                  # 오늘 이미 보냄
+
+    buy_holds = {c: v for c, v in ((exec_state or {}).get("codes") or {}).items()
+                 if (v or {}).get("close_buy_hold")}
+    sell_holds = {c: v for c, v in ((sell_exec or {}).get("codes") or {}).items()
+                  if (v or {}).get("close_sell_hold") or (v or {}).get("close_ordered_keys")}
+    if not buy_holds and not sell_holds:
+        return                                  # 오늘 동시호가 주문 없음
+
+    holdings = kt.fetch_all_holdings()
+    if holdings is None:
+        return                                  # 조회 실패 → 다음 폴링에 재시도
+    held_map = {_fmt(h.get("code", "")): int(h.get("qty", 0) or 0) for h in holdings}
+
+    bt = (_load_json(_plan_path(today_str), {}) or {}).get("targets") or {}
+    st = (_load_json(_sell_plan_path(today_str), {}) or {}).get("targets") or {}
+
+    def _tname(targets, code6):
+        for k, v in targets.items():
+            if _fmt(k) == code6:
+                return (v or {}).get("name", "")
+        return ""
+
+    lines = []
+    for code, cst in buy_holds.items():
+        code6 = _fmt(code)
+        name = _tname(bt, code6)
+        qty = int(cst.get("open_order_qty", 0) or 0)
+        price = int(cst.get("open_order_price", 0) or 0)
+        held = held_map.get(code6, 0)
+        delta = held - int(cst.get("held_seen", 0) or 0)
+        if qty > 0 and delta >= qty:
+            lines.append(f"✅ 매수 종가체결 {name}({code6}) {qty}주×{price:,}원 → 보유 {held}주")
+        elif delta > 0:
+            lines.append(f"◑ 매수 일부체결 {name}({code6}) {delta}/{qty}주×{price:,}원 → 보유 {held}주 (잔여 주문 자동만료)")
+        else:
+            lines.append(f"❌ 매수 미체결 {name}({code6}) {qty}주×{price:,}원 — 주문 자동만료(종가 > 지정가)")
+    for code, cst in sell_holds.items():
+        code6 = _fmt(code)
+        name = _tname(st, code6)
+        held = held_map.get(code6, 0)
+        before = int(cst.get("held_seen", 0) or 0)
+        delta = before - held
+        if before > 0 and held < 1:
+            lines.append(f"✅ 매도 종가체결 {name}({code6}) 전량 {before}주 청산 완료")
+        elif delta > 0:
+            lines.append(f"◑ 매도 일부체결 {name}({code6}) {delta}주 → 잔여보유 {held}주 (잔여 주문 자동만료)")
+        else:
+            lines.append(f"❌ 매도 미체결 {name}({code6}) 보유 {held}주 그대로 — 주문 자동만료")
+
+    if lines:
+        _send_owner("🔔 장마감(15:30) 종가 체결 결과\n" + "\n".join(lines))
+    if exec_state is not None:
+        exec_state["close_report_sent"] = True
+        _save_json(_exec_path(today_str), exec_state)
+    if sell_exec is not None:
+        sell_exec["close_report_sent"] = True
+        _save_json(_sell_exec_path(today_str), sell_exec)
+
+
 def run_forever():
     if not getattr(secrets, "AUTO_BUY_ENABLED", False):
         print("ℹ️ AUTO_BUY_ENABLED=False — execution_monitor 대기만 함")
@@ -609,6 +774,7 @@ def run_forever():
                 last_beat = now
             _tick(today)          # 매수 sweep (KRX 정규장에만 동작)
             _sell_tick(today)     # 매도 sweep (KRX 정규장에만 동작)
+            _maybe_post_close_report(today)   # 장마감 후 동시호가 주문 체결 결과 1회 알림
         except Exception as e:
             print(f"   ⚠️ tick 오류: {e}")
         time.sleep(POLL_SEC)
