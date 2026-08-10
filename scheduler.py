@@ -494,6 +494,36 @@ def _eval_pipeline_worker():
         _eval_lock.release()
 
 
+_openkick_day = None
+
+
+def run_autobuy_open_kick():
+    """개장 직후(09:00~09:10) auto_buy 만 1회 즉시 실행해 plan 을 바로 생성한다.
+    평가 파이프라인은 10분 주기 + 선행단계(build_pending·promote)가 ~10분 걸려
+    개장 후 ~15분간 plan 부재 → execution_monitor 매수가 늦던 문제 해소.
+    (매수 안전은 monitor 의 '매수직전 정규장 점수 재확인'이 그대로 담당 — NXT 스파이크 차단 유지)"""
+    global _openkick_day
+    now = datetime.now()
+    if now.weekday() >= 5:
+        return
+    day = now.strftime("%Y%m%d")
+    if _openkick_day == day:
+        return
+    if not (dtime(9, 0) <= now.time() <= dtime(9, 10)):
+        return
+    try:
+        from kis_api import kiwoom_trading as _kt
+        if day in _kt.KRX_HOLIDAYS:
+            _openkick_day = day
+            return
+    except Exception:
+        pass
+    _openkick_day = day
+    log("⚡ 개장 킥: auto_buy 즉시 실행(plan 선생성)")
+    threading.Thread(target=_run_eval_script,
+                     args=("auto_buy.py", "auto_buy(개장킥)"), daemon=True).start()
+
+
 def run_eval_pipeline_if_due():
     """평일 08:00~16:30, 10분마다(EVAL_INTERVAL) 평가 파이프라인을 백그라운드로 1회 기동."""
     global _eval_last_run
@@ -613,6 +643,7 @@ def main():
 
         # ── 60점+ 평가 파이프라인 (평일 08:00~16:30, 10분마다 / 백그라운드)
         run_eval_pipeline_if_due()
+        run_autobuy_open_kick()      # 개장(09:00) 직후 auto_buy 1회 즉시 실행 → plan 선생성
 
         # ── 현재 상태 주기적 출력 (폴링 주기 내 첫 번째 틱)
         if datetime.now().second < POLL_INTERVAL:
