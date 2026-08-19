@@ -969,15 +969,18 @@ def run_updater():
                             'drop_hits':   d_hits,
                         }
 
-                        # ── 비중구간 상승 감지 → auto_buy plan 즉시 킥 예약 (edge-trigger).
-                        #    신규 60+ 진입 or 60/70/80/90/100 구간 상승 시, 10분 평가주기를
-                        #    기다리지 않고 plan 을 재생성해 execution_monitor(4초 틱)가 바로 집행.
+                        # ── 비중구간 '변동' 감지 → auto_buy plan 즉시 킥 예약 (edge-trigger, 양방향).
+                        #    상승(신규 60+ 진입·증액): 10분 평가주기를 기다리지 않고 즉시 매수 반영.
+                        #    하락(감액·60 미만 이탈): 집행 중이던 옛 큰 목표수량을 즉시 축소/제거 —
+                        #      monitor 의 매수직전 재확인은 60 미만만 차단하므로 60 위 구간하락
+                        #      (예: 85→75)은 plan 재생성이 있어야 매수 목표가 줄어든다.
                         #    ETF·마스터 미등재는 plan 대상이 아니므로 제외(헛킥 방지).
                         if (not is_etf) and is_v3_master_code(code):
                             _bk = _alloc_bucket(total_score)
                             _pb = alloc_bucket_prev.get(code, 0)
-                            if _bk > _pb:
-                                plan_kick_pending.add(f"{stock_name}({code}) {_pb or '·'}→{_bk}구간")
+                            if _bk != _pb:
+                                _dir = "↑" if _bk > _pb else "↓"
+                                plan_kick_pending.add(f"{stock_name}({code}) {_pb or '·'}→{_bk or '·'}구간{_dir}")
                             alloc_bucket_prev[code] = _bk
 
                     # (9) 결과 저장
@@ -1009,7 +1012,7 @@ def run_updater():
             holdings_set = get_holdings_set()
             update_search_history_scores(history_updates, today_str, holdings_set)
             save_last_scores(last_scores)
-            # ── 비중구간 상승 → auto_buy 즉시 킥 (KRX 정규장에만, PLAN_KICK_MIN_SEC 디바운스).
+            # ── 비중구간 변동(상승·하락) → auto_buy 즉시 킥 (KRX 정규장에만, PLAN_KICK_MIN_SEC 디바운스).
             #    백그라운드 1회 실행: plan 재생성만 하고 종료(집행은 execution_monitor 담당).
             #    plan 저장은 원자적(tmp+replace)이라 10분 파이프라인과 겹쳐도 안전(최신쓰기 승리).
             if plan_kick_pending and market_mode == "KRX":
@@ -1020,12 +1023,12 @@ def run_updater():
                     try:
                         _klog = open(os.path.join(LOG_DIR, f"{today_str}_autobuy_kick.log"),
                                      "a", encoding="utf-8")
-                        _klog.write(f"\n[{datetime.now():%H:%M:%S}] 구간상승 킥: {_kick_label}\n")
+                        _klog.write(f"\n[{datetime.now():%H:%M:%S}] 구간변동 킥: {_kick_label}\n")
                         subprocess.Popen(
                             [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "auto_buy.py")],
                             stdout=_klog, stderr=subprocess.STDOUT,
                             creationflags=0x08000000)   # CREATE_NO_WINDOW
-                        print(f"   ⚡ 비중구간 상승 → auto_buy 즉시 킥: {_kick_label}")
+                        print(f"   ⚡ 비중구간 변동 → auto_buy 즉시 킥: {_kick_label}")
                         plan_kick_pending.clear()
                     except Exception as e:
                         print(f"   ⚠️ auto_buy 킥 실패(다음 사이클 재시도): {e}")
