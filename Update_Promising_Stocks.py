@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import json
+import subprocess
 import requests
 import pandas as pd
 import numpy as np
@@ -69,6 +70,17 @@ def get_holdings_set():
     _holdings_cache["ts"]  = now
     _holdings_cache["set"] = s
     return s
+
+PLAN_KICK_MIN_SEC = 90   # 비중구간 상승 → auto_buy 즉시 킥 최소 간격(초, 디바운스)
+
+
+def _alloc_bucket(score):
+    """매수 비중구간(1안) id. <0.60=0(비대상) · 60~69=6 · 70~79=7 · 80~89=8 · 90~99=9 · 100+=10.
+       구간이 '상승'하는 순간( 신규 60+ 진입 포함 ) auto_buy plan 즉시 갱신 킥의 감지 기준."""
+    if score < 0.60:
+        return 0
+    return min(int(score * 100) // 10, 10)
+
 
 # ====================================================
 # 🏷️ V3 주식 마스터 등재 여부 (자동매도 게이트용, 1시간 캐시)
@@ -479,6 +491,9 @@ def run_updater():
     raw_warn_sent    = {}     # {(chat_id, code): (dir, day)} — raw<0.2 조기경보(하락/회복) 중복 방지
     rawneg_warn_sent = {}     # {(chat_id, code): (day, 5분버킷)} — raw<0 30분 카운트다운 진입/5분단위/회복 중복 방지
     nxt_carry_reported = None  # 평활<0.2 이월 리포트 발송한 날짜(YYYYMMDD) — NXT 아침 1회
+    alloc_bucket_prev = {}    # {code: 비중구간} — 직전 사이클 값(구간 '상승' edge 감지용)
+    plan_kick_pending = set() # 상승 감지됐으나 아직 킥 안 나간 종목 라벨(디바운스에 걸리면 이월)
+    plan_kick_last    = 0.0   # 마지막 auto_buy 킥 시각(epoch) — PLAN_KICK_MIN_SEC 디바운스
 
     while True:
         try:
@@ -954,6 +969,17 @@ def run_updater():
                             'drop_hits':   d_hits,
                         }
 
+                        # ── 비중구간 상승 감지 → auto_buy plan 즉시 킥 예약 (edge-trigger).
+                        #    신규 60+ 진입 or 60/70/80/90/100 구간 상승 시, 10분 평가주기를
+                        #    기다리지 않고 plan 을 재생성해 execution_monitor(4초 틱)가 바로 집행.
+                        #    ETF·마스터 미등재는 plan 대상이 아니므로 제외(헛킥 방지).
+                        if (not is_etf) and is_v3_master_code(code):
+                            _bk = _alloc_bucket(total_score)
+                            _pb = alloc_bucket_prev.get(code, 0)
+                            if _bk > _pb:
+                                plan_kick_pending.add(f"{stock_name}({code}) {_pb or '·'}→{_bk}구간")
+                            alloc_bucket_prev[code] = _bk
+
                     # (9) 결과 저장
                     result_row = {
                         'code': code, 'name': stock_name,
@@ -983,6 +1009,27 @@ def run_updater():
             holdings_set = get_holdings_set()
             update_search_history_scores(history_updates, today_str, holdings_set)
             save_last_scores(last_scores)
+            # ── 비중구간 상승 → auto_buy 즉시 킥 (KRX 정규장에만, PLAN_KICK_MIN_SEC 디바운스).
+            #    백그라운드 1회 실행: plan 재생성만 하고 종료(집행은 execution_monitor 담당).
+            #    plan 저장은 원자적(tmp+replace)이라 10분 파이프라인과 겹쳐도 안전(최신쓰기 승리).
+            if plan_kick_pending and market_mode == "KRX":
+                _nowk = time.time()
+                if _nowk - plan_kick_last >= PLAN_KICK_MIN_SEC:
+                    plan_kick_last = _nowk
+                    _kick_label = ", ".join(sorted(plan_kick_pending))
+                    try:
+                        _klog = open(os.path.join(LOG_DIR, f"{today_str}_autobuy_kick.log"),
+                                     "a", encoding="utf-8")
+                        _klog.write(f"\n[{datetime.now():%H:%M:%S}] 구간상승 킥: {_kick_label}\n")
+                        subprocess.Popen(
+                            [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "auto_buy.py")],
+                            stdout=_klog, stderr=subprocess.STDOUT,
+                            creationflags=0x08000000)   # CREATE_NO_WINDOW
+                        print(f"   ⚡ 비중구간 상승 → auto_buy 즉시 킥: {_kick_label}")
+                        plan_kick_pending.clear()
+                    except Exception as e:
+                        print(f"   ⚠️ auto_buy 킥 실패(다음 사이클 재시도): {e}")
+
             save_sell_plan(sell_plan_targets, today_str)   # 매도 sweep 계획 → execution_monitor
             sell_strategy_b.persist()   # B 전략 교차일 상태 영속
             time.sleep(CYCLE_DELAY)
