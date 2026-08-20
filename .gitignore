@@ -51,3 +51,6 @@ walk_forward_rolling7y/
 *.csv
 *.png
 *.xlsx
+viewer_env/
+Report_AI_mirror/
+.vscode/
