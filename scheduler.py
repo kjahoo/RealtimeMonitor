@@ -216,6 +216,53 @@ def ensure_exec_monitor_alive():
 
 
 # ====================================================
+# 📊 Stock_V3 웹 뷰어 (Streamlit, 읽기 전용 — 항시 실행)
+# ====================================================
+VIEWER_PORT = 8501
+
+def _viewer_port_in_use():
+    """8501 리슨 여부 — 수동(Run_Viewer.bat) 인스턴스가 이미 떠 있으면 중복 기동 금지.
+    (streamlit 은 포트 사용 중이면 즉시 종료 → poll() 재시작 무한루프 방지)"""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", VIEWER_PORT)) == 0
+
+
+def start_viewer():
+    """viewer_v3_web.py(Streamlit) 를 별도 콘솔로 실행. 읽기 전용 — 자동매매 무관,
+    항시 실행(장외엔 파일 대기 표시). 접속: http://localhost:8501
+    viewer_env(전용 conda prefix 환경) 미구축이면 조용히 생략(선택 기능)."""
+    viewer_py = os.path.join(PROJECT_DIR, "viewer_env", "python.exe")
+    app_path  = os.path.join(PROJECT_DIR, "viewer_v3_web.py")
+    if not (os.path.exists(viewer_py) and os.path.exists(app_path)):
+        return
+    try:
+        proc = subprocess.Popen(
+            [viewer_py, "-m", "streamlit", "run", app_path,
+             "--server.headless", "true", "--browser.gatherUsageStats", "false",
+             "--server.port", str(VIEWER_PORT)],
+            cwd=PROJECT_DIR,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        running_procs["viewer"] = proc
+        log(f"📊 Stock_V3 웹 뷰어 시작 (PID: {proc.pid}) — http://localhost:{VIEWER_PORT}")
+    except Exception as e:
+        log(f"   ❌ 웹 뷰어 시작 실패: {e}")
+
+
+def ensure_viewer_alive():
+    proc = running_procs.get("viewer")
+    if proc is not None and proc.poll() is None:
+        return
+    if _viewer_port_in_use():
+        return              # 외부(수동) 인스턴스 생존 → 중복 기동/포트충돌 루프 방지
+    if proc is not None:
+        log("⚠️ 웹 뷰어 종료 감지 → 재시작")
+    start_viewer()
+
+
+# ====================================================
 # 🚀 시장 연동 봇 관리 (main_stock + Update_Promising)
 # ====================================================
 def start_bots(mode):
@@ -747,6 +794,7 @@ def main():
         ensure_search_bot_alive()    # Search_Stock_V3 (항상)
         ensure_telegram_bot_alive()  # telegram_chat (항상)
         ensure_exec_monitor_alive()  # execution_monitor (항상)
+        ensure_viewer_alive()        # Stock_V3 웹 뷰어 (항상, 읽기 전용)
 
         # ── 60점+ 평가 파이프라인 (평일 08:00~16:30, 10분마다 / 백그라운드)
         run_eval_pipeline_if_due()
