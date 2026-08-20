@@ -492,6 +492,7 @@ def run_updater():
     rawneg_warn_sent = {}     # {(chat_id, code): (day, 5분버킷)} — raw<0 30분 카운트다운 진입/5분단위/회복 중복 방지
     nxt_carry_reported = None  # 평활<0.2 이월 리포트 발송한 날짜(YYYYMMDD) — NXT 아침 1회
     alloc_bucket_prev = {}    # {code: 비중구간} — 직전 사이클 값(구간 '상승' edge 감지용)
+    plan_kick_down_wait = {}  # {code: 하락한 구간} — 하락 1사이클 유예(왕복 노이즈 억제, 2026-08-19)
     plan_kick_pending = set() # 상승 감지됐으나 아직 킥 안 나간 종목 라벨(디바운스에 걸리면 이월)
     plan_kick_last    = 0.0   # 마지막 auto_buy 킥 시각(epoch) — PLAN_KICK_MIN_SEC 디바운스
 
@@ -978,10 +979,23 @@ def run_updater():
                         if (not is_etf) and is_v3_master_code(code):
                             _bk = _alloc_bucket(total_score)
                             _pb = alloc_bucket_prev.get(code, 0)
-                            if _bk != _pb:
-                                _dir = "↑" if _bk > _pb else "↓"
-                                plan_kick_pending.add(f"{stock_name}({code}) {_pb or '·'}→{_bk or '·'}구간{_dir}")
-                            alloc_bucket_prev[code] = _bk
+                            if _bk == _pb:
+                                # 하락 유예 중 직전구간 회귀(왕복 노이즈) → 킥 없이 취소 (2026-08-19)
+                                plan_kick_down_wait.pop(code, None)
+                            elif _bk > _pb:
+                                # 구간 상승: 즉시 킥 (유예 중이었어도 상승이면 새 상태로 확정)
+                                plan_kick_down_wait.pop(code, None)
+                                plan_kick_pending.add(f"{stock_name}({code}) {_pb or '·'}→{_bk or '·'}구간↑")
+                                alloc_bucket_prev[code] = _bk
+                            else:
+                                # 구간 하락: 1사이클 유예 — 다음 사이클에도 하락 유지 시에만 킥
+                                # (한 구간 내려갔다 바로 직전구간 회귀하는 왕복은 킥·알림 억제)
+                                if code in plan_kick_down_wait:
+                                    plan_kick_down_wait.pop(code, None)
+                                    plan_kick_pending.add(f"{stock_name}({code}) {_pb or '·'}→{_bk or '·'}구간↓")
+                                    alloc_bucket_prev[code] = _bk
+                                else:
+                                    plan_kick_down_wait[code] = _bk
 
                     # (9) 결과 저장
                     result_row = {
