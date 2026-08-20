@@ -289,10 +289,54 @@ def _build_plan(today_str):
         # AI점수 상위 우선 선착순 집행을 위해 순서를 보존(dict는 삽입순)
         "targets": targets,
     }
+    # ── 직전 plan 과 비교: 종목구성·비중·목표수량 변동 시에만 알림 (2026-08-19)
+    #    sweep 기준가만 바뀐 가격 드리프트는 plan 파일만 갱신하고 알림 생략.
+    prev_plan = _load_json(_plan_path(today_str), {})
+    prev_targets = prev_plan.get("targets", {}) if isinstance(prev_plan, dict) else {}
+
+    def _sig(tmap):
+        return {c: (t.get("target_qty"), t.get("alloc")) for c, t in tmap.items()}
+
+    changed = _sig(prev_targets) != _sig(targets)
+
     _save_json(_plan_path(today_str), plan)
     print(f"   📝 plan 저장: {len(targets)}종목 → {_plan_path(today_str)}")
-    if len(lines) > 1:
-        _send_owner("\n".join(lines))
+
+    if not changed:
+        print("   🔕 종목구성·비중·목표수량 변동 없음 — 알림 생략")
+        return
+
+    # ── 잔고 대비 부족수량 계산 (2026-08-19): 전 종목 목표 이상 보유 시 알림 생략,
+    #    부족 종목은 목표/보유/부족수량 + 매수 필요 금액 표시.
+    hs = kt.fetch_all_holdings()
+    if hs is None:
+        # 잔고 조회 실패 → 정보 손실 방지 위해 기존 형식으로 발송
+        if len(lines) > 1:
+            _send_owner("\n".join(lines))
+        return
+
+    held = {_fmt(h.get("code", "")): int(h.get("qty", 0) or 0) for h in hs}
+    out = [f"🧮 매수 plan 갱신 (기준 총자산 {base:,}원)"]
+    need_total = 0
+    shortage = False
+    for code, t in targets.items():
+        hq = held.get(code, 0)
+        diff = int(t["target_qty"]) - hq
+        if diff > 0:
+            shortage = True
+            amt = diff * int(t["promising_price"])
+            need_total += amt
+            out.append(f"🎯 {t['name']}({code}) 목표 {t['target_qty']}주 / 보유 {hq}주 "
+                       f"→ 부족 {diff}주 ≈ {amt:,}원 "
+                       f"(기준가 {t['promising_price']:,}원·비중 {t['alloc']:.0f}%·AI{t['claude_score']:.0f})")
+        else:
+            out.append(f"✅ {t['name']}({code}) 목표 {t['target_qty']}주 충족(보유 {hq}주)")
+    if not shortage:
+        print("   🔕 전 종목 목표수량 이상 보유 — 알림 생략")
+        return
+    out.append(f"💸 총 매수 필요 금액 ≈ {need_total:,}원")
+    out += [ln for ln in lines[1:] if ln.startswith("⏭️")]   # 제외 사유는 그대로 표기
+    _send_owner("\n".join(out))
 
 
 def run(today_str=None):
