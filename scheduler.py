@@ -487,11 +487,118 @@ def _eval_pipeline_worker():
     try:
         log("📈 60+ 평가 파이프라인 사이클 시작")
         _run_eval_script("build_pending.py",     "build_pending(신규탐지)")
+        maybe_spawn_claude_eval()  # 미평가 60점+ 있으면 Claude CLI 즉시 기동(이벤트 구동)
         _run_eval_script("promote_evaluated.py", "promote(후처리)")
         _run_eval_script("auto_buy.py",          "auto_buy(체결/매수)")
         log("📈 60+ 평가 파이프라인 사이클 종료")
     finally:
         _eval_lock.release()
+
+
+# ====================================================
+# 🤖 Claude CLI 이벤트 구동 AI 평가 (2026-08-19 추가)
+#    - build_pending 직후 미평가 60점+ 감지 시 Claude Code CLI 헤드리스(-p)로
+#      즉시 평가 기동 → logs/{날짜}_claude_results.json 저장 → promote 가 후처리.
+#    - Cowork 15분 폴링 예약작업은 백업으로 축소됨. CLI 우선.
+#    - 락(중복실행 방지) + 30분 타임아웃 + 동일 종목셋 30분 재시도 쿨다운.
+# ====================================================
+CLAUDE_EXE            = r"C:\Users\JH_Signature\.local\bin\claude.exe"
+CLAUDE_EVAL_TIMEOUT   = 30 * 60   # CLI 평가 최대 30분
+CLAUDE_RETRY_COOLDOWN = 30 * 60   # 동일 종목셋 재시도 최소 간격(실패 루프 방지)
+_claude_lock       = threading.Lock()
+_claude_last_codes = None
+_claude_last_start = None
+
+
+def _today_str():
+    return datetime.now().strftime("%Y%m%d")
+
+
+def _unevaluated_pending_codes():
+    """오늘자 pending 중 eval_done/results 에 없는 미평가 코드 집합."""
+    import csv as _csv
+    import json as _json
+    day = _today_str()
+    logs = os.path.join(PROJECT_DIR, "logs")
+    pend = os.path.join(logs, f"{day}_claude_pending.csv")
+    if not os.path.exists(pend):
+        return set()
+    try:
+        with open(pend, encoding="utf-8-sig") as f:
+            codes = {str(r["code"]).strip().zfill(6)
+                     for r in _csv.DictReader(f) if r.get("code")}
+    except Exception:
+        return set()
+    done = set()
+    p = os.path.join(logs, f"{day}_claude_eval_done.json")
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                done |= {str(c).zfill(6) for c in _json.load(f).get("codes", [])}
+        except Exception:
+            pass
+    p = os.path.join(logs, f"{day}_claude_results.json")
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                d = _json.load(f)
+            items = d.get("results", d) if isinstance(d, dict) else d
+            done |= {str(it.get("code", "")).zfill(6) for it in items}
+        except Exception:
+            pass
+    return codes - done
+
+
+def _claude_eval_worker(codes):
+    """Claude Code CLI 헤드리스로 AI 평가 실행(별도 스레드, 락 보유 상태로 진입)."""
+    try:
+        day = _today_str()
+        log(f"🤖 Claude CLI 평가 시작: {len(codes)}종목 {sorted(codes)}")
+        prompt = (
+            f"오늘({day}) 60점+ 종목 AI 평가를 CLAUDE.md 지침 그대로 수행하라. "
+            f"대상: logs/{day}_Stock_V3.csv 의 score_total>=0.60 중 미평가 종목"
+            f"(참고 pending: {', '.join(sorted(codes))}). "
+            f"결과는 logs/{day}_claude_results.json 에 스키마대로 저장 후 종료. "
+            f"전부 기평가면 아무 파일도 쓰지 말고 한 줄 보고 후 종료."
+        )
+        logf = os.path.join(PROJECT_DIR, "logs", f"{day}_claude_cli_eval.log")
+        with open(logf, "a", encoding="utf-8") as lf:
+            lf.write(f"\n===== {datetime.now()} codes={sorted(codes)} =====\n")
+            lf.flush()
+            r = subprocess.run(
+                [CLAUDE_EXE, "-p", prompt,
+                 "--permission-mode", "acceptEdits",
+                 "--allowedTools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"],
+                cwd=PROJECT_DIR, stdout=lf, stderr=subprocess.STDOUT,
+                timeout=CLAUDE_EVAL_TIMEOUT,
+            )
+        log(f"🤖 Claude CLI 평가 종료 rc={r.returncode}")
+    except subprocess.TimeoutExpired:
+        log(f"⚠️ Claude CLI 평가 타임아웃({CLAUDE_EVAL_TIMEOUT}s)")
+    except Exception as e:
+        log(f"❌ Claude CLI 평가 실패: {e}")
+    finally:
+        _claude_lock.release()
+
+
+def maybe_spawn_claude_eval():
+    """build_pending 직후 호출: 미평가 60점+ 있으면 Claude CLI 평가를 비동기 기동."""
+    global _claude_last_codes, _claude_last_start
+    if not os.path.exists(CLAUDE_EXE):
+        return
+    codes = _unevaluated_pending_codes()
+    if not codes:
+        return
+    now = datetime.now()
+    if (_claude_last_codes == codes and _claude_last_start
+            and (now - _claude_last_start).total_seconds() < CLAUDE_RETRY_COOLDOWN):
+        return
+    if not _claude_lock.acquire(blocking=False):
+        log("⏳ Claude CLI 평가 진행 중 → 이번 틱 건너뜀")
+        return
+    _claude_last_codes = set(codes)
+    _claude_last_start = now
+    threading.Thread(target=_claude_eval_worker, args=(codes,), daemon=True).start()
 
 
 _openkick_day = None
