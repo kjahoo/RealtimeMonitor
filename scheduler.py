@@ -529,14 +529,32 @@ def _run_eval_script(script, label, timeout=600):
         log(f"   ❌ {label} 실패: {e}")
 
 
+# promote(텔레그램·리포트) → auto_buy 는 사이클 스레드와 Claude CLI 종료 스레드 양쪽에서
+# 호출되므로, 동시 중복 실행을 막기 위해 전용 락으로 직렬화한다.
+_promote_lock = threading.Lock()
+
+
+def _run_promote_and_buy(tag):
+    """promote → auto_buy 를 직렬 실행. 이미 다른 스레드가 돌고 있으면 이번 호출은 건너뛴다.
+    (두 호출은 같은 results.json 을 처리하므로 중복 실행은 불필요하고, 대기하면
+     사이클 스레드가 최대 20분 묶여 다음 사이클까지 밀린다.)"""
+    if not _promote_lock.acquire(blocking=False):
+        log(f"⏳ promote 진행 중 → {tag} 호출 건너뜀")
+        return
+    try:
+        _run_eval_script("promote_evaluated.py", f"promote(후처리·{tag})")
+        _run_eval_script("auto_buy.py",          f"auto_buy(체결/매수·{tag})")
+    finally:
+        _promote_lock.release()
+
+
 def _eval_pipeline_worker():
     """build_pending → promote → auto_buy 순차 실행(백그라운드 스레드)."""
     try:
         log("📈 60+ 평가 파이프라인 사이클 시작")
         _run_eval_script("build_pending.py",     "build_pending(신규탐지)")
         maybe_spawn_claude_eval()  # 미평가 60점+ 있으면 Claude CLI 즉시 기동(이벤트 구동)
-        _run_eval_script("promote_evaluated.py", "promote(후처리)")
-        _run_eval_script("auto_buy.py",          "auto_buy(체결/매수)")
+        _run_promote_and_buy("사이클")
         log("📈 60+ 평가 파이프라인 사이클 종료")
     finally:
         _eval_lock.release()
@@ -596,10 +614,26 @@ def _unevaluated_pending_codes():
     return codes - done
 
 
-def _claude_eval_worker(codes):
-    """Claude Code CLI 헤드리스로 AI 평가 실행(별도 스레드, 락 보유 상태로 진입)."""
+def _results_sig(day):
+    """오늘자 claude_results.json 의 (mtime, size). 없으면 None."""
+    p = os.path.join(PROJECT_DIR, "logs", f"{day}_claude_results.json")
     try:
-        day = _today_str()
+        st = os.stat(p)
+        return (st.st_mtime, st.st_size)
+    except OSError:
+        return None
+
+
+def _claude_eval_worker(codes):
+    """Claude Code CLI 헤드리스로 AI 평가 실행(별도 스레드, 락 보유 상태로 진입).
+
+    CLI 종료 후 results.json 이 갱신됐으면 다음 10분 사이클을 기다리지 않고
+    곧바로 promote(텔레그램·리포트) → auto_buy 를 실행한다.
+    """
+    day = _today_str()
+    before_sig = _results_sig(day)
+    rc = None
+    try:
         log(f"🤖 Claude CLI 평가 시작: {len(codes)}종목 {sorted(codes)}")
         prompt = (
             f"오늘({day}) 60점+ 종목 AI 평가를 CLAUDE.md 지침 그대로 수행하라. "
@@ -619,13 +653,24 @@ def _claude_eval_worker(codes):
                 cwd=PROJECT_DIR, stdout=lf, stderr=subprocess.STDOUT,
                 timeout=CLAUDE_EVAL_TIMEOUT,
             )
-        log(f"🤖 Claude CLI 평가 종료 rc={r.returncode}")
+        rc = r.returncode
+        log(f"🤖 Claude CLI 평가 종료 rc={rc}")
     except subprocess.TimeoutExpired:
         log(f"⚠️ Claude CLI 평가 타임아웃({CLAUDE_EVAL_TIMEOUT}s)")
     except Exception as e:
         log(f"❌ Claude CLI 평가 실패: {e}")
     finally:
+        # 락은 promote 전에 반드시 해제(promote 가 수 분 걸려도 다음 평가 기동을 막지 않도록)
         _claude_lock.release()
+
+    # ── CLI 평가 직후 즉시 후처리 (다음 사이클 대기 없음)
+    #    이전에는 promote 가 10분 주기 사이클에서만 돌아, CLI 완료 → 텔레그램까지
+    #    최대 10분 지연됐고 EVAL_END(16:30) 이후 완료분은 아예 발송되지 않았다.
+    if rc == 0 and _results_sig(day) != before_sig:
+        log("🤖 CLI 평가 결과 갱신 감지 → promote 즉시 실행")
+        _run_promote_and_buy("CLI직후")
+    elif rc == 0:
+        log("🤖 CLI 평가 결과 변경 없음 → promote 생략(다음 사이클에 위임)")
 
 
 def maybe_spawn_claude_eval():

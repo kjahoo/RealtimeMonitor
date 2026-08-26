@@ -288,18 +288,34 @@ def load_pending(today_str):
 #   본인(_send_owner): AI평가 + 풀리포트 경로 + 매수(promising) 정보 전부
 #   친구(_send_friends): AI평가 요약만. 풀리포트 로컬경로·실제 매수/매도 정보는 제외
 def _send(chat_id, msg):
+    """전송 성공 여부를 bool 로 반환한다.
+
+    이전에는 예외/HTTP 오류를 모두 삼켜 실패해도 done 에 기록됐고, 그 종목은
+    그날 다시 발송되지 않았다(영구 미발송). 이제 실패를 호출부에 알려
+    done 기록을 막고 다음 사이클에 재시도되게 한다.
+    토큰 미설정은 '발송 기능 비활성'이므로 성공으로 간주(무한 재시도 방지).
+    """
     if not secrets.TELEGRAM_BOT_TOKEN:
-        return
+        return True
     try:
         import requests
         url = f"https://api.telegram.org/bot{secrets.TELEGRAM_BOT_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": str(chat_id), "text": msg}, timeout=5)
+        r = requests.post(url, data={"chat_id": str(chat_id), "text": msg}, timeout=10)
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+        if r.status_code == 200 and body.get("ok"):
+            return True
+        print(f"   ⚠️ 텔레그램 전송 실패({chat_id}): HTTP {r.status_code} {str(body)[:200]}")
+        return False
     except Exception as e:
         print(f"   ⚠️ 텔레그램 전송 실패({chat_id}): {e}")
+        return False
 
 
 def _send_owner(msg):
-    _send(OWNER_ID, msg)
+    return _send(OWNER_ID, msg)
 
 
 def _friend_ids():
@@ -639,16 +655,27 @@ def promote_and_notify(results, today_str):
               f"(매수 {len(buys)} / 관망·회피 {len(fresh) - len(buys)}) · {today_str}")
     _send_owner(header)
     _send_friends(header)          # 친구에게도 AI평가 공개 (요약 헤더)
+    fail_cnt = 0
     for ev, added, report_path in queued:
         code6 = _fmt_code(ev.get("code", ""))
-        _send_owner(_format_stock_msg(ev, added, report_path, public=False))
+        ok = _send_owner(_format_stock_msg(ev, added, report_path, public=False))
         _send_friends(_format_stock_msg(ev, added, report_path, public=True))
-        done.add(code6)            # 발송 완료 기록 → 다음 사이클 재발송 방지
-        sent_cnt += 1
+        if ok:
+            done.add(code6)        # 발송 성공만 기록 → 다음 사이클 재발송 방지
+            sent_cnt += 1
+        else:
+            # 실패는 done 에 넣지 않는다. 넣으면 그 종목은 그날 영구 미발송이 된다.
+            # (리포트·promising·results_all 은 이미 확정됐고 모두 멱등이라 재시도 무해)
+            fail_cnt += 1
+            print(f"   ⚠️ {code6} 본인 발송 실패 → done 미기록(다음 사이클 재시도)")
 
     save_done(today_str, done)
-    print(f"✅ 텔레그램 {sent_cnt}건 발송(신규만) · promising 추가 {added_cnt}개 · done {len(done)}개 기록")
-    return {"sent": sent_cnt, "added": added_cnt}
+    msg = (f"✅ 텔레그램 {sent_cnt}건 발송(신규만) · promising 추가 {added_cnt}개 "
+           f"· done {len(done)}개 기록")
+    if fail_cnt:
+        msg += f" · ⚠️ 발송실패 {fail_cnt}건(재시도 예정)"
+    print(msg)
+    return {"sent": sent_cnt, "added": added_cnt, "failed": fail_cnt}
 
 
 def promote_from_file(today_str):
