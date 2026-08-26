@@ -496,7 +496,7 @@ def run_updater():
     print(f"   - 매도규칙 : ①-{abs(_sb.STOP_PCT)*100:.0f}% 손절(raw≥{_sb.STOP_SCORE_KEEP*100:.0f} 면제) "
           f"②raw<0 {_sb.RAW_NEG_HOLD_SEC//60}분연속(15:00~ 즉시매도, 15:20~ 동시호가 시장가) "
           f"③평활<{_sb.SELL_THRESH*100:.0f}점 2일연속(오늘 raw≥{_sb.SELL_THRESH*100:.0f} 회복시 보류)")
-    print(f"   - 하락경고 : 평활/raw < {_sb.SELL_THRESH*100:.0f}점 시 텔레그램 알림(자동매매는 본인 등록종목만)")
+    print(f"   - 하락경고 : 평활 < {_sb.SELL_THRESH*100:.0f}점 + raw<0 카운트다운 알림(자동매매는 본인 등록종목만)")
     print(f"   - 주기      : {CYCLE_DELAY}초\n")
 
     last_scores      = load_last_scores()   # 재시작 후에도 이전 점수 복원
@@ -507,7 +507,6 @@ def run_updater():
     corr_notified    = {}     # {code: order_price} — 정정요망 알림 중복 방지
     prev_market_mode = None   # 모드 전환 감지용
     drop_warn_sent   = {}     # {(chat_id, code): (dir, day, streak)} — 평활<0.2 하락/회복 경고 중복 방지
-    raw_warn_sent    = {}     # {(chat_id, code): (dir, day)} — raw<0.2 조기경보(하락/회복) 중복 방지
     rawneg_warn_sent = {}     # {(chat_id, code): (day, 5분버킷)} — raw<0 30분 카운트다운 진입/5분단위/회복 중복 방지
     nxt_carry_reported = None  # 평활<0.2 이월 리포트 발송한 날짜(YYYYMMDD) — NXT 아침 1회
     alloc_bucket_prev = {}    # {code: 비중구간} — 직전 사이클 값(구간 '상승' edge 감지용)
@@ -870,41 +869,9 @@ def run_updater():
                                         print(f"   ✅ {recover_msg.replace(chr(10), '  ')}")
                                     send_telegram(recover_msg, [_cid])
 
-                        # ── 점수(raw) 조기경보: 표시 점수(total_score) < 0.20 이면 경고 →
-                        #    다시 20 이상이면 회복 알림(상하 토글, 등록자별). 평활 경고와 별개.
-                        #    단 평활도 이미 <0.20(위 평활경고 발동)이면 raw 조기경보는 생략(중복 방지).
-                        _raw_low = total_score < sell_strategy_b.SELL_THRESH
-                        _sm_low  = bool(_st and _st["below"])
-                        if _raw_low and not _sm_low:
-                            _smtxt = (f"\n※ 평활 {_st['smoothed']*100:.1f}점 — 실제 매도(평활 2일연속<{_thrp:.0f})와는 별개"
-                                      if _st else "")
-                            raw_msg = (f"⚠️ [점수 하락] {stock_name} ({code})\n"
-                                       f"오늘 점수: {total_score*100:.1f}점 ({_thrp:.0f}점 미만){_smtxt}\n"
-                                       f"현재가: {curr:,}원")
-                            _rk = ("D", _today_b)
-                            for _cid in registrants:
-                                if raw_warn_sent.get((_cid, code)) != _rk:
-                                    raw_warn_sent[(_cid, code)] = _rk
-                                    if str(_cid) == secrets.TELEGRAM_CHAT_ID:
-                                        print(f"   ⚠️ {raw_msg.replace(chr(10), '  ')}")
-                                    send_telegram(raw_msg, [_cid])
-                        else:
-                            # raw 20 이상 회복(둘 다 정상)이면 직전 raw경고(D) 받은 사람에게 회복알림.
-                            # 평활<0.20 으로 '승격'된 경우엔 회복 아님 → 조용히 raw 상태만 정리.
-                            _raw_recovered = (not _raw_low) and (not _sm_low)
-                            recover_raw = (f"✅ [점수 회복] {stock_name} ({code})\n"
-                                           f"오늘 점수: {total_score*100:.1f}점 ({_thrp:.0f}점 이상)\n"
-                                           f"현재가: {curr:,}원")
-                            for _cid in registrants:
-                                _pv = raw_warn_sent.get((_cid, code))
-                                if _pv and _pv[0] == "D":
-                                    if _raw_recovered:
-                                        raw_warn_sent[(_cid, code)] = ("U", _today_b)
-                                        if str(_cid) == secrets.TELEGRAM_CHAT_ID:
-                                            print(f"   ✅ {recover_raw.replace(chr(10), '  ')}")
-                                        send_telegram(recover_raw, [_cid])
-                                    else:
-                                        raw_warn_sent.pop((_cid, code), None)
+                        # (제거됨 2026-08-27) raw<SELL_THRESH(10점) '조기경보'([점수 하락]/[점수 회복]):
+                        #   평활이 멀쩡한데 당일 raw 만 잠깐 10점 밑으로 찍는 경우는 매도와 무관한
+                        #   노이즈라 미발송. 평활<10 경고(위)와 raw<0 카운트다운(아래)만 유지.
 
                         # ── raw<0 30분 카운트다운 진행 알림: 진입 1회 + 5분 단위 + 회복 1회.
                         #    raw_neg_status(active/elapsed/remaining). 30분 도달 시엔 execution_monitor 가
