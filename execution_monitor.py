@@ -427,7 +427,7 @@ def _tick(today_str):
             _log_once(f"buy:{code}", f"  💸 {name}({code}) 매수불가(예산 {budget:,}·현금여유 {cash_room:,} < {price:,}/주)")
             continue
 
-        res = kt.place_buy_order(code, qty, price)
+        res = kt.place_buy_order(code, qty, price, stex="SOR")   # 정규장 sweep 은 SOR(KRX/NXT 최선 라우팅)
         if res and res.get("return_code") == 0:
             ono = res.get("ord_no", "?")
             amt = qty * price
@@ -655,7 +655,8 @@ def _sell_tick(today_str):
             if qty < 1:
                 break                   # 호가 잔량 소진 → 남은 트랜치는 다음 틱
             _tkey = pos["loan_dt"] or "CASH"
-            res = kt.place_sell_order(code, qty, sell_price, pos["loan_dt"], pos.get("crd_type", "00"))
+            # 정규장 sweep 은 SOR(KRX/NXT 최선 라우팅). 거부 시 함수 내부에서 KRX 폴백.
+            res = kt.place_sell_order(code, qty, sell_price, pos["loan_dt"], pos.get("crd_type", "00"), stex="SOR")
             if res and res.get("return_code") == 0:
                 ono = res.get("ord_no", "?")
                 new_orders.append({"no": ono, "qty": qty, "price": sell_price, "loan_dt": pos["loan_dt"]})

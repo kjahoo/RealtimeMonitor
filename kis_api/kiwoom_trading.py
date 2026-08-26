@@ -84,18 +84,27 @@ def _headers(api_id):
 
 
 def _post(api_id, url_path, body):
+    """POST 공통. HTTP 429(유량 초과)는 게이트웨이에서 거부된 것(미처리)이므로
+    짧게 대기 후 최대 2회 재시도한다 — execution_monitor 매수 틱이 종목별
+    ka10004 를 연사할 때 유량(5req/s)에 걸려 후순위 종목이 '호가 없음(0,0)'으로
+    오판돼 sweep 매수가 누락되던 문제 방지(2026-08-25)."""
     url = KIWOOM_URL_BASE + url_path
-    try:
-        res = requests.post(url, headers=_headers(api_id), json=body, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            rc = data.get("return_code", 0)
-            if rc != 0:
-                print(f"   ❌ [{api_id}] return_code={rc} msg={data.get('return_msg', '')}")
-            return data
-        print(f"   ❌ API HTTP 실패 [{api_id}]: {res.status_code} → {res.text[:200]}")
-    except Exception as e:
-        print(f"   ❌ API 오류 [{api_id}]: {e}")
+    for attempt in range(3):
+        try:
+            res = requests.post(url, headers=_headers(api_id), json=body, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                rc = data.get("return_code", 0)
+                if rc != 0:
+                    print(f"   ❌ [{api_id}] return_code={rc} msg={data.get('return_msg', '')}")
+                return data
+            if res.status_code == 429 and attempt < 2:
+                time.sleep(0.35)         # 유량 윈도(1초) 회복 대기 후 재시도
+                continue
+            print(f"   ❌ API HTTP 실패 [{api_id}]: {res.status_code} → {res.text[:200]}")
+        except Exception as e:
+            print(f"   ❌ API 오류 [{api_id}]: {e}")
+        return None
     return None
 
 
@@ -300,57 +309,73 @@ def normalize_krx_price(price):
     return price - (price % krx_tick_size(price))
 
 
-def place_sell_order(code, qty, price, loan_dt="", crd_type="00", market=False):
+def place_sell_order(code, qty, price, loan_dt="", crd_type="00", market=False, stex="KRX"):
     """매도 주문. market=True 면 시장가(trde_tp=3, 호가 0) — 장마감 동시호가(15:20~)
-       raw<0 즉시청산 등 '반드시 체결' 이 필요할 때 사용. 기본은 지정가(trde_tp=0)."""
+       raw<0 즉시청산 등 '반드시 체결' 이 필요할 때 사용. 기본은 지정가(trde_tp=0).
+       stex="SOR": 정규장 sweep 전용 — KRX/NXT 중 유리한 곳으로 라우팅(2026-08-25).
+       SOR 거부 시 KRX 로 1회 자동 폴백(신용/담보 미지원 등 대비 — 매도 정지 방지)."""
     if qty <= 0:
         return None
     if not market:
         price = normalize_krx_price(price)     # NXT 가격 섞임 → 호가단위 거부 방지
     trde_tp = "3" if market else "0"          # 3=시장가, 0=지정가
     ord_uv  = "0" if market else str(price)    # 시장가는 호가 0
-    if loan_dt:
-        # 담보(crd_type=08): crd_deal_tp="88", 신용융자(crd_type=01): crd_deal_tp="33"
-        crd_deal_tp = "88" if crd_type == "08" else "33"
-        body = {
-            "dmst_stex_tp": "KRX",
-            "stk_cd":       code,
-            "ord_qty":      str(qty),
-            "ord_uv":       ord_uv,
-            "trde_tp":      trde_tp,   # 0=지정가 / 3=시장가
-            "crd_deal_tp":  crd_deal_tp,
-            "crd_loan_dt":  loan_dt,
-        }
-        return _post("kt10007", "/api/dostk/crdordr", body)
-    else:
-        body = {
-            "dmst_stex_tp": "KRX",
-            "stk_cd":       code,
-            "ord_qty":      str(qty),
-            "ord_uv":       ord_uv,
-            "trde_tp":      trde_tp,   # 0=지정가 / 3=시장가
-            "cond_uv":      "",
-        }
-        return _post("kt10001", "/api/dostk/ordr", body)
+    for st in ([stex, "KRX"] if stex != "KRX" else ["KRX"]):
+        if loan_dt:
+            # 담보(crd_type=08): crd_deal_tp="88", 신용융자(crd_type=01): crd_deal_tp="33"
+            crd_deal_tp = "88" if crd_type == "08" else "33"
+            body = {
+                "dmst_stex_tp": st,
+                "stk_cd":       code,
+                "ord_qty":      str(qty),
+                "ord_uv":       ord_uv,
+                "trde_tp":      trde_tp,   # 0=지정가 / 3=시장가
+                "crd_deal_tp":  crd_deal_tp,
+                "crd_loan_dt":  loan_dt,
+            }
+            res = _post("kt10007", "/api/dostk/crdordr", body)
+        else:
+            body = {
+                "dmst_stex_tp": st,
+                "stk_cd":       code,
+                "ord_qty":      str(qty),
+                "ord_uv":       ord_uv,
+                "trde_tp":      trde_tp,   # 0=지정가 / 3=시장가
+                "cond_uv":      "",
+            }
+            res = _post("kt10001", "/api/dostk/ordr", body)
+        if res and res.get("return_code") == 0:
+            return res
+        if st != "KRX":
+            print(f"   ⚠️ 매도 SOR 거부 → KRX 폴백: {(res or {}).get('return_msg', '응답 없음')}")
+    return res
 
 
 # ====================================================
 # 📈 지정가 매수 주문 (현금, kt10000)
 # ====================================================
-def place_buy_order(code, qty, price):
-    """현금 지정가 매수. 반환: API dict (return_code=0 성공) or None"""
+def place_buy_order(code, qty, price, stex="KRX"):
+    """현금 지정가 매수. 반환: API dict (return_code=0 성공) or None.
+       stex="SOR": 정규장 sweep 전용 — KRX/NXT 중 유리한 곳으로 라우팅(2026-08-25).
+       SOR 거부 시 KRX 로 1회 자동 폴백(기존 동작 보장)."""
     if qty <= 0 or price <= 0:
         return None
     price = normalize_krx_price(price)   # NXT 가격 섞임 → 호가단위 거부 방지
-    body = {
-        "dmst_stex_tp": "KRX",
-        "stk_cd":       code,
-        "ord_qty":      str(qty),
-        "ord_uv":       str(price),
-        "trde_tp":      "0",     # 지정가
-        "cond_uv":      "",
-    }
-    return _post("kt10000", "/api/dostk/ordr", body)
+    for st in ([stex, "KRX"] if stex != "KRX" else ["KRX"]):
+        body = {
+            "dmst_stex_tp": st,
+            "stk_cd":       code,
+            "ord_qty":      str(qty),
+            "ord_uv":       str(price),
+            "trde_tp":      "0",     # 지정가
+            "cond_uv":      "",
+        }
+        res = _post("kt10000", "/api/dostk/ordr", body)
+        if res and res.get("return_code") == 0:
+            return res
+        if st != "KRX":
+            print(f"   ⚠️ 매수 SOR 거부 → KRX 폴백: {(res or {}).get('return_msg', '응답 없음')}")
+    return res
 
 
 # ====================================================
@@ -413,8 +438,12 @@ def fetch_ask_book(code):
 
 def ask_qty_at_or_below(code, limit_price):
     """매도호가 중 limit_price 이하(포함)에 쌓인 총 잔량과 최우선호가를 반환.
-       반환: (avail_qty:int, best_ask:int). 호가 없으면 (0, 0)."""
-    levels = fetch_ask_book(code)
+       반환: (avail_qty:int, best_ask:int). 호가 없으면 (0, 0).
+       KRX+NXT 통합호가(_AL) 기준 — SOR 주문이 두 거래소를 모두 잡으므로
+       감시도 통합으로 본다(2026-08-25. NXT 에만 선 더 싼 매도 누락 방지)."""
+    levels = fetch_ask_book(code + "_AL")
+    if not levels:                      # 통합 조회 실패 → KRX 단독 폴백
+        levels = fetch_ask_book(code)
     if not levels:
         return 0, 0
     best_ask = levels[0][0]
@@ -448,8 +477,12 @@ def fetch_bid_book(code):
 def bid_qty_at_or_above(code, limit_price):
     """매수호가 중 limit_price 이상(포함)에 쌓인 총 잔량과 최우선호가를 반환.
        = limit_price 로 지정가 매도 시 '즉시 체결될' 수량.
-       반환: (avail_qty:int, best_bid:int). 호가 없으면 (0, 0)."""
-    levels = fetch_bid_book(code)
+       반환: (avail_qty:int, best_bid:int). 호가 없으면 (0, 0).
+       KRX+NXT 통합호가(_AL) 기준 — SOR 매도가 두 거래소를 모두 잡으므로
+       감시도 통합으로 본다(2026-08-25. NXT 에만 선 더 비싼 매수 누락 방지)."""
+    levels = fetch_bid_book(code + "_AL")
+    if not levels:                      # 통합 조회 실패 → KRX 단독 폴백
+        levels = fetch_bid_book(code)
     if not levels:
         return 0, 0
     best_bid = levels[0][0]
@@ -496,18 +529,23 @@ def fetch_open_buy_orders(code):
 #    loan_dt 있으면 신용/담보 취소(kt10009), 없으면 현금 취소(kt10003)
 # ====================================================
 def cancel_order(order_no, code, qty, loan_dt=""):
-    """반환: True(성공) / False(실패)"""
-    body = {
-        "dmst_stex_tp": "KRX",
-        "orig_ord_no":  order_no,
-        "stk_cd":       code,
-        "cncl_qty":     "0",     # 전량취소
-    }
-    if loan_dt:
-        data = _post("kt10009", "/api/dostk/crdordr", body)
-    else:
-        data = _post("kt10003", "/api/dostk/ordr", body)
-    return data is not None and data.get("return_code") == 0
+    """반환: True(성공) / False(실패).
+       원주문이 KRX/SOR 어느 쪽이든 취소되도록 KRX → SOR 순으로 시도한다
+       (정규장 sweep 이 SOR 주문을 내므로, 2026-08-25). 첫 시도 성공 시 종료."""
+    for st in ("KRX", "SOR"):
+        body = {
+            "dmst_stex_tp": st,
+            "orig_ord_no":  order_no,
+            "stk_cd":       code,
+            "cncl_qty":     "0",     # 전량취소
+        }
+        if loan_dt:
+            data = _post("kt10009", "/api/dostk/crdordr", body)
+        else:
+            data = _post("kt10003", "/api/dostk/ordr", body)
+        if data is not None and data.get("return_code") == 0:
+            return True
+    return False
 
 
 # ====================================================
