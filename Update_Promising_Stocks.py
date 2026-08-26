@@ -71,6 +71,23 @@ def get_holdings_set():
     _holdings_cache["set"] = s
     return s
 
+def get_today_exec_held_codes():
+    """오늘자 autobuy_exec.json 에서 held_seen/bought > 0 인 코드 set.
+
+    잔고 캐시(get_holdings_set, 5분)는 매수 직후 몇 분간 새 체결을 모르므로,
+    execution_monitor 가 초 단위로 갱신하는 exec 파일을 보유 판정에 보강한다
+    (2026-08-25 티엠씨 오삭제: 매수 직후 '미보유' 오판 + 60점 경계 왕복 → promising 제거).
+    파일 없음/파싱 실패는 빈 set — 정리 로직은 잔고 캐시만으로 동작."""
+    try:
+        path = os.path.join(LOG_DIR, f"{datetime.now().strftime('%Y%m%d')}_autobuy_exec.json")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return {format_code(c) for c, st in (data.get("codes") or {}).items()
+                if (st.get("held_seen", 0) or 0) > 0 or (st.get("bought", 0) or 0) > 0}
+    except Exception:
+        return set()
+
+
 PLAN_KICK_MIN_SEC = 90   # 비중구간 상승 → auto_buy 즉시 킥 최소 간격(초, 디바운스)
 
 
@@ -437,7 +454,9 @@ def update_search_history_scores(updates, today_str, holdings_set=None):
         if holdings_set is not None and 'signal' in df.columns and 'total_score' in df.columns:
             sc = pd.to_numeric(df['total_score'], errors='coerce').fillna(1.0)  # 파싱실패=보존
             is_auto  = df['signal'].astype(str).str.strip() == "60+자동등록"
-            not_held = ~df['code'].isin(holdings_set)
+            # 잔고 캐시(5분)가 모르는 당일 신규 체결분을 exec 파일로 보강 → 매수 직후 오삭제 방지
+            held_all = set(holdings_set) | get_today_exec_held_codes()
+            not_held = ~df['code'].isin(held_all)
             low      = sc < PROMISING_KEEP_MIN
             drop_mask = is_auto & not_held & low
             n_drop = int(drop_mask.sum())
