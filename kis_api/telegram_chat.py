@@ -952,6 +952,22 @@ def run():
                             df_v = pd.read_csv(stock_path, encoding="utf-8-sig", dtype=str)
                             df_v["score_total"] = pd.to_numeric(df_v["score_total"], errors="coerce").fillna(0)
                             df_v = df_v.sort_values("score_total", ascending=False).head(_top_n)
+                            # AI 평가풀(당일 누적) 로드 — 평가된 종목엔 AI점수·매수의견 병기(2026-08-25)
+                            ai_map = {}
+                            try:
+                                _ai_path = os.path.join(LOG_DIR, f"{today_str_now}_claude_results_all.json")
+                                if not os.path.exists(_ai_path):
+                                    _ai_path = os.path.join(LOG_DIR, f"{today_str_now}_claude_results.json")
+                                if os.path.exists(_ai_path):
+                                    with open(_ai_path, encoding="utf-8") as _f:
+                                        _ai = json.load(_f)
+                                    _ai = _ai.get("results", _ai) if isinstance(_ai, dict) else _ai
+                                    for _r in _ai:
+                                        _c = str(_r.get("code", "")).split(".")[0].strip().zfill(6)
+                                        if _c:
+                                            ai_map[_c] = (_r.get("claude_score"), _r.get("grade") or _r.get("recommendation", ""))
+                            except Exception:
+                                ai_map = {}
                             if df_v.empty:
                                 send_message(chat_id, "📭 오늘 집계된 종목이 없습니다.")
                             else:
@@ -960,9 +976,17 @@ def run():
                                     score = float(row["score_total"]) * 100
                                     price = row.get("close_price", "-")
                                     time_str = row.get("time", "")
+                                    _code6 = str(row["code"]).split(".")[0].strip().zfill(6)
+                                    ai_str = ""
+                                    if _code6 in ai_map:
+                                        _sc, _op = ai_map[_code6]
+                                        try:
+                                            ai_str = f"  🤖AI {float(_sc):.0f}점·{_op}"
+                                        except (TypeError, ValueError):
+                                            ai_str = f"  🤖AI {_op}" if _op else ""
                                     lines.append(
                                         f"{rank:2d}. {row.get('name','')} ({row['code']})\n"
-                                        f"    점수: {score:.1f}점  현재가: {price}원  {time_str}"
+                                        f"    점수: {score:.1f}점  현재가: {price}원  {time_str}{ai_str}"
                                     )
                                 send_message(chat_id, "\n".join(lines))
                         except Exception as e:

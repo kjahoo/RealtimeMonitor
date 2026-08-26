@@ -68,13 +68,14 @@ def get_score_tier(score):
 
 # 매수 추천 라벨 — 1안(현재): 진입 0.60, 구간별 5%씩, 상한 25%
 #   0.6~0.7→5% · 0.7~0.8→10% · 0.8~0.9→15% · 0.9~1.0→20% · ≥1.0→25%
-def get_buy_label(score):
+def get_buy_label(score, kind="당일신규"):
+    """kind: 당일신규 | 직전비중증가 | 직전비중감소 | 재진입 — 알림 사유 구분(2026-08-25)."""
     if score >= 1.00:   alloc = 25
     elif score >= 0.90: alloc = 20
     elif score >= 0.80: alloc = 15
     elif score >= 0.70: alloc = 10
     else:               alloc = 5    # 0.60~0.70
-    return f"[포착-{alloc}%매수추천]"
+    return f"[{kind}-{alloc}%매수추천]"
 
 
 # 텔레그램 알림
@@ -539,15 +540,33 @@ if __name__ == "__main__":
                     res['time'] = datetime.now().strftime("%H:%M:%S")
                     today_results[code] = res
 
-                    # 3. 알림 조건 체크 — 점수 구간(tier)이 바뀔 때마다 재알림
+                    # 3. 알림 조건 체크 — 점수 구간(tier)이 바뀔 때마다 재알림.
+                    #    사유 라벨: 당일신규(오늘 첫 60+) / 직전비중증가·감소(구간 이동) /
+                    #    재진입(제외 후 60+ 복귀) / 제외(60 미만 이탈, 1회 알림)
                     score = res['score_total']
                     tier = get_score_tier(score)
-                    if tier is not None and sent_tiers.get(code) != tier:
-                        label = get_buy_label(score)
+                    prev = sent_tiers.get(code)
+                    if tier is not None and prev != tier:
+                        if code not in sent_tiers:
+                            kind = "당일신규"
+                        elif prev is None:
+                            kind = "재진입"          # 제외됐다가 60+ 복귀
+                        elif tier > prev:
+                            kind = "직전비중증가"
+                        else:
+                            kind = "직전비중감소"
+                        label = get_buy_label(score, kind)
                         msg = f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n현재가: {res['close_price']:,}"
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
                         sent_tiers[code] = tier
+                    elif tier is None and prev is not None:
+                        # 60점 미만 이탈 — 제외 알림(이후 복귀 시 위 분기에서 '재진입')
+                        msg = (f"🚪 [제외] {res['name']} ({code})\n"
+                               f"점수: {score * 100:.1f} (60 미만 이탈)\n현재가: {res['close_price']:,}")
+                        print(f"   🔔 {msg.replace(chr(10), ' ')}")
+                        send_telegram(msg)
+                        sent_tiers[code] = None
 
                 # 4. 진행상황 출력 및 중간 저장 (50종목마다)
                 if idx % 50 == 0:
