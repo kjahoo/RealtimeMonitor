@@ -95,6 +95,12 @@ def _post(api_id, url_path, body):
             if res.status_code == 200:
                 data = res.json()
                 rc = data.get("return_code", 0)
+                if rc == 3 and attempt < 2:
+                    # 8005(Token 무효) — 동시 재발급 경합으로 폐기된 토큰이 파일에
+                    # 남은 경우(2026-08-31). 토큰 복구 후 재시도.
+                    print(f"   🔄 [{api_id}] 인증실패(8005) → 토큰 복구 후 재시도")
+                    kiwoom_auth.refresh_after_auth_fail()
+                    continue
                 if rc != 0:
                     print(f"   ❌ [{api_id}] return_code={rc} msg={data.get('return_msg', '')}")
                 return data
@@ -136,6 +142,7 @@ def fetch_stock_holdings(code):
     # qry_tp=2(개별): 담보(crd_tp=08)·신용(crd_tp=01) 구분 및 대출일자 정확히 반환
     holdings = []
     cont_yn, next_key = "N", ""
+    auth_retried = False
     while True:
         headers = _headers("kt00018")
         headers["cont-yn"]  = cont_yn
@@ -151,6 +158,11 @@ def fetch_stock_holdings(code):
             return None
         data = res.json()
         if data.get("return_code", 0) != 0:
+            if data.get("return_code") == 3 and not auth_retried:
+                auth_retried = True
+                print("   🔄 [kt00018/개별] 인증실패(8005) → 토큰 복구 후 재시도")
+                kiwoom_auth.refresh_after_auth_fail()
+                continue
             print(f"   ❌ [kt00018/개별] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
             return None
 
@@ -191,6 +203,7 @@ def fetch_holdings_tranche_map():
        × 페이지수) 대신 전 페이지 1세트로 끝내 유량(5req/s) 429 를 피한다."""
     tranche_map = {}
     cont_yn, next_key = "N", ""
+    auth_retried = False
     while True:
         headers = _headers("kt00018")
         headers["cont-yn"]  = cont_yn
@@ -206,6 +219,11 @@ def fetch_holdings_tranche_map():
             return None
         data = res.json()
         if data.get("return_code", 0) != 0:
+            if data.get("return_code") == 3 and not auth_retried:
+                auth_retried = True
+                print("   🔄 [kt00018/맵] 인증실패(8005) → 토큰 복구 후 재시도")
+                kiwoom_auth.refresh_after_auth_fail()
+                continue
             print(f"   ❌ [kt00018/맵] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
             return None
 
@@ -248,6 +266,7 @@ def fetch_all_holdings():
     """
     agg = {}  # code -> {"code", "name", "qty"}
     cont_yn, next_key = "N", ""
+    auth_retried = False
     while True:
         headers = _headers("kt00018")
         headers["cont-yn"]  = cont_yn
@@ -263,6 +282,11 @@ def fetch_all_holdings():
             return None
         data = res.json()
         if data.get("return_code", 0) != 0:
+            if data.get("return_code") == 3 and not auth_retried:
+                auth_retried = True
+                print("   🔄 [kt00018] 인증실패(8005) → 토큰 복구 후 재시도")
+                kiwoom_auth.refresh_after_auth_fail()
+                continue
             print(f"   ❌ [kt00018] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
             return None
 

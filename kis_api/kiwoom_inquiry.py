@@ -51,23 +51,31 @@ def _market_suffix():
 
 
 def _post(api_id, url_path, body):
-    token = kiwoom_auth.get_access_token()
-    if not token:
-        return None
-    headers = {
-        "api-id":        api_id,
-        "authorization": "Bearer " + token,
-        "content-type":  "application/json;charset=UTF-8",
-    }
-    try:
-        res = requests.post(KIWOOM_URL_BASE + url_path, headers=headers, json=body, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            if data.get("return_code") == 0:
-                return data
-        return None
-    except Exception:
-        return None
+    for attempt in range(2):
+        token = kiwoom_auth.get_access_token()
+        if not token:
+            return None
+        headers = {
+            "api-id":        api_id,
+            "authorization": "Bearer " + token,
+            "content-type":  "application/json;charset=UTF-8",
+        }
+        try:
+            res = requests.post(KIWOOM_URL_BASE + url_path, headers=headers, json=body, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("return_code") == 0:
+                    return data
+                if data.get("return_code") == 3 and attempt == 0:
+                    # 8005(Token 무효) — 동시 재발급 경합으로 폐기된 토큰이 파일에
+                    # 남은 경우(2026-08-31). 토큰 복구 후 1회 재시도.
+                    print(f"   🔄 [{api_id}] 인증실패(8005) → 토큰 복구 후 재시도")
+                    kiwoom_auth.refresh_after_auth_fail()
+                    continue
+            return None
+        except Exception:
+            return None
+    return None
 
 
 # ====================================================
