@@ -441,23 +441,29 @@ def _pabs(v):
         return 0
 
 
+def _book_levels(data, side):
+    """ka10004 응답에서 한쪽 호가 10단계 [(price:int, qty:int), ...] (best→deep).
+       side: "sel"(매도, 가격 오름차순) / "buy"(매수, 가격 내림차순). price<=0 단계는 제외."""
+    levels = []
+    p = _pabs(data.get(f"{side}_fpr_bid"))  # 최우선호가
+    q = _pint(data.get(f"{side}_fpr_req"))  # 최우선잔량
+    if p > 0:
+        levels.append((p, q))
+    for n in range(2, 11):                  # 2~10차선
+        p = _pabs(data.get(f"{side}_{n}th_pre_bid"))
+        q = _pint(data.get(f"{side}_{n}th_pre_req"))
+        if p > 0:
+            levels.append((p, q))
+    return levels
+
+
 def fetch_ask_book(code):
     """매도호가 10단계를 [(price:int, qty:int), ...] 로 반환 (best→deep, price 오름차순).
        price<=0 단계는 제외. 조회 실패 시 []."""
     data = _post("ka10004", "/api/dostk/mrkcond", {"stk_cd": code})
     if not data or data.get("return_code") != 0:
         return []
-    levels = []
-    p = _pabs(data.get("sel_fpr_bid"))      # 매도최우선호가
-    q = _pint(data.get("sel_fpr_req"))      # 매도최우선잔량
-    if p > 0:
-        levels.append((p, q))
-    for n in range(2, 11):                  # 매도 2~10차선
-        p = _pabs(data.get(f"sel_{n}th_pre_bid"))
-        q = _pint(data.get(f"sel_{n}th_pre_req"))
-        if p > 0:
-            levels.append((p, q))
-    return levels
+    return _book_levels(data, "sel")
 
 
 def ask_qty_at_or_below(code, limit_price):
@@ -485,17 +491,7 @@ def fetch_bid_book(code):
     data = _post("ka10004", "/api/dostk/mrkcond", {"stk_cd": code})
     if not data or data.get("return_code") != 0:
         return []
-    levels = []
-    p = _pabs(data.get("buy_fpr_bid"))      # 매수최우선호가
-    q = _pint(data.get("buy_fpr_req"))      # 매수최우선잔량
-    if p > 0:
-        levels.append((p, q))
-    for n in range(2, 11):                  # 매수 2~10차선
-        p = _pabs(data.get(f"buy_{n}th_pre_bid"))
-        q = _pint(data.get(f"buy_{n}th_pre_req"))
-        if p > 0:
-            levels.append((p, q))
-    return levels
+    return _book_levels(data, "buy")
 
 
 def bid_qty_at_or_above(code, limit_price):
@@ -516,6 +512,25 @@ def bid_qty_at_or_above(code, limit_price):
             break
         avail += qty
     return avail, best_bid
+
+
+def fetch_book(code):
+    """매수·매도 호가 10단계를 1회 조회로 → (bids, asks). 조회 실패 시 None.
+       KRX+NXT 통합(_AL) 우선, 실패 시 KRX 단독 폴백.
+       '호가 없음([])' 과 '조회 실패(None)' 를 구분 — 상한가 잠김(매도호가 0) 판정용."""
+    for stk in (code + "_AL", code):
+        data = _post("ka10004", "/api/dostk/mrkcond", {"stk_cd": stk})
+        if data and data.get("return_code") == 0:
+            return _book_levels(data, "buy"), _book_levels(data, "sel")
+    return None
+
+
+def fetch_upper_limit(code):
+    """당일 상한가(ka10001 upl_pric, KRX 기준, 원). 조회 실패/미제공 시 0."""
+    data = _post("ka10001", "/api/dostk/stkinfo", {"stk_cd": code})
+    if not data or data.get("return_code") != 0:
+        return 0
+    return _pabs(data.get("upl_pric"))
 
 
 # ====================================================

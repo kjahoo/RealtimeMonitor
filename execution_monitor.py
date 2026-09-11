@@ -57,6 +57,8 @@ POLL_SEC  = float(getattr(secrets, "MONITOR_POLL_SEC", 4))     # 호가 폴링 �
 MAX_CODES = int(getattr(secrets, "MONITOR_MAX_CODES", 15))     # 동시 감시 종목 상한(rate-limit)
 SCORE_MIN = 60.0                                              # 매수 직전 재확인 최소 점수(점) — auto_buy plan 진입기준(1안: 60점)과 통일
 SMOOTHED_SELL_THRESH = 0.10                                   # 평활 하락(청산 예정) 매수 금지 임계 — sell_strategy_b.SELL_THRESH(0.10)와 동일하게 유지(변경 시 함께 수정)
+UPL_GUARD_SEC  = 1.0                                          # 상한가 잠김 보류 종목 감시 주기(초)
+UPL_BREAK_DROP = 0.03                                         # 상한가 해제 시 매도가 = 상한가 × (1 − 3%), 호가단위 내림
 
 
 def _fmt(x):
@@ -462,6 +464,101 @@ def _tick(today_str):
         _send_owner("🛒 실시간 sweep 집행\n" + "\n".join(report))
 
 
+# ── 상한가 잠김 가드 ──────────────────────────────────────────────────────
+# 매도 대상이 상한가에 잠겨 있으면(매수최우선=상한가 & 매도호가 없음) 매도하지 않고 보류,
+# 그 종목만 1초 간격으로 감시하다가 잠김이 풀리는 순간 상한가 -3% 지정가로 전량 매도한다.
+# (2026-09-11 아모텍: 상한가 잠김 중 raw<0 청산 sweep 이 상한가 매수잔량에 전량 체결된 사례)
+# 잠긴 채 동시호가(15:20~)에 들어가면 종가매도도 보류 → 보유 유지(다음 날 plan 재판정).
+_upl_guard = {}   # {code: {"name", "upl"}} — 잠김 보류 중인 매도 대상(_sell_tick 이 매 틱 재구성)
+_upl_cache = {}   # {code: (YYYYMMDD, 상한가)} — 상한가는 당일 고정이라 하루 1회 조회
+
+
+def _upper_limit(code):
+    """당일 상한가(원). 조회 실패 시 None(캐시 안 함 → 다음 틱 재조회)."""
+    today = datetime.now().strftime("%Y%m%d")
+    hit = _upl_cache.get(code)
+    if hit and hit[0] == today:
+        return hit[1]
+    upl = kt.fetch_upper_limit(code)
+    if upl > 0:
+        _upl_cache[code] = (today, upl)
+        return upl
+    return None
+
+
+def _is_upl_locked(book, upl):
+    """상한가 잠김 = 매수최우선호가가 상한가 & 매도호가 잔량 없음."""
+    bids, asks = book
+    return bool(bids) and bids[0][0] >= upl and not any(q > 0 for _, q in asks)
+
+
+def _upl_break_price(upl):
+    return kt.normalize_krx_price(int(upl * (1 - UPL_BREAK_DROP)))
+
+
+def _fire_upl_break(code, name, cst, positions, report):
+    """잠김 해제 → 트랜치별 상한가-3% 지정가 매도(SOR). 해제가 이상 매수호가는 높은 가격부터 체결되고,
+       미체결 잔량은 다음 매도 틱이 취소 후 해제가 이하 기준으로 sweep 을 이어간다(upl_break_price)."""
+    upl = int((cst.pop("upl_lock", None) or {}).get("upl") or 0) or (_upper_limit(code) or 0)
+    if upl <= 0:
+        return
+    price = _upl_break_price(upl)
+    cst["upl_break_price"] = price
+    report.append(f"🔓 상한가 해제 {name}({code}) {upl:,}원 → {price:,}원(-{UPL_BREAK_DROP*100:.0f}%) 지정가 매도")
+    positions = sorted(positions, key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"]))
+    new_orders = []
+    for pos in positions:
+        qty = pos.get("sell_possible_qty", 0)
+        if qty < 1:
+            continue
+        _tkey = pos["loan_dt"] or "CASH"
+        res = kt.place_sell_order(code, qty, price, pos["loan_dt"], pos.get("crd_type", "00"), stex="SOR")
+        if res and res.get("return_code") == 0:
+            ono = res.get("ord_no", "?")
+            new_orders.append({"no": ono, "qty": qty, "price": price, "loan_dt": pos["loan_dt"]})
+            report.append(f"🔴 해제매도 {name}({code}) {pos['order_type']} {qty}주×{price:,}원 (주문 {ono})")
+            _log_once(f"sell:{code}:{_tkey}", f"  🔴 상한가 해제매도 {name}({code}) {qty}주×{price:,}원 (주문 {ono})")
+        else:
+            err = (res or {}).get("return_msg", "응답 없음")
+            report.append(f"❌ 해제매도 실패 {name}({code}) {pos['order_type']} {qty}주: {err}")
+            _log_once(f"sell:{code}:{_tkey}", f"  ❌ 상한가 해제매도 실패 {name}({code}): {err}")
+    cst["open_orders"] = list(cst.get("open_orders") or []) + new_orders
+
+
+def _upl_guard_tick(today_str):
+    """잠김 보류 종목만 1초 간격 감시 — 잠김이 풀리면(매도호가 등장 or 매수최우선<상한가) 즉시 해제매도.
+       호가 조회 실패는 '해제'로 보지 않는다(다음 초 재확인)."""
+    if not kt.is_market_open():
+        _upl_guard.clear()
+        return
+    if not getattr(secrets, "AUTO_SELL_ENABLED", False) or _is_closing_auction():
+        return
+    broken = []
+    for code, g in list(_upl_guard.items()):
+        book = kt.fetch_book(code)
+        if book is not None and not _is_upl_locked(book, g["upl"]):
+            broken.append(code)
+    if not broken:
+        return
+
+    exec_state = _load_json(_sell_exec_path(today_str), None)
+    if not isinstance(exec_state, dict) or exec_state.get("date") != today_str:
+        return
+    tranche_map = kt.fetch_holdings_tranche_map()
+    if tranche_map is None:             # 잔고 조회 실패 → 다음 초 재시도(잠김 상태 유지)
+        return
+    report = []
+    for code in broken:
+        g = _upl_guard.pop(code)
+        cst = exec_state["codes"].get(code)
+        if not cst or not cst.get("upl_lock"):
+            continue
+        _fire_upl_break(code, g["name"], cst, tranche_map.get(code, []), report)
+    _save_json(_sell_exec_path(today_str), exec_state)
+    if report:
+        _send_owner("📤 상한가 해제 매도\n" + "\n".join(report))
+
+
 # ── 매도 sweep ────────────────────────────────────────────────────────────
 def _new_sell_cst(held):
     """종목별 매도 실행상태 초기값. held_seen = 베이스라인(체결=보유 감소로 판정).
@@ -478,9 +575,11 @@ def _sell_tick(today_str):
 
     plan = _load_json(_sell_plan_path(today_str), None)
     if not isinstance(plan, dict) or plan.get("date") != today_str:
+        _upl_guard.clear()
         return                          # 오늘자 매도 plan 아직 없음
     targets = plan.get("targets") or {}
     if not targets:
+        _upl_guard.clear()              # 매도 대상 없음 → 상한가 감시도 중단
         return
 
     exec_state = _load_json(_sell_exec_path(today_str), None)
@@ -524,6 +623,14 @@ def _sell_tick(today_str):
         if held != cst["held_seen"]:
             cst["held_seen"] = held
             changed = True
+
+        # 상한가 해제매도 이후: plan 기준가(잠김 당시 상한가일 수 있음) 대신 해제매도가(상한가-3%) 이하로 추격
+        if cst.get("upl_break_price"):
+            sell_price = min(sell_price, int(cst["upl_break_price"]))
+        # 상한가 잠김 보류 중 동시호가 진입 → 종가매도(지정가·시장가)도 보류 = 잠긴 채 마감이면 보유 유지
+        if cst.get("upl_lock") and _is_closing_auction():
+            _log_once(f"sell:{code}", f"  🔒 {name}({code}) 상한가 잠김 유지 — 동시호가 종가매도 보류")
+            continue
 
         # ── 장마감 동시호가(15:20~) raw<0: 시장가 전량청산. 호가 sweep 불가 시간대라 시장가로 던진다.
         #    잔고가 현금/신용/담보 트랜치로 쪼개져 있으면 트랜치마다 별도 주문이 필요
@@ -633,6 +740,29 @@ def _sell_tick(today_str):
 
         # ── 매수호가 sweep: sell_price 이상(포함)에 쌓인 잔량만큼만(=즉시 체결 수량)
         avail, best_bid = kt.bid_qty_at_or_above(code, sell_price)
+
+        # ── 상한가 잠김 가드: 매수최우선=상한가 & 매도호가 없음 → 매도 보류, 1초 감시(_upl_guard_tick)로 전환.
+        #    이미 잠김 보류 중이면 호가를 직접 재확인해 풀렸을 때 해제매도(1초 감시가 놓친 경우 보완).
+        #    호가 조회 실패는 이번 틱 대기(실패를 '해제'나 '비잠김'으로 오판해 상한가에 던지지 않음).
+        upl = _upper_limit(code)
+        if upl and (cst.get("upl_lock") or best_bid >= upl):
+            book = kt.fetch_book(code)
+            if book is None:
+                _log_once(f"sell:{code}", f"  ⚠️ {name}({code}) 상한가 부근 호가 조회 실패 — 이번 틱 대기")
+                continue
+            if _is_upl_locked(book, upl):
+                if not cst.get("upl_lock"):
+                    cst["upl_lock"] = {"upl": upl, "since": datetime.now().strftime("%H:%M:%S")}
+                    changed = True
+                    report.append(f"🔒 상한가 잠김 {name}({code}) {upl:,}원 — 매도 보류, 1초 감시 "
+                                  f"(해제 시 {_upl_break_price(upl):,}원 매도)")
+                _log_once(f"sell:{code}", f"  🔒 {name}({code}) 상한가 {upl:,}원 잠김 — 매도 보류(1초 감시)")
+                continue
+            if cst.get("upl_lock"):
+                _fire_upl_break(code, name, cst, positions, report)
+                changed = True
+                continue
+
         if avail < 1:                   # 기준가 이상 매수호가 없음 → 대기
             _log_once(f"sell:{code}", f"  ⏳ {name}({code}) 보유{held} · 기준가{sell_price:,} 매수최우선 {best_bid:,} — 호가대기")
             continue
@@ -671,6 +801,13 @@ def _sell_tick(today_str):
         if new_orders:
             cst["open_orders"] = new_orders
             changed = True
+
+    # 상한가 잠김 보류 종목 → 1초 감시 대상 재구성(plan 에서 빠진 종목은 감시 중단)
+    _names = {_fmt(c): (v or {}).get("name", "") for c, v in targets.items()}
+    _upl_guard.clear()
+    for c, s in codes_state.items():
+        if s.get("upl_lock") and c in _names:
+            _upl_guard[c] = {"name": _names[c], "upl": int(s["upl_lock"]["upl"])}
 
     if changed:
         _save_json(_sell_exec_path(today_str), exec_state)
@@ -778,7 +915,18 @@ def run_forever():
             _maybe_post_close_report(today)   # 장마감 후 동시호가 주문 체결 결과 1회 알림
         except Exception as e:
             print(f"   ⚠️ tick 오류: {e}")
-        time.sleep(POLL_SEC)
+        # 다음 틱까지 대기 — 상한가 잠김 보류 종목이 있으면 그 종목만 1초 간격으로 감시
+        deadline = time.time() + POLL_SEC
+        while True:
+            rem = deadline - time.time()
+            if rem <= 0:
+                break
+            time.sleep(min(UPL_GUARD_SEC, rem) if _upl_guard else rem)
+            if _upl_guard:
+                try:
+                    _upl_guard_tick(datetime.now().strftime("%Y%m%d"))
+                except Exception as e:
+                    print(f"   ⚠️ 상한가 감시 오류: {e}")
 
 
 if __name__ == "__main__":
