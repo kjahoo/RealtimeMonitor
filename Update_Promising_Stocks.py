@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 from config import secrets
 from kis_api import auth, inquiry, indicators, kiwoom_trading as trading
 from kis_api import kiwoom_inquiry  # 시세/지수/프로그램매매를 키움 REST로 수신 (한투 부하 분리·속도 개선)
-from kis_api import sell_strategy_b  # B 매도전략(3일 평활+2일 확인+-12% 손절 → 전량청산)
+from kis_api import sell_strategy_b  # B 매도전략(3일 평활+2일 확인+가격 손절(-14%)+raw<0 → 전량청산)
 from tensorflow.keras.models import load_model
 import pickle
 
@@ -194,13 +194,13 @@ def save_sell_plan(targets, today_str):
 
 
 # ====================================================
-# 💰 평단가 하루 1회 캐시 (B 전략 -12% 손절용)
+# 💰 평단가 하루 1회 캐시 (B 전략 가격 손절용)
 # ====================================================
 _avg_price_cache = {}   # code -> (YYYYMMDD, avg_price or None)
 
 def get_cached_avg_price(code, force=False):
     """보유 평단가를 하루 1회만 잔고조회로 캐시 (없으면 None).
-    force=True 면 캐시를 무시하고 즉시 재조회해 갱신한다(-12% 손절 주문 직전
+    force=True 면 캐시를 무시하고 즉시 재조회해 갱신한다(가격 손절 주문 직전
     장중 추가매수/물타기 반영용)."""
     today = datetime.now().strftime("%Y%m%d")
     if not force:
@@ -214,7 +214,7 @@ def get_cached_avg_price(code, force=False):
             tq = sum(h["qty"] for h in hs)
             # 평단은 브로커 제공 매입가(pur_pric=avg_buy_price)를 수량가중 평균한다.
             # pur_amt/qty 재계산은 신용·담보 매수의 금융비용 포함, 부분매도 시
-            # 매입금액이 잔여수량과 어긋나면 평단이 부풀려져 -12% 손절이 오발동함.
+            # 매입금액이 잔여수량과 어긋나면 평단이 부풀려져 가격 손절이 오발동함.
             # (매도주문 코드 fetch_stock_holdings 사용부도 avg_buy_price 기준 → 일치)
             ta = sum(h["avg_buy_price"] * h["qty"] for h in hs)
             avg = (ta / tq) if tq > 0 else None
@@ -506,9 +506,9 @@ def run_updater():
     user_sell_alert  = {}     # {(chat_id, code): keep_amount} — 등록자별 매도시그널 중복 방지
     corr_notified    = {}     # {code: order_price} — 정정요망 알림 중복 방지
     prev_market_mode = None   # 모드 전환 감지용
-    drop_warn_sent   = {}     # {(chat_id, code): (dir, day, streak)} — 평활<0.2 하락/회복 경고 중복 방지
+    drop_warn_sent   = {}     # {(chat_id, code): (dir, day, streak)} — 평활<SELL_THRESH 하락/회복 경고 중복 방지
     rawneg_warn_sent = {}     # {(chat_id, code): (day, 5분버킷)} — raw<0 30분 카운트다운 진입/5분단위/회복 중복 방지
-    nxt_carry_reported = None  # 평활<0.2 이월 리포트 발송한 날짜(YYYYMMDD) — NXT 아침 1회
+    nxt_carry_reported = None  # 평활<SELL_THRESH 이월 리포트 발송한 날짜(YYYYMMDD) — NXT 아침 1회
     alloc_bucket_prev = {}    # {code: 비중구간} — 직전 사이클 값(구간 '상승' edge 감지용)
     plan_kick_down_wait = {}  # {code: 하락한 구간} — 하락 1사이클 유예(왕복 노이즈 억제, 2026-08-19)
     plan_kick_pending = set() # 상승 감지됐으나 아직 킥 안 나간 종목 라벨(디바운스에 걸리면 이월)
@@ -738,7 +738,7 @@ def run_updater():
                               f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
                     if code in history_codes:
-                        # ── B 매도전략 결정 (3일 평활 + 2일 확인 + -12% 손절 → 전량) ──
+                        # ── B 매도전략 결정 (3일 평활 + 2일 확인 + 가격 손절(-14%) + raw<0 → 전량) ──
                         _today_b = datetime.now().strftime("%Y%m%d")
                         # 자동매도 게이트: ETF·V3 마스터 미등재(=수기 매수 영역) 종목은 B전략 제외.
                         #   장마감 동기화가 보유종목을 전부 추적목록에 넣으므로, 수기 매수한 ETF 가
@@ -751,8 +751,8 @@ def run_updater():
                             _avg_b   = get_cached_avg_price(code) if is_my_code else None
                             _full_sell, _smoothed_b, _sell_reason = sell_strategy_b.decide(
                                 code, total_score, curr, _avg_b, _today_b)
-                        # -12% 손절 확정 직전: 캐시 무효화 후 최신 평단으로 재확인.
-                        #   장중 sweep 추가매수(물타기)로 평단이 내려가 -12% 미달이면 손절 취소.
+                        # 가격 손절 확정 직전: 캐시 무효화 후 최신 평단으로 재확인.
+                        #   장중 sweep 추가매수(물타기)로 평단이 내려가 손절선(STOP_PCT) 미달이면 손절 취소.
                         #   재조회 실패(None)면 기존(캐시 평단) 판정을 그대로 유지(폴백).
                         if _full_sell and _sell_reason == "stop12" and is_my_code:
                             _avg_fresh = get_cached_avg_price(code, force=True)
@@ -761,12 +761,19 @@ def run_updater():
                                 if not sell_strategy_b.is_stop_loss(curr, _avg_fresh):
                                     _full_sell, _sell_reason = False, ""
                                     print(f"   ↩️ [{code}] 손절 재확인: 최신 평단 {_avg_fresh:,.0f}원 · "
-                                          f"현재가 {curr:,}원 → -12% 미달, 손절 취소")
+                                          f"현재가 {curr:,}원 → {sell_strategy_b.STOP_PCT * 100:.0f}% 미달, 손절 취소")
+                        # 친구용 청산 시그널: 점수 기반 청산(평활·점수 0 미만)만 알리고, 소유자 계좌 기반 판단
+                        #   (가격 손절·평단, [C] 매수 당일 보류)은 친구에게 노출하지 않는다.
+                        _friend_reason = (_sell_reason if _full_sell and _sell_reason in ("score", "raw_neg", "raw_neg_close")
+                                          else "")
+                        _friend_sell   = bool(_friend_reason)
                         # [C] 매수 당일 점수청산 보류: 마지막 매수일(=오늘 체결)엔 점수청산 안 함.
-                        #     (-12% 손절 stop12 은 그대로 유효 — 여기서 제외)
+                        #     (가격 손절 stop12 은 그대로 유효 — 여기서 제외)
+                        _held_c = False
                         if (_full_sell and _sell_reason == "score" and is_my_code
                                 and bought_today(code, _today_b)):
                             _full_sell, _sell_reason = False, ""
+                            _held_c = True
                             print(f"   ⏸️ [{code}] 오늘 매수 체결 종목 → 점수청산 당일 보류")
                         keep_amount_b = 0 if _full_sell else None
 
@@ -796,20 +803,22 @@ def run_updater():
 
                         # ── 매도 시그널: 각 등록자(chat_id)별로 '본인 등록 종목' 기준 알림 ──
                         #    트리거/중복방지를 (chat_id, code) 단위로 관리 → 뒤늦게 등록한 사용자도 수신
+                        #    소유자는 계좌 기반 판단(keep_amount)을, 친구는 점수 기반 청산(friend_keep)만 받는다.
                         registrants = list(history_chat.get(code) or [])
-                        if keep_amount is None:
-                            # 매도 구간 이탈 → 등록자별 시그널 상태 초기화 (다음 하락 시 재알림)
-                            for _cid in registrants:
-                                user_sell_alert.pop((_cid, code), None)
-                        else:
+                        _owner_id   = str(secrets.TELEGRAM_CHAT_ID)
+                        friend_keep = 0 if _friend_sell else None
+                        prev_str    = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
+                        alert_msg = friend_alert_msg = None
+                        _reason_txt = {"stop12":        f" ({sell_strategy_b.STOP_PCT * 100:.0f}% 손절)",
+                                       "score":         " (점수청산)",
+                                       "raw_neg":       " (점수 0 미만 청산)",
+                                       "raw_neg_close": " (장마감 동시호가 점수 0 미만 청산)"}
+                        if keep_amount is not None:
                             if keep_amount == 0:
-                                _reason_txt = {"stop12": " (-12% 손절)",
-                                               "score":  " (점수청산)"}.get(_sell_reason, "")
-                                signal_label = f"[매도 시그널-전량매도]{_reason_txt}"
+                                signal_label = f"[매도 시그널-전량매도]{_reason_txt.get(_sell_reason, '')}"
                             else:
                                 signal_label = f"[매도 시그널-{keep_amount // 10_000:,}만원 보유]"
-                            prev_str  = f"{prev_score * 100:.1f}→" if prev_score is not None else ""
-                            # -12% 손절이면 평단·손익률을 함께 표기해 -12% 확인 가능하게
+                            # 가격 손절이면 평단·손익률을 함께 표기해 손절선 도달 확인 가능하게
                             _extra = ""
                             if _sell_reason == "stop12" and _avg_b and _avg_b > 0:
                                 _loss_pct = (curr - _avg_b) / _avg_b * 100
@@ -817,12 +826,22 @@ def run_updater():
                             alert_msg = (f"🚨 {signal_label} {stock_name} ({code})\n"
                                          f"점수: {prev_str}{total_score * 100:.1f}점\n"
                                          f"현재가: {curr:,}원{_extra}")
-                            for _cid in registrants:
-                                if user_sell_alert.get((_cid, code)) != keep_amount:
-                                    user_sell_alert[(_cid, code)] = keep_amount
-                                    if str(_cid) == secrets.TELEGRAM_CHAT_ID:
-                                        print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
-                                    send_telegram(alert_msg, [_cid])
+                        if friend_keep is not None:
+                            friend_alert_msg = (f"🚨 [매도 시그널-전량매도]{_reason_txt[_friend_reason]} {stock_name} ({code})\n"
+                                                f"점수: {prev_str}{total_score * 100:.1f}점\n"
+                                                f"현재가: {curr:,}원")
+                        for _cid in registrants:
+                            _is_owner = str(_cid) == _owner_id
+                            _keep = keep_amount if _is_owner else friend_keep
+                            if _keep is None:
+                                # 매도 구간 이탈 → 시그널 상태 초기화 (다음 하락 시 재알림)
+                                user_sell_alert.pop((_cid, code), None)
+                                continue
+                            if user_sell_alert.get((_cid, code)) != _keep:
+                                user_sell_alert[(_cid, code)] = _keep
+                                if _is_owner:
+                                    print(f"   🔔 {alert_msg.replace(chr(10), '  ')}")
+                                send_telegram(alert_msg if _is_owner else friend_alert_msg, [_cid])
 
                         # ── 평활 하락/회복 경고: 평활 SELL_THRESH(현재 0.10) 아래로 내려가면 하락경고,
                         #    다시 그 이상으로 올라오면 회복알림. 장중 오르내림마다 반복(등록자별).
@@ -841,20 +860,34 @@ def run_updater():
                             elif total_score >= sell_strategy_b.SELL_THRESH:
                                 _tail = (f"→ 평활 {_thrp:.0f}점 미만 {_streak}일 연속이나 오늘 점수 "
                                          f"{total_score*100:.1f}점(≥{_thrp:.0f}) 회복 → 매도 보류(A)")
-                            else:
+                            elif _held_c:
                                 _tail = f"→ 평활 {_thrp:.0f}점 미만 {_streak}일 연속이나 매수 당일 → 매도 보류(C)"
-                            warn_msg = (f"⚠️ [평활 하락] {stock_name} ({code})\n"
-                                        f"오늘 평활: {_sm_pts:.1f}점 (평활 {_thrp:.0f}점 미만 {_streak}일째)\n"
-                                        f"{_tail}\n현재가: {curr:,}원")
+                            else:
+                                _tail = f"→ 평활 {_thrp:.0f}점 미만 {_streak}일 연속"
+                            # 친구용 문구: 매도주문 실행·매수 당일 보류(C) 등 소유자 매매 정보 제외
+                            if _streak < sell_strategy_b.CONFIRM_DAYS:
+                                _ftail = _tail
+                            elif _friend_reason == "score":
+                                _ftail = f"→ 평활 {_thrp:.0f}점 미만 {_streak}일 연속, 전량매도 시그널"
+                            elif total_score >= sell_strategy_b.SELL_THRESH:
+                                _ftail = _tail
+                            else:
+                                _ftail = f"→ 평활 {_thrp:.0f}점 미만 {_streak}일 연속"
+                            _warn_head = (f"⚠️ [평활 하락] {stock_name} ({code})\n"
+                                          f"오늘 평활: {_sm_pts:.1f}점 (평활 {_thrp:.0f}점 미만 {_streak}일째)\n")
+                            warn_msg        = f"{_warn_head}{_tail}\n현재가: {curr:,}원"
+                            friend_warn_msg = f"{_warn_head}{_ftail}\n현재가: {curr:,}원"
                             _key = ("D", _today_b, _streak)
                             for _cid in registrants:
                                 if drop_warn_sent.get((_cid, code)) != _key:
                                     drop_warn_sent[(_cid, code)] = _key
-                                    if str(_cid) == secrets.TELEGRAM_CHAT_ID:
+                                    if str(_cid) == _owner_id:
                                         print(f"   ⚠️ {warn_msg.replace(chr(10), '  ')}")
-                                    send_telegram(warn_msg, [_cid])
+                                        send_telegram(warn_msg, [_cid])
+                                    else:
+                                        send_telegram(friend_warn_msg, [_cid])
                         elif _st:
-                            # 평활 회복(>=0.20): 직전에 '하락경고(D)'를 받은 등록자에게만 1회 알림.
+                            # 평활 회복(>=SELL_THRESH): 직전에 '하락경고(D)'를 받은 등록자에게만 1회 알림.
                             #   (한 번도 하락 안 했거나 이미 회복 알림을 보낸 경우엔 발송 안 함)
                             _sm_pts = _st["smoothed"] * 100
                             recover_msg = (f"✅ [평활 회복] {stock_name} ({code})\n"
@@ -894,7 +927,8 @@ def run_updater():
                                 _ms   = int(_rn["elapsed"] // 300)                   # 5분 버킷(0=진입)
                                 if _ms <= (_rn_hold_m // 5) - 1:                     # 25분까지만(30분은 매도가 대신)
                                     _rnk = (_today_b, _ms)
-                                    for _cid in registrants:
+                                    # 소유자 보유 여부로 게이트되는 알림이라 소유자에게만 보낸다(친구에게 보유 사실 노출 방지)
+                                    for _cid in [c for c in registrants if str(c) == _owner_id]:
                                         _prev = rawneg_warn_sent.get((_cid, code))
                                         if _prev != _rnk:
                                             _is_entry = (_ms == 0 and (_prev is None or _prev[0] != _today_b))

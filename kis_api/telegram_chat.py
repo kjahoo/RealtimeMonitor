@@ -33,7 +33,7 @@ if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
 from config import secrets
-from kis_api import auth, inquiry, indicators, kiwoom_trading
+from kis_api import auth, inquiry, indicators, kiwoom_trading, sell_strategy_b
 from tensorflow.keras.models import load_model
 
 # ====================================================
@@ -103,8 +103,8 @@ def get_updates(offset):
 # 📉 관심종목 평활점수 (B 매도전략 sell_state_b.json)
 # ====================================================
 SELL_STATE_FILE = os.path.join(LOG_DIR, "sell_state_b.json")
-SMOOTH_THRESH   = 0.20   # 평활 매도임계 (sell_strategy_b 와 동일)
-SMOOTH_CONFIRM  = 2      # 연속 거래일수
+SMOOTH_THRESH   = sell_strategy_b.SELL_THRESH    # 평활 매도임계
+SMOOTH_CONFIRM  = sell_strategy_b.CONFIRM_DAYS   # 연속 거래일수
 
 
 def get_smoothed_scores():
@@ -136,11 +136,12 @@ def set_bot_commands():
         {"command": "top5",  "description": "🏆 점수 상위 5종목"},
         {"command": "top10", "description": "🏆 점수 상위 10종목"},
         {"command": "top20", "description": "🏆 점수 상위 20종목"},
-        {"command": "del",   "description": "🗑️ 추적목록에서 종목 삭제 (예: /del 005930)"},
-        {"command": "users", "description": "👥 방문자 목록"},
+        {"command": "del",    "description": "🗑️ 추적목록에서 종목 삭제 (예: /del 삼성전자, 카카오)"},
+        {"command": "delall", "description": "🗑️ 내 추적목록 전체 삭제"},
     ]
-    # 소유자 전용 — 키움 보유종목 관련 (친구 메뉴에는 표시하지 않음)
+    # 소유자 전용 — 키움 보유종목·방문자(chat_id) 관련 (친구 메뉴에는 표시하지 않음)
     owner_only = [
+        {"command": "users",    "description": "👥 방문자 목록"},
         {"command": "holdings", "description": "📥 키움 보유종목을 추적목록에 추가 (=/보유종목)"},
         {"command": "cleanup",  "description": "🧹 키움 미보유 종목 정리 (=/종목정리)"},
         {"command": "smooth",   "description": "📉 관심종목 평활점수 (=/평활)"},
@@ -466,24 +467,41 @@ def _read_history_csv(hist_path):
         return pd.read_csv(hist_path, encoding='utf-8-sig', dtype=str, error_bad_lines=False)
 
 
-def delete_from_history(code, chat_id, today_str):
-    """Search_History에서 해당 code + chat_id 행을 삭제. (삭제수, 종목명) 반환."""
+def delete_codes_from_history(codes, chat_id, today_str):
+    """Search_History에서 해당 chat_id 의 codes 행을 한 번에 삭제.
+       반환: (removed [(code,name)], missing [code]) — 오류 시 None"""
     hist_path = os.path.join(LOG_DIR, f"{today_str}_Search_History.csv")
     if not os.path.exists(hist_path):
-        return 0, ""
+        return [], list(codes)
     try:
         df = _read_history_csv(hist_path)
         if 'code' not in df.columns or 'chat_id' not in df.columns:
-            return 0, ""
+            return [], list(codes)
         df['code'] = df['code'].apply(lambda x: str(x).strip().zfill(6) if str(x).strip().isdigit() else str(x).strip())
-        mask = (df['code'] == code) & (df['chat_id'].fillna('') == str(chat_id))
-        name = df.loc[mask, 'name'].iloc[0] if mask.any() else ""
-        removed = int(mask.sum())
-        df[~mask].to_csv(hist_path, index=False, encoding='utf-8-sig')
-        return removed, name
+        mask = (df['chat_id'].fillna('') == str(chat_id)) & df['code'].isin(codes)
+        names = {}
+        for _, r in df[mask].iterrows():
+            names.setdefault(r['code'], r['name'] if pd.notna(r.get('name')) else "")
+        removed = [(c, names[c]) for c in codes if c in names]
+        missing = [c for c in codes if c not in names]
+        if removed:
+            # 원자적 저장(temp + os.replace) — 동시 재작성으로 인한 파일 손상/행 유실 방지
+            _tmp = hist_path + ".tmp"
+            df[~mask].to_csv(_tmp, index=False, encoding='utf-8-sig')
+            os.replace(_tmp, hist_path)
+        return removed, missing
     except Exception as e:
         print(f"⚠️ 삭제 실패: {e}")
-        return -1, ""
+        return None
+
+
+def delete_all_from_history(chat_id, today_str):
+    """해당 chat_id 의 추적목록 전체 삭제. 반환: removed [(code,name)] — 오류 시 None"""
+    mine = [c for c, _n, _s, _t in get_my_watchlist(chat_id, today_str)]
+    if not mine:
+        return []
+    res = delete_codes_from_history(mine, chat_id, today_str)
+    return None if res is None else res[0]
 
 
 def get_my_watchlist(chat_id, today_str):
@@ -780,20 +798,31 @@ def run():
 
                 # 미등록 사용자 차단
                 if not known:
-                    send_message(chat_id, "❌ 권한이 없습니다.")
+                    send_message(chat_id,
+                        "❌ 등록되지 않은 사용자입니다.\n"
+                        "봇 소유자에게 아래 ID로 등록을 요청하세요.\n"
+                        f"ID: {chat_id}")
                     continue
 
                 # /start
                 if text == "/start":
                     send_message(chat_id,
                         "안녕하세요! 주식 분석 봇입니다.\n"
-                        "종목코드(6자리) 또는 종목명을 입력하면 V3 모델 분석 결과를 알려드립니다.\n\n"
+                        "종목코드(6자리) 또는 종목명을 입력하면 V3 모델 분석 결과를 알려드립니다.\n"
+                        "분석한 종목은 내 추적 목록에 자동 추가되고, 매도 시그널이 나오면 알림을 보내드립니다.\n\n"
+                        "📋 /list  내 추적 목록\n"
+                        "🗑️ /del 종목1, 종목2  ·  /delall  추적 목록 삭제\n\n"
                         "자세한 사용법은 /help 를 입력하세요."
                     )
                     continue
 
-                # /help
+                # /help — 소유자/친구별 안내. 매도 기준 수치는 sell_strategy_b 상수에서 가져온다.
                 if text == "/help":
+                    is_owner = str(chat_id) == secrets.TELEGRAM_CHAT_ID
+                    thr      = sell_strategy_b.SELL_THRESH * 100
+                    confirm  = sell_strategy_b.CONFIRM_DAYS
+                    raw_m    = sell_strategy_b.RAW_NEG_HOLD_SEC // 60
+                    late_t   = sell_strategy_b.LATE_RAW_NEG_START.strftime("%H:%M")
                     help_text = (
                         "📖 사용법 안내\n"
                         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -801,23 +830,31 @@ def run():
                         "  종목코드(6자리) 또는 종목명 입력\n"
                         "  예) 005930  /  삼성전자  /  카카오\n"
                         "  → 현재가·시총·종합점수·매수/매도 시그널 표시\n"
-                        "  → 분석한 종목은 자동으로 추적 목록에 추가됨\n"
+                        "  → 분석한 종목은 내 추적 목록에 자동 추가\n"
                         "\n"
                         "📋 /list\n"
-                        "  내가 추적 중인 종목 목록 조회\n"
-                        "  3일 평활점수가 0.20 아래로 떨어지면 매도 시그널 발송\n"
-                        "\n"
-                        "🏆 /top5  /top10  /top20\n"
-                        "  오늘 추적된 전체 종목 중 점수 상위 N개 조회\n"
+                    )
+                    if is_owner:
+                        help_text += "  전체 사용자의 추적 종목 목록 조회\n\n"
+                    else:
+                        help_text += "  내 추적 종목 목록 조회 (다른 사용자의 목록은 보이지 않음)\n\n"
+                    help_text += (
+                        "🏆 /top5  /top10  /top20  (또는 /top 숫자)\n"
+                        "  오늘 스캔된 종목 중 점수 상위 N개 (AI평가가 있으면 함께 표시)\n"
                         "\n"
                         "🗑️ /del <종목>\n"
-                        "  추적 목록에서 종목 삭제\n"
-                        "  예) /del 005930  /  /del 삼성전자\n"
+                        "  내 추적 목록에서 종목 삭제 (',' 로 여러 종목)\n"
+                        "  예) /del 005930  /  /del 삼성전자, 카카오\n"
                         "  ※ 종목명은 정확히 입력해야 합니다\n"
                         "\n"
+                        "🗑️ /delall\n"
+                        "  내 추적 목록 전체 삭제\n"
                     )
-                    # 보유/매매 관련 명령은 소유자에게만 안내
-                    if str(chat_id) == secrets.TELEGRAM_CHAT_ID:
+                    if is_owner:
+                        help_text += "  ※ 소유자는 '/delall 확인' 으로 실행 (자동매매 기준 목록)\n"
+                    help_text += "\n"
+                    # 보유/매매·방문자 관련 명령은 소유자에게만 안내
+                    if is_owner:
                         help_text += (
                             "📥 /보유종목 (또는 /holdings)\n"
                             "  키움 계좌 보유종목을 내 추적 목록에 추가 (중복 제외)\n"
@@ -828,18 +865,36 @@ def run():
                             "📉 /평활 (또는 /smooth)\n"
                             "  내 관심종목의 평활점수(3일 이동평균) 조회\n"
                             "\n"
+                            "👥 /users\n"
+                            "  봇 방문자 목록 조회 (소유자 전용)\n"
+                            "\n"
                         )
-                    help_text += (
-                        "💡 입력란의 '/' 버튼을 누르면 명령어 메뉴가 표시됩니다.\n"
-                        "\n"
-                        "🚨 매도 시그널 기준 (B전략)\n"
-                        "  · 3일 평활점수 < 0.20 이 2거래일 연속 → 전량청산\n"
-                        "  · 현재가가 평단 대비 -12% 이하 → 즉시 손절\n"
-                        "  ※ 하루 급락만으로는 매도하지 않음 (휩쏘 방지)\n"
-                        "\n"
-                        "👥 /users\n"
-                        "  봇 방문자 목록 조회"
-                    )
+                    help_text += "💡 입력란의 '/' 버튼을 누르면 명령어 메뉴가 표시됩니다.\n\n"
+                    if is_owner:
+                        stop_p  = sell_strategy_b.STOP_PCT * 100
+                        keep_p  = sell_strategy_b.STOP_SCORE_KEEP * 100
+                        close_t = sell_strategy_b.CLOSE_AUCTION_START.strftime("%H:%M")
+                        help_text += (
+                            "🚨 매도 기준 (B전략 · 보유종목 자동 전량청산)\n"
+                            f"  · 3일 평활점수 < {thr:.0f}점 이 {confirm}거래일 연속 → 전량청산\n"
+                            f"    (당일 점수 {thr:.0f}점 이상 회복 시·매수 당일은 보류)\n"
+                            f"  · 점수 0 미만이 {raw_m}분 연속 → 전량청산\n"
+                            f"    ({late_t} 이후 즉시, {close_t} 동시호가는 시장가)\n"
+                            f"  · 평단 대비 {stop_p:.0f}% 이하 → 즉시 손절 (점수 {keep_p:.0f}점 이상이면 면제)\n"
+                            "  ※ 하루 급락만으로는 매도하지 않음 (휩쏘 방지)"
+                        )
+                    else:
+                        help_text += (
+                            "🔔 받는 알림\n"
+                            "  · 🚀 매수추천 / 🚪 제외: 스캔 점수 60점+ 진입·비중변경·이탈 종목\n"
+                            "  · 🤖 AI평가: 60점+ 종목 투자매력도 요약\n"
+                            "  · 🚨 매도 시그널 (내 추적 종목)\n"
+                            f"    - 3일 평활점수 < {thr:.0f}점 이 {confirm}거래일 연속\n"
+                            f"      (당일 점수 {thr:.0f}점 이상 회복 시 보류)\n"
+                            f"    - 점수 0 미만이 {raw_m}분 연속 ({late_t} 이후 즉시)\n"
+                            "  · ⚠️ 평활 하락 / ✅ 평활 회복 (내 추적 종목)\n"
+                            "  ※ 하루 급락만으로는 매도 시그널을 보내지 않음 (휩쏘 방지)"
+                        )
                     send_message(chat_id, help_text)
                     continue
 
@@ -927,7 +982,7 @@ def run():
                     continue
 
                 # 그 외 슬래시 커맨드
-                if text.startswith("/") and text.split()[0] not in ("/users", "/del", "/list", "/top5", "/top10", "/top20", "/top"):
+                if text.startswith("/") and text.split()[0] not in ("/users", "/del", "/delall", "/list", "/top5", "/top10", "/top20", "/top"):
                     send_message(chat_id, "알 수 없는 명령어입니다. /help 를 입력하면 사용법을 확인할 수 있습니다.")
                     continue
 
@@ -996,7 +1051,7 @@ def run():
                 # /list — 추적 종목 목록
                 if text == "/list":
                     today_str_now = datetime.now().strftime("%Y%m%d")
-                    is_owner = str(chat_id) == secrets.TELEGRAM_NOTIFY_IDS[0]
+                    is_owner = str(chat_id) == secrets.TELEGRAM_CHAT_ID
 
                     def _format_stock_line(code, name, score, ts):
                         try:
@@ -1031,36 +1086,82 @@ def run():
                             send_message(chat_id, "\n".join(lines))
                     continue
 
-                # /del — 검색 기록에서 삭제 (완전 일치만 허용)
-                if text.lower().startswith("/del"):
-                    parts = text.split(maxsplit=1)
-                    if len(parts) < 2:
-                        send_message(chat_id, "사용법: /del <종목코드 또는 종목명>\n예) /del 005930  /  /del 삼성전자")
-                        continue
-                    query = parts[1].strip()
-                    q = query.strip()
-                    if q.isdigit() and len(q) == 6:
-                        del_code = q
-                    elif q.lower() in name_cache:
-                        del_code, _ = name_cache[q.lower()]
-                    else:
-                        del_code = None
-                    if not del_code:
-                        send_message(chat_id, f"❌ '{query}' 종목을 찾을 수 없습니다.")
-                        continue
+                # /delall — 내 추적 목록 전체 삭제
+                #   소유자 목록은 자동매수 대상이자 보유종목 B전략 매도 감시 기준이라 확인 문구를 요구한다.
+                if text.split()[0].lower() == "/delall":
                     today_str_now = datetime.now().strftime("%Y%m%d")
-                    removed, del_name = delete_from_history(del_code, chat_id, today_str_now)
-                    if removed > 0:
-                        send_message(chat_id, f"🗑️ {del_name} ({del_code}) 추적 목록에서 삭제됐습니다.")
-                        print(f"   🗑️ [{chat_id}] {del_name}({del_code}) 삭제", flush=True)
-                    elif removed == 0:
-                        send_message(chat_id, f"⚠️ {del_code} 종목이 내 추적 목록에 없습니다.")
-                    else:
+                    if str(chat_id) == secrets.TELEGRAM_CHAT_ID and text.split()[1:] != ["확인"]:
+                        n_mine = len(get_my_watchlist(chat_id, today_str_now))
+                        send_message(chat_id,
+                            f"⚠️ 내 추적 목록 {n_mine}개를 모두 삭제합니다.\n"
+                            "소유자 목록은 자동매수 대상이자 보유종목 매도(B전략·가격 손절) 감시 기준입니다. "
+                            "삭제하면 20:05 장마감 동기화(또는 /holdings) 전까지 보유종목 매도 감시가 멈추고, "
+                            "60점+ 종목은 데몬이 10분 내 다시 자동 등록합니다.\n\n"
+                            "진행하려면  /delall 확인  을 입력하세요.")
+                        continue
+                    removed = delete_all_from_history(chat_id, today_str_now)
+                    if removed is None:
                         send_message(chat_id, "❌ 삭제 중 오류가 발생했습니다.")
+                    elif not removed:
+                        send_message(chat_id, "📋 삭제할 추적 종목이 없습니다.")
+                    else:
+                        send_message(chat_id, f"🗑️ 추적 목록 {len(removed)}개 종목을 모두 삭제했습니다.")
+                        print(f"   🗑️ [{chat_id}] 전체 삭제 {len(removed)}개", flush=True)
                     continue
 
-                # /users — 방문자 목록 (등록 사용자만 조회 가능)
+                # /del — 검색 기록에서 삭제 (완전 일치만 허용, ',' 로 여러 종목)
+                if text.split()[0].lower() == "/del":
+                    usage = ("사용법: /del <종목코드 또는 종목명>\n"
+                             "예) /del 005930  /  /del 삼성전자\n"
+                             "여러 종목: /del 삼성전자, 카카오, 005930")
+                    parts = text.split(maxsplit=1)
+                    if len(parts) < 2:
+                        send_message(chat_id, usage)
+                        continue
+                    targets, not_found = [], []   # targets: [(입력값, code)]
+                    for q in parts[1].split(","):
+                        q = q.strip()
+                        if not q:
+                            continue
+                        if q.isdigit() and len(q) == 6:
+                            del_code = q
+                        elif q.lower() in name_cache:
+                            del_code, _ = name_cache[q.lower()]
+                        else:
+                            not_found.append(q)
+                            continue
+                        if del_code not in [c for _, c in targets]:
+                            targets.append((q, del_code))
+                    if not targets and not not_found:
+                        send_message(chat_id, usage)
+                        continue
+                    today_str_now = datetime.now().strftime("%Y%m%d")
+                    res = (delete_codes_from_history([c for _, c in targets], chat_id, today_str_now)
+                           if targets else ([], []))
+                    if res is None:
+                        send_message(chat_id, "❌ 삭제 중 오류가 발생했습니다.")
+                        continue
+                    removed, missing = res
+                    query_of = {c: q for q, c in targets}
+                    lines = []
+                    if removed:
+                        lines.append(f"🗑️ {len(removed)}개 종목을 추적 목록에서 삭제했습니다.")
+                        lines += [f"• {n or c} ({c})" for c, n in removed]
+                        print(f"   🗑️ [{chat_id}] 삭제 {len(removed)}개: "
+                              + ", ".join(f"{n}({c})" for c, n in removed), flush=True)
+                    if missing:
+                        lines.append("⚠️ 내 추적 목록에 없음: " + ", ".join(
+                            c if query_of[c] == c else f"{query_of[c]}({c})" for c in missing))
+                    if not_found:
+                        lines.append("❌ 찾을 수 없음: " + ", ".join(not_found))
+                    send_message(chat_id, "\n".join(lines))
+                    continue
+
+                # /users — 방문자 목록 (소유자 전용: 모든 방문자의 chat_id 가 노출됨)
                 if text == "/users":
+                    if str(chat_id) != secrets.TELEGRAM_CHAT_ID:
+                        send_message(chat_id, "🔒 이 명령은 봇 소유자만 사용할 수 있습니다.")
+                        continue
                     if not visitors:
                         send_message(chat_id, "아직 방문자가 없습니다.")
                     else:

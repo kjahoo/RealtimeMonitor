@@ -33,7 +33,7 @@ LATE_RAW_NEG_START  = _dtime(15, 0)   # 장 후반 시작 — 이후 raw<0 이�
 CONFIRM_DAYS = 2       # 연속 청산구간 확인일수
 SMOOTH_N     = 3       # 평활 기간(거래일)
 STOP_PCT     = -0.14   # 가격 손절 (-14%) — 그리드 최적: -0.12→-0.14
-STOP_SCORE_KEEP = 0.60 # 손절 면제 임계: total_score(raw)가 이 값 이상이면 -12%라도 청산 안 함
+STOP_SCORE_KEEP = 0.60 # 손절 면제 임계: total_score(raw)가 이 값 이상이면 STOP_PCT 이하라도 청산 안 함
 BACKFILL_DAYS = 6      # startup backfill 시 참고할 최근 일별 로그 수
 
 
@@ -141,7 +141,7 @@ def _roll_day(e, today):
 
 
 def is_stop_loss(cur_price, avg_price):
-    """가격 손절(-12%) 조건만 판정 (점수·평활 무관).
+    """가격 손절(STOP_PCT, 현재 -14%) 조건만 판정 (점수·평활 무관).
     avg_price·cur_price 가 유효(>0)할 때만 True 가능. 손절 주문 직전 최신 평단
     재확인용으로도 사용된다."""
     if avg_price and avg_price > 0 and cur_price and cur_price > 0:
