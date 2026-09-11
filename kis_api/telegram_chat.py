@@ -796,12 +796,13 @@ def run():
                     "count":     visitors.get(chat_id, {}).get("count", 0) + 1,
                 }
 
-                # 미등록 사용자 차단
+                # 미등록 사용자: /start 에만 본인 ID 를 안내하고, 그 외 메시지는 응답하지 않는다
                 if not known:
-                    send_message(chat_id,
-                        "❌ 등록되지 않은 사용자입니다.\n"
-                        "봇 소유자에게 아래 ID로 등록을 요청하세요.\n"
-                        f"ID: {chat_id}")
+                    if text.split()[0] == "/start":
+                        send_message(chat_id,
+                            "❌ 등록되지 않은 사용자입니다.\n"
+                            "봇 소유자에게 아래 ID로 등록을 요청하세요.\n"
+                            f"ID: {chat_id}")
                     continue
 
                 # /start

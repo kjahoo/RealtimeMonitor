@@ -323,13 +323,18 @@ def get_all_targets_and_history(today_str):
             df = pd.read_csv(files['History'], encoding='utf-8-sig', dtype=str)
             if 'code' in df.columns:
                 df = df.dropna(subset=['code'])
+                allowed = {str(i).strip() for i in secrets.TELEGRAM_NOTIFY_IDS}
                 for _, row in df.iterrows():
                     c = format_code(row['code'])
+                    # 명단(TELEGRAM_NOTIFY_IDS)에서 빠진 사용자의 행은 다음 거래일로 계속 이월되므로
+                    #   추적·알림 대상에서 제외한다. chat_id 빈 칸(구형 행)은 기존대로 추적만 한다.
+                    cid = row.get('chat_id')
+                    cid = str(cid).strip() if pd.notna(cid) else ""
+                    if cid and cid not in allowed:
+                        continue
                     history_set.add(c)
                     if c not in targets:
                         targets[c] = check_is_etf(c)
-                    # chat_id 컬럼이 있으면 검색자 기록
-                    cid = str(row.get('chat_id', '')).strip()
                     if cid:
                         history_chat.setdefault(c, set()).add(cid)
         except Exception as e:
