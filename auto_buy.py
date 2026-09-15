@@ -22,6 +22,8 @@ auto_buy.py — AI '매수'(BUY) & 실시간 50점+(SCORE_MIN) 종목 매수 '�
                     ② Stock_V3 최신 close_price·score_total (폴백)
                     ③ 둘 다 없으면 평가시점 점수로는 매수 안 함 → plan 제외
   - 실시간 total_score×100 < 50(SCORE_MIN) → plan 제외
+  - (2026-09-14) 보조매수: 정규장 Stock_V3 에 60점+ 가 하나도 없으면 40점+ BUY 종목을 종목당 5% 목표로 편입
+    (buy_gate). target 에 min_score(집행 직전 재확인 임계)·low 표시 기록
   - 비중(구간제, 진입 50점): 10점 구간마다 5%p — 50~59=5% · 60~69=10% · 70~79=15% · 80~89=20% · 90~99=25% · 100=30%
   - 기준금액: 당일 총자산(추정예탁자산) 스냅샷 (당일 고정)
   - 종목당 목표수량(절대치) = (기준금액 × alloc%) ÷ 기준가(promising 지정가)
@@ -49,6 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import secrets
 from kis_api import auth, kiwoom_trading as kt
+import buy_gate
 
 LOG_DIR = secrets.LOCAL_DATA_PATH
 OWNER_ID = str(secrets.TELEGRAM_CHAT_ID)
@@ -173,6 +176,28 @@ def _send_owner(msg):
         print(f"   ⚠️ 텔레그램 전송 실패: {e}")
 
 
+def _v3_session_scores(today_str):
+    """오늘자 Stock_V3 중 KRX 정규장(09:00~15:30) 시각에 계산된 행의 score_total 목록 — 보조매수 모드 판정용."""
+    import csv
+    path = _p(f"{today_str}_Stock_V3.csv")
+    out = []
+    if not os.path.exists(path):
+        return out
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                t = (row.get("time") or "").strip()
+                if not ("09:00:00" <= t <= "15:30:59"):
+                    continue
+                try:
+                    out.append(float(row.get("score_total", 0) or 0))
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"   ⚠️ Stock_V3 정규장 점수 로드 실패: {e}")
+    return out
+
+
 def _alloc_pct(total_score100):
     """구간제 매수 비중(%). 1안(현재): 진입 60점, 10점 구간마다 5%p, 상한 25.
        60~69=5 · 70~79=10 · 80~89=15 · 90~99=20 · 100=25. 60 미만은 별도 컷에서 제외.
@@ -231,12 +256,16 @@ def _build_plan(today_str):
 
     v3_latest = _load_v3_latest(today_str)          # 폴백: 전 종목 최신 score_total·close_price
     promising = _load_promising_latest(today_str)   # 우선: Search_History 실시간값
+    # 보조매수 규칙(buy_gate): 정규장 기준 60점+ 종목이 하나도 없으면 40점+ BUY 종목을 5% 목표로 편입
+    session_scores = _v3_session_scores(today_str)
+    low = buy_gate.low_mode(session_scores)
     cands = [r for r in results
              if str(r.get("recommendation", "")).upper() == "BUY"]
     cands.sort(key=lambda r: float(r.get("claude_score", 0) or 0), reverse=True)
 
     targets = {}
-    lines = [f"🧮 매수 plan 갱신 (기준 총자산 {base:,}원)"]
+    low_txt = " · 정규장 60점+ 0개 → 40점+ 보조매수(종목당 5%)" if low else ""
+    lines = [f"🧮 매수 plan 갱신 (기준 총자산 {base:,}원){low_txt}"]
     for r in cands:
         code = _fmt(r.get("code", ""))
         name = r.get("name", "")
@@ -259,11 +288,15 @@ def _build_plan(today_str):
         if not code or price <= 0:
             continue
 
-        if sc < SCORE_MIN:
-            lines.append(f"⏭️ {name}({code}) 최신점수 {sc:.0f}<{SCORE_MIN:.0f} — plan 제외({psrc})")
+        if sc >= SCORE_MIN:
+            alloc, min_sc, low_t = _alloc_pct(sc), SCORE_MIN, False
+        elif low and sc >= buy_gate.LOW_MIN * 100:
+            alloc, min_sc, low_t = buy_gate.LOW_ALLOC_PCT, buy_gate.LOW_MIN * 100, True
+        else:
+            cut = buy_gate.LOW_MIN * 100 if low else SCORE_MIN
+            lines.append(f"⏭️ {name}({code}) 최신점수 {sc:.0f}<{cut:.0f} — plan 제외({psrc})")
             continue
 
-        alloc = _alloc_pct(sc)
         target_amt = int(base * alloc / 100)
         target_qty = target_amt // price if price > 0 else 0
         if target_qty < 1:
@@ -278,13 +311,17 @@ def _build_plan(today_str):
             "score100": round(sc, 1),
             "claude_score": round(cscore, 1),
             "price_src": psrc,
+            "min_score": min_sc,             # 집행 직전 재확인 임계(점) — 보조매수는 40
+            "low": low_t,
         }
         lines.append(f"🎯 {name}({code}) 목표 {target_qty}주×{price:,}원 "
-                     f"(비중 {alloc:.0f}%·AI{cscore:.0f}·{psrc})")
+                     f"(비중 {alloc:.0f}%{'·40점보조' if low_t else ''}·AI{cscore:.0f}·{psrc})")
 
     plan = {
         "date": today_str,
         "base": int(base),
+        "low_mode": low,
+        "session_primary_cnt": buy_gate.primary_count(session_scores),
         "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         # AI점수 상위 우선 선착순 집행을 위해 순서를 보존(dict는 삽입순)
         "targets": targets,
@@ -316,7 +353,7 @@ def _build_plan(today_str):
         return
 
     held = {_fmt(h.get("code", "")): int(h.get("qty", 0) or 0) for h in hs}
-    out = [f"🧮 매수 plan 갱신 (기준 총자산 {base:,}원)"]
+    out = [f"🧮 매수 plan 갱신 (기준 총자산 {base:,}원){low_txt}"]
     need_total = 0
     shortage = False
     for code, t in targets.items():

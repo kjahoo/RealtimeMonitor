@@ -20,6 +20,7 @@ from config import secrets
 from kis_api import auth, inquiry, indicators, kiwoom_trading as trading
 from kis_api import kiwoom_inquiry  # 시세/지수/프로그램매매를 키움 REST로 수신 (한투 부하 분리·속도 개선)
 from kis_api import sell_strategy_b  # B 매도전략(3일 평활+2일 확인+가격 손절(-14%)+raw<0 → 전량청산)
+import buy_gate  # 보조매수(60점+ 부재 시 40점+) 공용 규칙 — promising 정리 임계
 from tensorflow.keras.models import load_model
 import pickle
 
@@ -84,6 +85,19 @@ def get_today_exec_held_codes():
             data = json.load(f)
         return {format_code(c) for c, st in (data.get("codes") or {}).items()
                 if (st.get("held_seen", 0) or 0) > 0 or (st.get("bought", 0) or 0) > 0}
+    except Exception:
+        return set()
+
+
+def get_today_plan_codes():
+    """오늘자 autobuy_plan.json 의 매수 목표 코드 set — 체결 전 promising 오삭제 방지.
+    40점 보조매수 대상은 60점 미만이라 기존 정리 규칙에 걸려, 체결 직후 매도감시가 빠질 수 있음(2026-09-14).
+    파일 없음/파싱 실패는 빈 set."""
+    try:
+        path = os.path.join(LOG_DIR, f"{datetime.now().strftime('%Y%m%d')}_autobuy_plan.json")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return {format_code(c) for c in (data.get("targets") or {})}
     except Exception:
         return set()
 
@@ -458,17 +472,20 @@ def update_search_history_scores(updates, today_str, holdings_set=None):
         # ── promising 정리: 60+ 자동등록 종목이 미보유 & 점수<임계면 제거 ──────────
         if holdings_set is not None and 'signal' in df.columns and 'total_score' in df.columns:
             sc = pd.to_numeric(df['total_score'], errors='coerce').fillna(1.0)  # 파싱실패=보존
-            is_auto  = df['signal'].astype(str).str.strip() == "60+자동등록"
+            _sig     = df['signal'].astype(str).str.strip()
+            is_auto  = _sig.isin(["60+자동등록", buy_gate.LOW_SIGNAL])
             # 잔고 캐시(5분)가 모르는 당일 신규 체결분을 exec 파일로 보강 → 매수 직후 오삭제 방지
-            held_all = set(holdings_set) | get_today_exec_held_codes()
+            # + 오늘 매수 plan 편입 종목 보존(40점 보조매수 대상이 체결 전에 지워져 매도감시가 빠지는 것 방지)
+            held_all = set(holdings_set) | get_today_exec_held_codes() | get_today_plan_codes()
             not_held = ~df['code'].isin(held_all)
-            low      = sc < PROMISING_KEEP_MIN
+            keep_min = _sig.map(lambda s: buy_gate.LOW_MIN if s == buy_gate.LOW_SIGNAL else PROMISING_KEEP_MIN)
+            low      = sc < keep_min
             drop_mask = is_auto & not_held & low
             n_drop = int(drop_mask.sum())
             if n_drop:
                 dropped = df.loc[drop_mask, ['code', 'name']].values.tolist()
                 df = df[~drop_mask]
-                print(f"   🧹 promising 정리: 60+자동등록·미보유·{PROMISING_KEEP_MIN*100:.0f}점미만 "
+                print(f"   🧹 promising 정리: 자동등록(60+/40+)·미보유·미계획·임계점수미만 "
                       f"{n_drop}개 제거 → {dropped[:10]}")
 
         _tmp = hist_path + ".tmp"

@@ -215,6 +215,29 @@ def ensure_exec_monitor_alive():
         start_exec_monitor()
 
 
+def start_paper_trader():
+    """paper_trader.py(prod 무후보 시 BULL 대체 전략 가상매매 기록)를 별도 콘솔로 실행합니다.
+    실주문 없음 — 파일 읽기·가상체결·본인 텔레그램만. 중복 기동 시 내부 잠금으로 대기합니다."""
+    script_path = os.path.join(PROJECT_DIR, "paper_trader.py")
+    try:
+        proc = subprocess.Popen(
+            [PYTHON_EXE, script_path],
+            cwd=PROJECT_DIR,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        running_procs["paper"] = proc
+        log(f"🧪 paper_trader.py 시작 (PID: {proc.pid})")
+    except Exception as e:
+        log(f"   ❌ paper_trader.py 시작 실패: {e}")
+
+
+def ensure_paper_trader_alive():
+    proc = running_procs.get("paper")
+    if proc is None or proc.poll() is not None:
+        log("⚠️ paper_trader.py 종료 감지 → 재시작")
+        start_paper_trader()
+
+
 # ====================================================
 # 📊 Stock_V3 웹 뷰어 (Streamlit, 읽기 전용 — 항시 실행)
 # ====================================================
@@ -548,11 +571,21 @@ def _run_promote_and_buy(tag):
         _promote_lock.release()
 
 
+# build_pending 은 10분 사이클과 즉시 트리거(run_fast_claude_trigger) 양쪽에서 호출되므로
+# 동시 실행 시 Search_History 60+자동등록 행이 중복 append 되지 않도록 직렬화한다.
+_pending_lock = threading.Lock()
+
+
+def _run_build_pending(tag):
+    with _pending_lock:
+        _run_eval_script("build_pending.py", f"build_pending(신규탐지·{tag})")
+
+
 def _eval_pipeline_worker():
     """build_pending → promote → auto_buy 순차 실행(백그라운드 스레드)."""
     try:
         log("📈 60+ 평가 파이프라인 사이클 시작")
-        _run_eval_script("build_pending.py",     "build_pending(신규탐지)")
+        _run_build_pending("사이클")
         maybe_spawn_claude_eval()  # 미평가 60점+ 있으면 Claude CLI 즉시 기동(이벤트 구동)
         _run_promote_and_buy("사이클")
         log("📈 60+ 평가 파이프라인 사이클 종료")
@@ -568,6 +601,8 @@ def _eval_pipeline_worker():
 #    - 락(중복실행 방지) + 30분 타임아웃 + 동일 종목셋 30분 재시도 쿨다운.
 # ====================================================
 CLAUDE_EXE            = r"C:\Users\JH_Signature\.local\bin\claude.exe"
+CLAUDE_EVAL_MODEL     = "claude-opus-5"   # 미지정 시 계정 기본값(2026-09-14 확인: opus-4-8)으로 돌아 명시 고정
+CLAUDE_EVAL_EFFORT    = "high"
 CLAUDE_EVAL_TIMEOUT   = 30 * 60   # CLI 평가 최대 30분
 CLAUDE_RETRY_COOLDOWN = 30 * 60   # 동일 종목셋 재시도 최소 간격(실패 루프 방지)
 _claude_lock       = threading.Lock()
@@ -579,21 +614,32 @@ def _today_str():
     return datetime.now().strftime("%Y%m%d")
 
 
-def _unevaluated_pending_codes():
-    """오늘자 pending 중 eval_done/results 에 없는 미평가 코드 집합."""
+def _pending_rows(day):
+    """오늘자 pending CSV → {code6: row dict}. 없거나 읽기 실패 시 {}."""
     import csv as _csv
-    import json as _json
-    day = _today_str()
-    logs = os.path.join(PROJECT_DIR, "logs")
-    pend = os.path.join(logs, f"{day}_claude_pending.csv")
+    pend = os.path.join(PROJECT_DIR, "logs", f"{day}_claude_pending.csv")
     if not os.path.exists(pend):
-        return set()
+        return {}
     try:
         with open(pend, encoding="utf-8-sig") as f:
-            codes = {str(r["code"]).strip().zfill(6)
-                     for r in _csv.DictReader(f) if r.get("code")}
+            return {str(r["code"]).strip().zfill(6): r
+                    for r in _csv.DictReader(f) if r.get("code")}
     except Exception:
+        return {}
+
+
+def _unevaluated_pending_codes():
+    """오늘자 pending 중 eval_done/results 에 없는 미평가 코드 집합."""
+    codes = set(_pending_rows(_today_str()))
+    if not codes:
         return set()
+    return codes - _evaluated_codes(_today_str())
+
+
+def _evaluated_codes(day):
+    """오늘자 eval_done.json + claude_results.json 에 기록된 평가완료 코드 집합."""
+    import json as _json
+    logs = os.path.join(PROJECT_DIR, "logs")
     done = set()
     p = os.path.join(logs, f"{day}_claude_eval_done.json")
     if os.path.exists(p):
@@ -611,7 +657,7 @@ def _unevaluated_pending_codes():
             done |= {str(it.get("code", "")).zfill(6) for it in items}
         except Exception:
             pass
-    return codes - done
+    return done
 
 
 def _results_sig(day):
@@ -634,11 +680,22 @@ def _claude_eval_worker(codes):
     before_sig = _results_sig(day)
     rc = None
     try:
-        log(f"🤖 Claude CLI 평가 시작: {len(codes)}종목 {sorted(codes)}")
+        log(f"🤖 Claude CLI 평가 시작: {len(codes)}종목 {sorted(codes)} "
+            f"[{CLAUDE_EVAL_MODEL}/{CLAUDE_EVAL_EFFORT}]")
+        # 기준점 돌파 시점의 V3 점수(pending 스냅샷)를 프롬프트에 박아 둔다.
+        # V3 점수는 수 분 내 급락할 수 있어(2026-09-14 루닛 66.5→39, 3분 만에),
+        # CLI 가 Stock_V3 를 다시 읽는 시점 점수로 대상에서 누락시키지 않게 한다.
+        prow = _pending_rows(day)
+        targets = "; ".join(
+            f"{c} {prow.get(c, {}).get('name', '')} score_total={prow.get(c, {}).get('score_total', '?')}"
+            for c in sorted(codes))
         prompt = (
             f"오늘({day}) 60점+ 종목 AI 평가를 CLAUDE.md 지침 그대로 수행하라. "
             f"대상: logs/{day}_Stock_V3.csv 의 score_total>=0.60 중 미평가 종목"
-            f"(참고 pending: {', '.join(sorted(codes))}). "
+            f"(60점+ 가 0개면 CLAUDE.md 보조매수 규칙대로 score_total>=0.40 중 미평가 종목). "
+            f"필수 평가 종목(pending 스냅샷 — 기준점 돌파 시점 점수): {targets}. "
+            f"필수 평가 종목은 평가 시점 Stock_V3 의 score_total 이 기준 미만으로 떨어졌어도 기평가가 아니면 "
+            f"반드시 평가하고, 그 경우 v3_score/v3_score100 은 위 스냅샷 score_total 값을 사용하라. "
             f"결과는 logs/{day}_claude_results.json 에 스키마대로 저장 후 종료. "
             f"전부 기평가면 아무 파일도 쓰지 말고 한 줄 보고 후 종료."
         )
@@ -648,6 +705,8 @@ def _claude_eval_worker(codes):
             lf.flush()
             r = subprocess.run(
                 [CLAUDE_EXE, "-p", prompt,
+                 "--model", CLAUDE_EVAL_MODEL,
+                 "--effort", CLAUDE_EVAL_EFFORT,
                  "--permission-mode", "acceptEdits",
                  "--allowedTools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"],
                 cwd=PROJECT_DIR, stdout=lf, stderr=subprocess.STDOUT,
@@ -672,6 +731,10 @@ def _claude_eval_worker(codes):
     elif rc == 0:
         log("🤖 CLI 평가 결과 변경 없음 → promote 생략(다음 사이클에 위임)")
 
+    # 평가 도중 즉시 트리거가 새 종목을 pending 에 넣었지만 락 때문에 기동 못 했을 수 있다
+    # → 다음 사이클(최대 10분)을 기다리지 않고 바로 이어서 기동. 동일 종목셋은 쿨다운이 막는다.
+    maybe_spawn_claude_eval()
+
 
 def maybe_spawn_claude_eval():
     """build_pending 직후 호출: 미평가 60점+ 있으면 Claude CLI 평가를 비동기 기동."""
@@ -681,16 +744,96 @@ def maybe_spawn_claude_eval():
     codes = _unevaluated_pending_codes()
     if not codes:
         return
+    # 사이클·즉시트리거·CLI 종료 스레드에서 동시에 불리므로 쿨다운 판정·기록도 락 안에서 한다.
+    if not _claude_lock.acquire(blocking=False):
+        log("⏳ Claude CLI 평가 진행 중 → 이번 틱 건너뜀")
+        return
     now = datetime.now()
     if (_claude_last_codes == codes and _claude_last_start
             and (now - _claude_last_start).total_seconds() < CLAUDE_RETRY_COOLDOWN):
-        return
-    if not _claude_lock.acquire(blocking=False):
-        log("⏳ Claude CLI 평가 진행 중 → 이번 틱 건너뜀")
+        _claude_lock.release()
         return
     _claude_last_codes = set(codes)
     _claude_last_start = now
     threading.Thread(target=_claude_eval_worker, args=(codes,), daemon=True).start()
+
+
+# ====================================================
+# ⚡ 즉시 트리거 (2026-09-14 추가)
+#    10분 사이클만으로는 60점 돌파 → CLI 기동까지 최대 10분 대기(09-14 루닛: 09:38 알림 → 09:44:41 기동).
+#    메인 루프(10초)마다 Stock_V3.csv mtime 을 보고, 바뀌었을 때만 읽어 기준점(60, 60점+ 0개면 40)
+#    이상 미평가 신규 종목이 있으면 build_pending → CLI 기동을 즉시 수행한다.
+#    한 번 넘긴 종목은 당일 다시 즉시트리거하지 않는다(실패 재시도는 10분 사이클 + 쿨다운 담당).
+# ====================================================
+_fast_v3_mtime  = None
+_fast_seen      = set()
+_fast_day       = None
+_fast_busy      = threading.Lock()
+
+
+def _v3_codes_over_threshold(path):
+    """Stock_V3.csv 에서 pending 기준점(buy_gate: 60, 60점+ 0개면 40) 이상 코드 집합."""
+    import csv as _csv
+    rows = []
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for r in _csv.DictReader(f):
+                if not r.get("code"):
+                    continue
+                try:
+                    s = float(r.get("score_total") or 0)
+                except (TypeError, ValueError):
+                    continue
+                rows.append((str(r["code"]).split(".")[0].strip().zfill(6), s))
+    except Exception:
+        return set()   # 다른 프로세스가 쓰는 중일 수 있음 → 다음 mtime 변경 때 재시도
+    scores = [s for _, s in rows]
+    try:
+        import buy_gate
+        thr = buy_gate.LOW_MIN if buy_gate.low_mode(scores) else buy_gate.PRIMARY_MIN
+    except Exception:
+        thr = 0.60
+    return {c for c, s in rows if s >= thr}
+
+
+def _fast_trigger_worker(new_codes):
+    try:
+        log(f"⚡ 즉시 트리거: 신규 기준점+ {sorted(new_codes)} → build_pending → CLI 기동")
+        _run_build_pending("즉시")
+        maybe_spawn_claude_eval()
+    finally:
+        _fast_busy.release()
+
+
+def run_fast_claude_trigger():
+    global _fast_v3_mtime, _fast_seen, _fast_day
+    now = datetime.now()
+    if now.weekday() >= 5 or not (EVAL_START <= now.time() <= EVAL_END):
+        return
+    day = now.strftime("%Y%m%d")
+    if day != _fast_day:
+        _fast_day, _fast_seen, _fast_v3_mtime = day, set(), None
+    path = os.path.join(PROJECT_DIR, "logs", f"{day}_Stock_V3.csv")
+    try:
+        m = os.stat(path).st_mtime
+    except OSError:
+        return
+    if m == _fast_v3_mtime or _fast_busy.locked():
+        return
+    new_codes = _v3_codes_over_threshold(path) - _evaluated_codes(day) - _fast_seen
+    _fast_v3_mtime = m
+    if not new_codes:
+        return
+    try:
+        from kis_api import kiwoom_trading as _kt
+        if day in _kt.KRX_HOLIDAYS:
+            return
+    except Exception:
+        pass
+    if not _fast_busy.acquire(blocking=False):
+        return
+    _fast_seen |= new_codes
+    threading.Thread(target=_fast_trigger_worker, args=(new_codes,), daemon=True).start()
 
 
 _openkick_day = None
@@ -772,6 +915,7 @@ def main():
     start_search_bot()
     start_telegram_bot()
     start_exec_monitor()
+    start_paper_trader()
 
     data_updated_today = False  # 하루에 1번만 Update_Data_All 실행
     holiday_today      = False  # 공휴일 플래그 — WAITING/WEEKEND 복귀 시 해제
@@ -793,6 +937,7 @@ def main():
             ensure_search_bot_alive()
             ensure_telegram_bot_alive()
             ensure_exec_monitor_alive()
+            ensure_paper_trader_alive()
             time.sleep(POLL_INTERVAL)
             continue
 
@@ -839,11 +984,13 @@ def main():
         ensure_search_bot_alive()    # Search_Stock_V3 (항상)
         ensure_telegram_bot_alive()  # telegram_chat (항상)
         ensure_exec_monitor_alive()  # execution_monitor (항상)
+        ensure_paper_trader_alive()  # paper_trader (항상, 가상매매 기록)
         ensure_viewer_alive()        # Stock_V3 웹 뷰어 (항상, 읽기 전용)
 
         # ── 60점+ 평가 파이프라인 (평일 08:00~16:30, 10분마다 / 백그라운드)
         run_eval_pipeline_if_due()
-        run_autobuy_open_kick()      # 개장(09:00) 직후 auto_buy 1회 즉시 실행 → plan 선생성
+        run_fast_claude_trigger()    # Stock_V3 에 신규 60점+ 등장 시 10분 사이클 기다리지 않고 즉시 CLI 평가
+        run_autobuy_open_kick()     # 개장(09:00) 직후 auto_buy 1회 즉시 실행 → plan 선생성
 
         # ── 현재 상태 주기적 출력 (폴링 주기 내 첫 번째 틱)
         if datetime.now().second < POLL_INTERVAL:

@@ -560,6 +560,10 @@ if __name__ == "__main__":
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
                         sent_tiers[code] = tier
+                        # 60+ 진입(당일신규·재진입) 시 50종목 중간저장을 기다리지 않고 즉시 저장
+                        # → scheduler 즉시 트리거가 Stock_V3 변경을 10초 내 감지해 Claude 평가 기동
+                        if kind in ("당일신규", "재진입"):
+                            save_and_backup_results(list(today_results.values()), today_str)
                     elif tier is None and prev is not None:
                         # 60점 미만 이탈 — 제외 알림(이후 복귀 시 위 분기에서 '재진입')
                         msg = (f"🚪 [제외] {res['name']} ({code})\n"

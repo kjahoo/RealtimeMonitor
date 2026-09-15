@@ -34,6 +34,7 @@ from datetime import datetime
 import pandas as pd
 
 from config import secrets
+import buy_gate
 
 # ── 설정 ─────────────────────────────────────────────────────────────
 SCORE_THRESHOLD = 0.60          # 60점 이상 (score_total 0~1 스케일)
@@ -141,14 +142,24 @@ def write_handoff(today_results, today_str):
 
         rows = []
         all60 = []          # 60점+ 전체(평가완료 포함) — promising 자동등록용
+        all40 = []          # 보조모드(60점+ 0개)일 때 40점+ 전체 — promising 자동등록용
+        # 보조매수 규칙(buy_gate): 60점+ 종목이 하나도 없으면 40점+ 를 평가 대상으로
+        _scores = []
+        for _res in today_results.values():
+            try:
+                _scores.append(float(_res.get("score_total", 0) or 0))
+            except (TypeError, ValueError):
+                pass
+        low = buy_gate.low_mode(_scores)
+        thr = buy_gate.LOW_MIN if low else SCORE_THRESHOLD
         for code, res in today_results.items():
             try:
                 sc = float(res.get("score_total", 0) or 0)
             except (TypeError, ValueError):
                 sc = 0.0
             code6 = _fmt_code(code)
-            if sc >= SCORE_THRESHOLD:
-                all60.append({
+            if sc >= thr:
+                (all40 if low else all60).append({
                     "code": code6,
                     "name": res.get("name", ""),
                     "close_price": res.get("close_price", ""),
@@ -179,6 +190,8 @@ def write_handoff(today_results, today_str):
 
         # 60점+ 종목은 매 사이클 promising(Search_History) 에 자동 등록(없는 종목만)
         register_promising_from_v3(all60, today_str)
+        if all40:
+            register_promising_from_v3(all40, today_str, signal=buy_gate.LOW_SIGNAL)
 
         rows.sort(key=lambda r: r["score100"], reverse=True)
 
@@ -189,10 +202,10 @@ def write_handoff(today_results, today_str):
         os.replace(tmp, _pending_path(today_str))
 
         # brief MD
-        _write_brief(rows, today_str)
+        _write_brief(rows, today_str, thr)
 
         if rows:
-            print(f"   📝 [Claude 평가대기] 60점+ 신규 {len(rows)}개 → {_pending_path(today_str)}")
+            print(f"   📝 [Claude 평가대기] {'40점+(60점+ 0개·보조매수)' if low else '60점+'} 신규 {len(rows)}개 → {_pending_path(today_str)}")
         return len(rows)
     except Exception as e:
         print(f"   ⚠️ 핸드오프 생성 실패: {e}")
@@ -234,13 +247,13 @@ def build_pending_from_v3(today_str):
     return write_handoff(tr, today_str)
 
 
-def _write_brief(rows, today_str):
+def _write_brief(rows, today_str, thr=SCORE_THRESHOLD):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         f"# 60점+ 종목 AI 평가 대기 — {today_str}",
         "",
         f"- 생성: {now}",
-        f"- 대기 종목: {len(rows)}개 (score_total ≥ {SCORE_THRESHOLD})",
+        f"- 대기 종목: {len(rows)}개 (score_total ≥ {thr}{' · 60점+ 0개 → 40점+ 보조매수 규칙' if thr < SCORE_THRESHOLD else ''})",
         "",
         "각 종목을 웹검색(뉴스·실적·재무·수급·테마)으로 분석해 단기(1~20일) 트레이딩 관점에서",
         "0~100 점수와 매수/관망/회피를 판정하고, 결과를 `_claude_results.json` 으로 저장 후",
@@ -344,6 +357,7 @@ ANALYSIS_SECTIONS = [
     ("risks",         "11. 리스크 요인"),
     ("verdict",       "12. 종합 판단"),
     ("extra",         "13. 이외 투자 도움 사항"),
+    ("catalyst",      "14. 단기 촉매/뉴스 모멘텀 (2주 내)"),
 ]
 
 
@@ -409,7 +423,7 @@ def _format_stock_msg(ev, added, report_path=None, public=False):
 
 
 # ── promising 자동등록 (60점+ 전체, 매 사이클) ────────────────────────
-def register_promising_from_v3(items, today_str):
+def register_promising_from_v3(items, today_str, signal="60+자동등록"):
     """60점+ 종목을 promising(Search_History.csv)에 본인 ID로 자동 등록.
        이미 등록된(본인 ID) 종목은 건너뛰고 신규만 추가한다. 가격(current_price)
        갱신은 Update_Promising_Stocks 가 담당하므로 여기서는 신규 행만 append.
@@ -459,13 +473,13 @@ def register_promising_from_v3(items, today_str):
                     "net_hits": it.get("net_hits", ""),
                     "surge_hits": it.get("surge_hits", ""),
                     "drop_hits": it.get("drop_hits", ""),
-                    "signal": "60+자동등록",
+                    "signal": signal,
                     "chat_id": OWNER_ID,
                 })
                 existing.add(code6)
                 added += 1
         if added:
-            print(f"   ➕ [promising 자동등록] 60점+ {added}개 → {p}")
+            print(f"   ➕ [promising 자동등록] {signal} {added}개 → {p}")
     except Exception as e:
         print(f"   ⚠️ promising 자동등록 실패: {e}")
     return added

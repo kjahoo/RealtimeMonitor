@@ -351,11 +351,12 @@ def _tick(today_str):
 
         # ── 매수 직전 실시간 점수 재확인(순간 스파이크 매수 방지)(실격 → 예약 없음).
         live_sc = live_scores.get(code)
-        if live_sc is None or live_sc < SCORE_MIN:
+        min_sc = float(t.get("min_score", SCORE_MIN) or SCORE_MIN)   # plan 기록 임계(보조매수 40, 기본 60)
+        if live_sc is None or live_sc < min_sc:
             shown = "미확인(정규장 점수없음)" if live_sc is None else f"{live_sc:.0f}"
-            _log_once(f"buy:{code}", f"  ⏭️ {name}({code}) 잔여{remaining} · 현재점수 {shown}<{SCORE_MIN:.0f} — 매수 보류")
+            _log_once(f"buy:{code}", f"  ⏭️ {name}({code}) 잔여{remaining} · 현재점수 {shown}<{min_sc:.0f} — 매수 보류")
             if cst.get("last_skip_score") != shown:      # 같은 사유 반복 알림 방지
-                report.append(f"⏭️ {name}({code}) 현재점수 {shown}<{SCORE_MIN:.0f} — 매수 보류(스파이크 방지)")
+                report.append(f"⏭️ {name}({code}) 현재점수 {shown}<{min_sc:.0f} — 매수 보류(스파이크 방지)")
                 cst["last_skip_score"] = shown
                 changed = True
             continue
