@@ -28,6 +28,7 @@ if gpus:
 # 모듈 불러오기
 from config import secrets
 from kis_api import auth, inquiry, indicators, kiwoom_trading as kt
+from kis_api import kiwoom_inquiry  # 장후 알림 현재가: 통합(SOR) 시세
 
 # ====== 설정 변수 (사용자 수정 영역) ======
 # [변경 전]
@@ -145,7 +146,8 @@ FINAL_COLUMNS = [
 ]
 
 
-def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
+def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb, persist=True):
+    """persist=False(장후): 일봉 CSV 는 정규장 기준 보존 — 오늘 행은 메모리에서만 계산하고 저장하지 않는다."""
     try:
         # 1. 파일 읽기
         df = pd.read_csv(file_path, encoding='utf-8-sig', dtype={'code': str, 'name': str})
@@ -193,8 +195,7 @@ def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
         if 'ma60' not in df.columns: df['ma60'] = df['close'].rolling(window=60).mean()
         if 'disparity_60' not in df.columns: df['disparity_60'] = (df['close'] / df['ma60'] - 1).fillna(0)
         if 'bb_pos' not in df.columns: df['bb_pos'] = 0.0  # 일단 0으로 처리
-        if 'prog_net_ratio' not in df.columns:
-            df['prog_net_ratio'] = df.apply(lambda x: x['prog_net_qty'] / x['volume'] if x['volume'] > 0 else 0, axis=1)
+        df = indicators.fill_prog_net_ratio(df)   # 오늘 행 포함(기존: 열 존재 시 건너뛰어 오늘 행 0)
 
         # Target (실시간 봇에서는 미래를 알 수 없으므로 0으로 둠)
         for t in ['target1', 'target5', 'target20']:
@@ -214,22 +215,23 @@ def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
         df['code'] = df['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
         df = df.dropna(subset=['date'])
 
-        # 9. [수정] 안전한 저장 (Atomic Write)
+        # 9. [수정] 안전한 저장 (Atomic Write) — 장후(persist=False)는 저장 생략
         temp_file_path = file_path + ".tmp"
 
-        try:
-            # 1) 임시 파일에 먼저 저장
-            df.to_csv(temp_file_path, index=False, encoding='utf-8-sig')
+        if persist:
+            try:
+                # 1) 임시 파일에 먼저 저장
+                df.to_csv(temp_file_path, index=False, encoding='utf-8-sig')
 
-            # 2) 임시 파일이 정상적으로 생성되었는지 확인 후 원본과 교체
-            if os.path.exists(temp_file_path):
-                os.replace(temp_file_path, file_path)
-        except Exception as save_err:
-            print(f"   ❌ 파일 저장 중 오류 발생 ({code}): {save_err}")
-            # 저장 실패 시 임시 파일 삭제 시도 (청소)
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-            return None  # 저장 실패 시 None 반환하여 진행 막음
+                # 2) 임시 파일이 정상적으로 생성되었는지 확인 후 원본과 교체
+                if os.path.exists(temp_file_path):
+                    os.replace(temp_file_path, file_path)
+            except Exception as save_err:
+                print(f"   ❌ 파일 저장 중 오류 발생 ({code}): {save_err}")
+                # 저장 실패 시 임시 파일 삭제 시도 (청소)
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                return None  # 저장 실패 시 None 반환하여 진행 막음
 
         # 10. 예측 진행
         if len(df) < max_lb: return None
@@ -273,7 +275,14 @@ def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
 
 
 # ====== 결과 저장 및 백업 ======
-def save_and_backup_results(results, date_str, is_stock=True):
+def results_file_name(date_str, is_stock=True, after=False):
+    """장후(after=True) 점수는 정규장 Stock_V3 를 덮어쓰지 않도록 별도 파일에 기록.
+       (*_Stock_V3.csv 글롭·정규식에 걸리지 않는 이름 — sell_strategy_b backfill 등 정규장 기준 유지)"""
+    type_str = "Stock" if is_stock else "ETF"
+    return f"{date_str}_{type_str}_V3_AfterMkt.csv" if after else f"{date_str}_{type_str}_V3.csv"
+
+
+def save_and_backup_results(results, date_str, is_stock=True, after=False):
     if not results: return
 
     df = pd.DataFrame(results)
@@ -286,8 +295,7 @@ def save_and_backup_results(results, date_str, is_stock=True):
     ]
 
     # 파일명 결정
-    type_str = "Stock" if is_stock else "ETF"
-    file_name = f"{date_str}_{type_str}_V3.csv"
+    file_name = results_file_name(date_str, is_stock, after)
 
     local_path = os.path.join(secrets.LOCAL_DATA_PATH, file_name)
     backup_path = os.path.join(secrets.BACKUP_PATH, file_name)
@@ -338,9 +346,8 @@ def save_and_backup_results(results, date_str, is_stock=True):
 
 
 # [추가] 기존 결과 파일 불러오기 (재시작 시 데이터 보존용)
-def load_existing_results(date_str, is_stock=True):
-    type_str = "Stock" if is_stock else "ETF"
-    file_name = f"{date_str}_{type_str}_V3.csv"
+def load_existing_results(date_str, is_stock=True, after=False):
+    file_name = results_file_name(date_str, is_stock, after)
     local_path = os.path.join(secrets.LOCAL_DATA_PATH, file_name)
 
     results = {}
@@ -405,10 +412,12 @@ def _search_history_codes(date_str):
     return codes
 
 
-def load_scan_targets(date_str, verbose=True):
+def load_scan_targets(date_str, verbose=True, after=False):
     """
     장중 스캔 대상 파일 목록을 반환.
     우선순위: logs/{today}_buylist.json → logs/buylist_latest.json → 전체 CSV(폴백).
+    after=True(장후 모니터링): 전일 필터링된 buylist 종목만 — Search_History 병합·전체 폴백 없음
+    (buylist 가 없으면 빈 목록).
     buylist 의 코드 중 실제 A{code}.csv 가 존재하는 것만 대상으로 하되,
     **Search_History(수동 추가/친구 추가) 종목은 buylist 조건 미달이어도 항상 포함**한다
     (매수추천 티어 알림을 받도록). 전체 폴백 시에는 이미 포함되므로 생략.
@@ -427,6 +436,10 @@ def load_scan_targets(date_str, verbose=True):
                 codes = json.load(f).get("codes", [])
             files = {f"A{c}.csv" for c in codes
                      if os.path.exists(os.path.join(DATA_DIR, f"A{c}.csv"))}
+            if files and after:
+                if verbose:
+                    print(f"🧺 [장후] 매수리스트({label}) 종목만 모니터링: {os.path.basename(path)} → {len(files)}개")
+                return sorted(files), False
             if files:
                 # 수동 추가(Search_History) 종목 병합 — 조건 미달이어도 스캔 대상에 포함
                 extra = 0
@@ -446,10 +459,55 @@ def load_scan_targets(date_str, verbose=True):
             if verbose:
                 print(f"⚠️ 매수리스트 로드 실패({os.path.basename(path)}): {e} — 다음 후보로")
 
+    if after:
+        if verbose:
+            print("⚠️ [장후] 매수리스트 없음 — 장후 모니터링 대상 없음(전체 폴백 안 함)")
+        return [], False
     files = _all_files()
     if verbose:
         print(f"🧺 매수리스트 없음 — 전체 {len(files)}개 종목 폴백")
     return files, True
+
+
+# ====== 장후(NXT·KRX 애프터마켓) 모니터링 — 알림만, 자동매매 미적용 ======
+def session_label():
+    return kt.post_close_label()
+
+
+def _after_tiers_path(date_str):
+    return os.path.join(secrets.LOCAL_DATA_PATH, f"{date_str}_aftermkt_alert_tiers.json")
+
+
+def init_after_tiers(date_str):
+    """장후 알림 기준 tier: 정규장(09:00~15:30) 마지막 점수 tier 에, 오늘 장후에 이미 알린 tier 를 덮어씀.
+       → 정규장 마감 대비 '변화'만 알리고, 15:30/16:00 봇 재시작 때 같은 알림을 반복하지 않는다."""
+    tiers = {}
+    path = os.path.join(secrets.LOCAL_DATA_PATH, f"{date_str}_Stock_V3.csv")
+    try:
+        df = pd.read_csv(path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
+        df = df[df['time'].fillna('').between("09:00:00", "15:30:59")]
+        for c, s in zip(df['code'], pd.to_numeric(df['score_total'], errors='coerce').fillna(0)):
+            t = get_score_tier(s)
+            if t is not None:
+                tiers[str(c).split('.')[0].zfill(6)] = t
+    except Exception as e:
+        print(f"⚠️ 정규장 tier 로드 실패(빈 기준으로 시작): {e}")
+    try:
+        with open(_after_tiers_path(date_str), encoding='utf-8') as f:
+            tiers.update(json.load(f))
+    except Exception:
+        pass
+    return tiers
+
+
+def save_after_tiers(date_str, tiers):
+    try:
+        tmp = _after_tiers_path(date_str) + ".tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(tiers, f)
+        os.replace(tmp, _after_tiers_path(date_str))
+    except Exception as e:
+        print(f"⚠️ 장후 tier 저장 실패: {e}")
 
 
 # ====== 메인 루프 ======
@@ -485,14 +543,19 @@ if __name__ == "__main__":
 
     # 3. 대상 파일 목록 (G드라이브에서 읽어서 로컬로 복사 후 시작 권장)
     # 여기서는 원본(G:)을 읽고 저장만 C:와 G:에 하는 방식으로 함
-    files, is_fallback = load_scan_targets(today_str)
+    files, is_fallback = load_scan_targets(today_str, after=kt.is_post_close())
     print(f"📂 분석 대상: {len(files)}개 종목")
 
     today_str = datetime.now().strftime("%Y%m%d")
     target_date = pd.to_datetime(today_str).normalize()
 
-    today_results = load_existing_results(today_str, is_stock=True)
-    sent_tiers = {}  # {code: last_alerted_tier} — 세션(NXT/KRX) 시작 시 초기화
+    # 장후(15:30~20:00, NXT·KRX 애프터마켓): 모니터링·알림만. 일봉 CSV 미저장, 점수는 *_V3_AfterMkt.csv 에 기록
+    after_mode = kt.is_post_close()
+    today_results = load_existing_results(today_str, is_stock=True, after=after_mode)
+    # {code: last_alerted_tier} — 정규장은 세션 시작 시 초기화, 장후는 정규장 마감 tier 기준(init_after_tiers)
+    sent_tiers = init_after_tiers(today_str) if after_mode else {}
+    if after_mode:
+        print(f"🌙 [{session_label()}] 장후 모니터링 모드 — 알림만, 자동매매 미적용 · 일봉 CSV/Stock_V3 정규장 기준 보존")
 
     STOCK_KIND_CACHE = {}
 
@@ -505,13 +568,24 @@ if __name__ == "__main__":
                 time.sleep(600)
                 continue
 
+            # 정규장 ↔ 장후 경계를 넘긴 채 계속 도는 경우(보통은 scheduler 가 모드 전환 시 재시작) 기준 전환
+            if kt.is_post_close(_now) != after_mode:
+                after_mode = not after_mode
+                today_results = load_existing_results(today_str, is_stock=True, after=after_mode)
+                sent_tiers = init_after_tiers(today_str) if after_mode else {}
+                print(f"🔁 {'장후 모니터링' if after_mode else '정규장'} 모드로 전환")
+
             # [이전 위치] 여기서 지수를 한 번만 가져오던 것을 아래 for 루프 안으로 이동합니다.
 
             # 매 사이클 스캔 대상 새로고침 — 장중 수동 추가(Search_History) 종목 즉시 반영
-            refreshed, is_fallback = load_scan_targets(today_str, verbose=False)
+            refreshed, is_fallback = load_scan_targets(today_str, verbose=False, after=after_mode)
             if len(refreshed) != len(files):
                 print(f"🔄 스캔 대상 갱신: {len(files)} → {len(refreshed)}개")
             files = refreshed
+            if not files:
+                print(f"⏳ [{_now:%H:%M:%S}] 스캔 대상 없음 — 60초 후 재확인")
+                time.sleep(60)
+                continue
             # 수동 추가 종목은 시총 필터를 우회 — 조건 미달이어도 분석·알림
             history_codes = _search_history_codes(today_str)
 
@@ -526,7 +600,8 @@ if __name__ == "__main__":
                 file_path = os.path.join(DATA_DIR, filename)
 
                 # 분석 수행
-                res = process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb)
+                res = process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb,
+                                    persist=not after_mode)
 
                 if res:
                     # 1. 시가총액 필터 (1000억 이상)
@@ -535,6 +610,12 @@ if __name__ == "__main__":
                     #    전체 폴백 모드에서만 소형주 제외(수동 추가 종목은 예외).
                     if is_fallback and code not in history_codes and res['market_cap'] < 1000:
                         continue
+
+                    # 장후: 점수는 KRX 시세로 계산(학습 기준 유지), 현재가 표시는 통합(SOR) 마지막 체결가
+                    if after_mode:
+                        _sor = kiwoom_inquiry.fetch_sor_price(code)
+                        if _sor > 0:
+                            res['close_price'] = _sor
 
                     # 2. 분석 시간 기록 및 결과 업데이트
                     res['time'] = datetime.now().strftime("%H:%M:%S")
@@ -546,7 +627,25 @@ if __name__ == "__main__":
                     score = res['score_total']
                     tier = get_score_tier(score)
                     prev = sent_tiers.get(code)
-                    if tier is not None and prev != tier:
+                    if after_mode:
+                        # 장후: 정규장 마감(또는 직전 장후 알림) tier 대비 변화만 '참고' 알림 — 매수추천/비중 문구 없음
+                        _msg = None
+                        if tier is not None and prev != tier:
+                            _kind = ("60+ 진입" if prev is None else
+                                     "점수구간 상승" if tier > prev else "점수구간 하락")
+                            _base = f"{prev * 100:.0f}점대" if prev is not None else "60 미만"
+                            _msg = (f"🌙 [{session_label()}·참고] {_kind} {res['name']} ({code})\n"
+                                    f"점수: {score * 100:.1f} (직전 {_base})\n현재가: {res['close_price']:,}")
+                        elif tier is None and prev is not None:
+                            _msg = (f"🌙 [{session_label()}·참고] 60 미만 이탈 {res['name']} ({code})\n"
+                                    f"점수: {score * 100:.1f} (직전 {prev * 100:.0f}점대)\n현재가: {res['close_price']:,}")
+                        if _msg:
+                            _msg += "\n※ 점수 KRX·현재가 통합 기준 참고 · 자동매매 미적용"
+                            print(f"   🔔 {_msg.replace(chr(10), ' ')}")
+                            send_telegram(_msg)
+                            sent_tiers[code] = tier
+                            save_after_tiers(today_str, sent_tiers)
+                    elif tier is not None and prev != tier:
                         if code not in sent_tiers:
                             kind = "당일신규"
                         elif prev is None:
@@ -575,11 +674,11 @@ if __name__ == "__main__":
                 # 4. 진행상황 출력 및 중간 저장 (50종목마다)
                 if idx % 50 == 0:
                     print(f"   ⏳ {idx}/{len(files)} 완료 및 데이터 백업 중...")
-                    save_and_backup_results(list(today_results.values()), today_str)
+                    save_and_backup_results(list(today_results.values()), today_str, after=after_mode)
                     gc.collect()
 
             # 모든 종목(한 사이클) 완료 후 최종 저장
-            save_and_backup_results(list(today_results.values()), today_str)
+            save_and_backup_results(list(today_results.values()), today_str, after=after_mode)
             # 참고: 60점+ Claude AI 평가는 main_stock 과 분리되어 30분 스케줄
             #       (run_ai_eval.ps1)로 별도 실행된다. 여기서는 호출하지 않는다.
             print(f"✅ {datetime.now().strftime('%H:%M:%S')} 전 종목 분석 완료. 5초 후 다음 사이클.")

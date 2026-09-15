@@ -66,6 +66,27 @@ def is_market_open(now=None):
     return is_trading_day(now)
 
 
+# ⏰ 장후 거래 (2026-09-14 KRX 애프터마켓 신설: 16:00~20:00, NXT 애프터는 15:30~20:00)
+AFTER_MARKET_START = datetime.time(16, 0)
+AFTER_MARKET_END   = datetime.time(20, 0)
+
+
+def is_post_close(now=None):
+    """거래일 정규장 마감(15:30) 후 ~ 20:00 인가 — 장후(NXT·KRX 애프터마켓) '모니터링 전용' 구간.
+       이 구간 시세는 참고 점수·텔레그램 알림에만 쓰고, 주가 데이터(일봉 CSV·Stock_V3·promising·
+       매도전략 상태)는 정규장 기준으로 보존한다. 자동매매 차단은 is_market_open() 이 담당(변경 없음)."""
+    now = now or datetime.datetime.now()
+    if not is_trading_day(now):
+        return False
+    return MARKET_CLOSE < now.time() < AFTER_MARKET_END
+
+
+def post_close_label(now=None):
+    """장후 알림 표시용 세션명 — 15:30~16:00 은 NXT 만 거래, 16:00~ 는 KRX 애프터마켓 병행."""
+    now = now or datetime.datetime.now()
+    return "애프터마켓" if now.time() >= AFTER_MARKET_START else "NXT 장후"
+
+
 def _pint(v):
     """0-padding 된 문자열 또는 숫자 → int"""
     try:

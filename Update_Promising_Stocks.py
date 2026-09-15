@@ -392,7 +392,7 @@ def load_name_map(today_str):
 # ====================================================
 # 💾 로그 저장
 # ====================================================
-def update_split_logs(stock_results, etf_results, today_str):
+def update_split_logs(stock_results, etf_results, today_str, after=False):
     def _save_to_file(file_path, data_list):
         if not data_list: return
         fieldnames = [
@@ -424,8 +424,9 @@ def update_split_logs(stock_results, etf_results, today_str):
         df.to_csv(_tmp, index=False, encoding='utf-8-sig')
         os.replace(_tmp, file_path)
 
-    stock_path = os.path.join(LOG_DIR, f"{today_str}_Stock_V3.csv")
-    etf_path   = os.path.join(LOG_DIR, f"{today_str}_ETF_V3.csv")
+    _sfx = "_AfterMkt" if after else ""   # 장후 점수는 정규장 Stock_V3 를 덮어쓰지 않도록 별도 파일
+    stock_path = os.path.join(LOG_DIR, f"{today_str}_Stock_V3{_sfx}.csv")
+    etf_path   = os.path.join(LOG_DIR, f"{today_str}_ETF_V3{_sfx}.csv")
     if stock_results: _save_to_file(stock_path, stock_results)
     if etf_results:   _save_to_file(etf_path,   etf_results)
 
@@ -496,6 +497,48 @@ def update_search_history_scores(updates, today_str, holdings_set=None):
 
 
 # ====================================================
+# 🌙 장후(NXT 15:30~ · KRX 애프터마켓 16:00~20:00) 모니터링 — 알림만, 자동매매 미적용
+#    일봉 CSV·Stock_V3·Search_History·매도전략 상태·매도 plan 은 정규장 기준으로 보존하고
+#    장후 점수는 *_V3_AfterMkt.csv 에, 매도조건은 sell_strategy_b.preview()(무상태)로 참고 알림만.
+# ====================================================
+def load_buylist_codes(today_str):
+    """전일 build_buylist 필터링 종목 코드 set({날짜}_buylist.json → buylist_latest.json). 없으면 None.
+    장후 모니터링 대상을 이 종목으로 한정한다(보유·promising 은 build_buylist 가 강제 포함)."""
+    for name in (f"{today_str}_buylist.json", "buylist_latest.json"):
+        try:
+            with open(os.path.join(LOG_DIR, name), encoding="utf-8") as f:
+                codes = {format_code(c) for c in json.load(f).get("codes", [])}
+            if codes:
+                return codes
+        except Exception:
+            continue
+    return None
+
+
+def _after_alert_path(today_str):
+    return os.path.join(LOG_DIR, f"{today_str}_aftermkt_sell_alerts.json")
+
+
+def load_after_sell_alerts(today_str):
+    """{(chat_id, code): reason} — 15:30/16:00 봇 재시작 때 같은 장후 매도조건 알림 반복 방지."""
+    try:
+        with open(_after_alert_path(today_str), encoding='utf-8') as f:
+            return {tuple(k.split("|", 1)): v for k, v in json.load(f).items()}
+    except Exception:
+        return {}
+
+
+def save_after_sell_alerts(today_str, alerts):
+    try:
+        tmp = _after_alert_path(today_str) + ".tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({f"{k[0]}|{k[1]}": v for k, v in alerts.items()}, f, ensure_ascii=False)
+        os.replace(tmp, _after_alert_path(today_str))
+    except Exception as e:
+        print(f"   ⚠️ 장후 매도조건 알림상태 저장 실패: {e}")
+
+
+# ====================================================
 # 🚀 메인 루프
 # ====================================================
 def run_updater():
@@ -535,6 +578,7 @@ def run_updater():
     plan_kick_down_wait = {}  # {code: 하락한 구간} — 하락 1사이클 유예(왕복 노이즈 억제, 2026-08-19)
     plan_kick_pending = set() # 상승 감지됐으나 아직 킥 안 나간 종목 라벨(디바운스에 걸리면 이월)
     plan_kick_last    = 0.0   # 마지막 auto_buy 킥 시각(epoch) — PLAN_KICK_MIN_SEC 디바운스
+    after_sell_alert  = None  # {(chat_id, code): reason} — 장후 매도조건 참고알림 중복 방지(첫 장후 사이클에 로드)
 
     while True:
         try:
@@ -561,6 +605,11 @@ def run_updater():
 
             today_str   = now.strftime("%Y%m%d")
             market_mode = os.environ.get("MARKET_MODE", "KRX")
+            post_close  = trading.is_post_close(now)   # 15:30~20:00 장후: 모니터링·알림만
+            if post_close and after_sell_alert is None:
+                after_sell_alert = load_after_sell_alerts(today_str)
+                print(f"   🌙 [{trading.post_close_label(now)}] 장후 모니터링 모드 — 알림만, 자동매매 미적용 "
+                      f"(일봉 CSV·Stock_V3·promising·매도상태·매도plan 정규장 기준 보존)")
 
             # 모드가 바뀌면 스킵 캐시 초기화
             # 모드 전환 시에만 캐시 초기화 (매 사이클이 아님)
@@ -583,6 +632,11 @@ def run_updater():
 
             # 2. 타겟 리스트
             targets, history_codes, history_chat = get_all_targets_and_history(today_str)
+            if post_close:
+                # 장후: 전일 필터링 buylist 종목만 모니터링 (buylist 없으면 기존 대상 유지)
+                _bl = load_buylist_codes(today_str)
+                if _bl is not None:
+                    targets = {c: e for c, e in targets.items() if c in _bl}
 
             if not targets:
                 print(f"   ⏳ [{datetime.now().strftime('%H:%M:%S')}] 유망 종목 없음. 대기 중...")
@@ -710,9 +764,7 @@ def run_updater():
                     df = pd.concat([df, pd.DataFrame([today_row])]).sort_values('date').reset_index(drop=True)
 
                     df = indicators.calculate_indicators_v3_save(df)
-                    if 'prog_net_ratio' not in df.columns:
-                        df['prog_net_ratio'] = df.apply(
-                            lambda x: x['prog_net_qty'] / x['volume'] if x['volume'] > 0 else 0, axis=1)
+                    df = indicators.fill_prog_net_ratio(df)   # 오늘 행 포함(기존: 열 존재 시 건너뛰어 오늘 행 0)
                     for col in V3_FEATURES:
                         if col not in df.columns: df[col] = 0.0
                     _non_date = [c for c in df.columns if c != 'date']
@@ -722,9 +774,11 @@ def run_updater():
                     df['date'] = df['date'].dt.strftime('%Y-%m-%d')
                     df['code'] = df['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
                     # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
-                    _tmp_path = file_path + ".tmp"
-                    df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
-                    os.replace(_tmp_path, file_path)
+                    #   장후는 저장 안 함(일봉 CSV 정규장 기준 보존 — 오늘 행은 메모리에서만 계산)
+                    if not post_close:
+                        _tmp_path = file_path + ".tmp"
+                        df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+                        os.replace(_tmp_path, file_path)
 
                     # (6) 예측
                     if len(df) < max_lb: continue
@@ -749,6 +803,8 @@ def run_updater():
 
                     # ✅ [수정] 시가총액은 이미 받은 rt에서 바로 추출 (API 이중 호출 방지)
                     cap = inquiry.safe_int(rt.get("hts_avls", "0"))
+                    # 장후: 점수는 위 KRX 시세로 계산(학습 기준 유지), 표시·손절 판정 현재가는 통합(SOR) 마지막 체결가
+                    disp_cur = (kiwoom_inquiry.fetch_sor_price(code) or curr) if post_close else curr
 
                     # (7) 검색기록 종목 출력 및 매도 시그널
                     # 콘솔 출력은 본인(TELEGRAM_CHAT_ID)이 등록한 종목만
@@ -759,7 +815,53 @@ def run_updater():
                         print(f"   🔍 [{code}] {stock_name:<8} | "
                               f"점수: {total_score:.4f} | 현재가: {curr:,}원 | 모드: {market_mode}")
 
-                    if code in history_codes:
+                    if code in history_codes and post_close:
+                        # ── 장후 참고 알림: B전략 청산조건을 무상태 preview 로만 판정(decide/persist 미호출).
+                        #    매도 plan 미기록 → execution_monitor 집행 없음. 소유자는 계좌 기반(손절) 포함,
+                        #    친구는 점수 기반 청산조건만 (정규장 시그널과 동일한 노출 규칙).
+                        _sess = trading.post_close_label(now)
+                        _owner_id = str(secrets.TELEGRAM_CHAT_ID)
+                        if is_etf or not is_v3_master_code(code):
+                            _pfs, _psm, _prsn, _pavg = False, None, "", None
+                        else:
+                            _pavg = get_cached_avg_price(code) if is_my_code else None
+                            _pfs, _psm, _prsn = sell_strategy_b.preview(
+                                code, total_score, disp_cur, _pavg, today_str)
+                        _prsn = _prsn if _pfs else ""
+                        _pfriend = _prsn if _prsn in ("score", "raw_neg_close") else ""
+                        _ptxt = {"stop12":        f"{sell_strategy_b.STOP_PCT * 100:.0f}% 손절선 도달",
+                                 "score":         f"평활 {sell_strategy_b.SELL_THRESH * 100:.0f}점 미만 2일 연속",
+                                 "raw_neg_close": "점수 0 미만"}
+                        _sm_txt = f" (평활 {_psm * 100:.1f})" if _psm is not None else ""
+                        _changed = False
+                        for _cid in list(history_chat.get(code) or []):
+                            _is_owner = str(_cid) == _owner_id
+                            _r = _prsn if _is_owner else _pfriend
+                            _prev_r = after_sell_alert.get((str(_cid), code), "")
+                            if _r == _prev_r:
+                                continue
+                            after_sell_alert[(str(_cid), code)] = _r
+                            _changed = True
+                            if _r:
+                                _extra = ""
+                                if _is_owner and _r == "stop12" and _pavg:
+                                    _extra = f"\n평단: {_pavg:,.0f}원 ({(disp_cur - _pavg) / _pavg * 100:+.1f}%)"
+                                _pmsg = (f"🌙 [{_sess}·참고] 매도조건 충족 {stock_name} ({code})\n"
+                                         f"사유: {_ptxt.get(_r, _r)}\n"
+                                         f"점수: {total_score * 100:.1f}점{_sm_txt} (KRX 기준)\n"
+                                         f"현재가(통합): {disp_cur:,}원{_extra}\n"
+                                         f"※ 장후 자동매도 미적용 — 실제 매도 판단은 다음 정규장")
+                            else:
+                                _pmsg = (f"🌙 [{_sess}·참고] 매도조건 해소 {stock_name} ({code})\n"
+                                         f"점수: {total_score * 100:.1f}점{_sm_txt} (KRX 기준)\n"
+                                         f"현재가(통합): {disp_cur:,}원")
+                            if _is_owner:
+                                print(f"   🌙 {_pmsg.replace(chr(10), '  ')}")
+                            send_telegram(_pmsg, [_cid])
+                        if _changed:
+                            save_after_sell_alerts(today_str, after_sell_alert)
+
+                    if code in history_codes and not post_close:
                         # ── B 매도전략 결정 (3일 평활 + 2일 확인 + 가격 손절(-14%) + raw<0 → 전량) ──
                         _today_b = datetime.now().strftime("%Y%m%d")
                         # 자동매도 게이트: ETF·V3 마스터 미등재(=수기 매수 영역) 종목은 B전략 제외.
@@ -1000,8 +1102,8 @@ def run_updater():
                                                  "sell_level": keep_amount,
                                                  "open_orders": []}
 
-                    # (8) history 종목이면 업데이트 수집
-                    if code in history_codes:
+                    # (8) history 종목이면 업데이트 수집 (장후는 promising 정규장 기준 보존 → 미수집)
+                    if code in history_codes and not post_close:
                         history_updates[code] = {
                             'total_score': total_score,
                             'close_price': curr,
@@ -1042,7 +1144,7 @@ def run_updater():
                     # (9) 결과 저장
                     result_row = {
                         'code': code, 'name': stock_name,
-                        'close_price': curr, 'market_cap': cap,
+                        'close_price': disp_cur, 'market_cap': cap,
                         'score_total': total_score,
                         'net_hits':    s_hits - d_hits,
                         'surge_hits':  s_hits, 'drop_hits': d_hits,
@@ -1063,7 +1165,11 @@ def run_updater():
                     continue
 
             # 3. 로그 저장
-            update_split_logs(results_stock, results_etf, today_str)
+            update_split_logs(results_stock, results_etf, today_str, after=post_close)
+            if post_close:
+                # 장후: promising·last_scores·매도 plan·B전략 상태 미갱신, auto_buy 킥 없음(모니터링·알림만)
+                time.sleep(CYCLE_DELAY)
+                continue
             # 보유종목 set(5분 캐시) — promising 자동정리(60+미달·미보유 제거)에 사용
             holdings_set = get_holdings_set()
             update_search_history_scores(history_updates, today_str, holdings_set)

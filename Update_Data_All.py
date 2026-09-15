@@ -3,9 +3,10 @@ import sys
 import time
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime
 from dateutil.relativedelta import relativedelta
 from kis_api import auth, inquiry, indicators, common
+from kis_api import kiwoom_inquiry   # 정규장 전용 당일 집계(분봉·시간별 프로그램매매)
 from config import secrets
 
 # ====== 설정 ======
@@ -188,6 +189,42 @@ def fetch_chart_data_chunked(code, start_date, end_date):
 
 
 # =========================================================
+# 🕘 정규장(09:00~15:30) 전용 당일 보정 — 2026-09-14 KRX 애프터마켓(16:00~20:00) 신설 대응
+#    한투 일봉·일별 프로그램매매의 '당일' 값에는 장후(애프터마켓 등) 체결이 섞인다
+#    (2026-09-14 16:51 확인: 일봉 acml_vol = 장후 포함 실시간 누적과 동일).
+#    → 당일 행의 OHLCV·프로그램 매수/매도/순매수를 키움 1분봉·시간별 누적에서 정규장분만 잘라 교체.
+#    ※ 분봉 보관 한계로 '당일'만 보정(과거일 재수집 시엔 한투 값 그대로). 조회 실패 종목은 한투 값 유지.
+# =========================================================
+AFTER_MARKET_LAUNCH = "20260914"
+REGULAR_FIX_FROM    = dtime(15, 35)   # 정규장 종가 확정 후에만 보정
+
+
+def apply_regular_session_today(df_new, code, stats):
+    now = datetime.now()
+    today = now.strftime("%Y%m%d")
+    if today < AFTER_MARKET_LAUNCH or now.time() < REGULAR_FIX_FROM:
+        return
+    mask = df_new['date'] == pd.Timestamp(today)
+    if not mask.any():
+        return
+    o = kiwoom_inquiry.fetch_regular_session_ohlcv(code, today)
+    if o:
+        for k in ('open', 'high', 'low', 'close', 'volume'):
+            df_new.loc[mask, k] = o[k]
+        stats['ohlcv_ok'] += 1
+    else:
+        stats['ohlcv_fail'].append(code)
+    p = kiwoom_inquiry.fetch_regular_session_program(code, today)
+    if p:
+        df_new.loc[mask, 'prog_net_qty'] = p['prog_net_qty']
+        df_new.loc[mask, 'prog_buy'] = p['prog_buy']
+        df_new.loc[mask, 'prog_sell'] = p['prog_sell']
+        stats['prog_ok'] += 1
+    else:
+        stats['prog_fail'].append(code)
+
+
+# =========================================================
 # 🚀 메인 업데이트 로직
 # =========================================================
 def update_all_files():
@@ -231,6 +268,7 @@ def update_all_files():
 
     success_cnt, fail_cnt = 0, 0
     failed_items = []
+    reg_stats = {'ohlcv_ok': 0, 'prog_ok': 0, 'ohlcv_fail': [], 'prog_fail': []}
 
     for idx, file_path in enumerate(all_files, 1):
         code = os.path.basename(file_path)[1:7]
@@ -256,6 +294,9 @@ def update_all_files():
                     df_new['prog_net_qty'] = 0
                     df_new['prog_buy'] = 0
                     df_new['prog_sell'] = 0
+
+                # 당일 행은 정규장 체결분만 (장후 체결 제외) — 파생 계산 전에 교체
+                apply_regular_session_today(df_new, code, reg_stats)
 
                 # 파생 계산 (신규 데이터 한정)
                 df_new['prog_ratio_vol'] = np.where(df_new['volume'] > 0,
@@ -331,6 +372,12 @@ def update_all_files():
 
     print("\n\n✅ 모든 작업이 완료되었습니다.")
     print(f"   - 성공: {success_cnt}개, 실패: {fail_cnt}개")
+    if reg_stats['ohlcv_ok'] or reg_stats['ohlcv_fail'] or reg_stats['prog_fail']:
+        print(f"   - 당일 정규장 보정: 시세 {reg_stats['ohlcv_ok']}개 · 프로그램 {reg_stats['prog_ok']}개 "
+              f"(실패 시세 {len(reg_stats['ohlcv_fail'])} · 프로그램 {len(reg_stats['prog_fail'])} → 한투 값 유지)")
+        if reg_stats['ohlcv_fail'] or reg_stats['prog_fail']:
+            print(f"     실패 코드(시세): {reg_stats['ohlcv_fail'][:50]}")
+            print(f"     실패 코드(프로그램): {reg_stats['prog_fail'][:50]}")
 
     if failed_items:
         print("\n⚠️ [업데이트 실패 종목 목록]")

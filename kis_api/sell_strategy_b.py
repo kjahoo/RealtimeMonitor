@@ -204,6 +204,27 @@ def decide(code, raw_score, cur_price, avg_price, today, now_ts=None):
     return False, smoothed, ""
 
 
+def preview(code, raw_score, cur_price, avg_price, today):
+    """장후(정규장 마감 후) 참고 알림용 — decide() 와 같은 청산 판정을 '상태 변경 없이' 계산.
+    장후 시세로 오늘 raw(last_raw)·타이머를 덮어쓰면 익일 평활이 정규장 기준에서 벗어나므로
+    decide()/persist() 대신 이 함수를 쓴다. 장마감 이후라 raw<0 은 decide 와 같이 즉시 해당.
+    반환: (full_sell, smoothed, reason) — reason ∈ {"", "stop12", "raw_neg_close", "score"}"""
+    import copy
+    e = copy.deepcopy(_STATE.get(code) or {"day": today, "hist": [], "below_days": 0,
+                                           "last_raw": None, "last_smoothed": None})
+    _roll_day(e, today)
+    hist = e.get("hist", [])
+    smoothed = (sum(hist) + raw_score) / (len(hist) + 1)
+    if raw_score < STOP_SCORE_KEEP and is_stop_loss(cur_price, avg_price):
+        return True, smoothed, "stop12"
+    if raw_score < RAW_SELL_THRESH:
+        return True, smoothed, "raw_neg_close"
+    if (raw_score < SELL_THRESH
+            and smoothed < SELL_THRESH and (e.get("below_days", 0) + 1) >= CONFIRM_DAYS):
+        return True, smoothed, "score"
+    return False, smoothed, ""
+
+
 def _next_raw_thresh(e):
     """다음 거래일 raw 점수가 이 값 '미만'이면 다음날 평활 < SELL_THRESH 가 된다.
     (다음날 hist = (현재 hist + 오늘 last_raw)[-(SMOOTH_N-1):] 로 롤오버되는 것을 반영)"""

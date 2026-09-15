@@ -322,8 +322,7 @@ def run_manual_analysis():
 
         df = indicators.calculate_indicators_v3_save(df)
 
-        if 'prog_net_ratio' not in df.columns:
-            df['prog_net_ratio'] = df.apply(lambda x: x['prog_net_qty'] / x['volume'] if x['volume'] > 0 else 0, axis=1)
+        df = indicators.fill_prog_net_ratio(df)   # 오늘 행 포함(기존: 열 존재 시 건너뛰어 오늘 행 0)
 
         for col in V3_FEATURES:
             if col not in df.columns: df[col] = 0.0

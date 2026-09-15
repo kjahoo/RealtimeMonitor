@@ -57,3 +57,16 @@ def calculate_indicators_v3_save(df):
         df['bb_pos'] = df['bb_p']
 
     return df
+
+
+def fill_prog_net_ratio(df):
+    """prog_net_ratio(프로그램 순매수/거래량) 결측 행을 채운다 — 실시간 봇이 붙인 '오늘 행' 용.
+    과거 행은 Update_Data_All 이 같은 식으로 계산해 둔 값을 그대로 둔다.
+    (2026-09-14 수정: 기존엔 'prog_net_ratio' 열이 이미 있으면 계산을 건너뛰어 오늘 행이 NaN→fillna(0)
+     으로 항상 0 — 학습 데이터와 달리 실시간 V3 점수에서 프로그램 순매수 효과가 빠져 있었음)"""
+    ratio = (df['prog_net_qty'] / df['volume'].where(df['volume'] > 0)).fillna(0)
+    if 'prog_net_ratio' in df.columns:
+        df['prog_net_ratio'] = df['prog_net_ratio'].fillna(ratio)
+    else:
+        df['prog_net_ratio'] = ratio
+    return df

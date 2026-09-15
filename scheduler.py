@@ -4,7 +4,13 @@ scheduler.py - RealtimeMonitor 자동 스케줄러
 [시간대별 동작]
   평일 08:00~09:00  : NXT 모드 → main_stock + Update_Promising 실행
   평일 09:00~15:30  : KRX 모드 → main_stock + Update_Promising 실행
-  평일 15:30~20:00  : NXT 모드 → main_stock + Update_Promising 실행
+  평일 15:30~20:00  : AFTER 모드(장후 — NXT 15:30~ · KRX 애프터마켓 16:00~, 2026-09-14 신설)
+                       → main_stock + Update_Promising 실행 (모니터링·알림만)
+                       ※ 대상: 전일 build_buylist 필터링 종목(buylist)만
+                       ※ 점수는 KRX 시세(학습 데이터와 동일 기준), 알림 현재가·손절 판정은 통합(SOR) 현재가
+                       ※ 자동매매 미적용(execution_monitor 는 정규장만 집행),
+                         일봉 CSV·Stock_V3·promising·매도전략 상태는 정규장 기준으로 보존하고
+                         장후 점수는 logs/{날짜}_Stock_V3_AfterMkt.csv 에 따로 기록
   평일 20:00~       : 봇 종료 → Update_Data_All → build_stock_master(신규상장 편입)
                        → build_buylist(다음거래일 매수리스트) 자동 실행 → 익일 08:00 대기
   주말              : 대기
@@ -55,7 +61,8 @@ POLL_INTERVAL = 10
 # "update" : Update_Promising_Stocks.py
 # "search" : Search_Stock_V3.py  ← 항상 실행 (시장 모드 무관)
 running_procs = {}
-current_mode  = None  # "NXT" | "KRX" | "CLOSED" | "WAITING" | "WEEKEND"
+current_mode  = None  # "NXT" | "KRX" | "AFTER" | "CLOSED" | "WAITING" | "WEEKEND"
+MARKET_MODES  = ("NXT", "KRX", "AFTER")   # 시장 연동 봇(main_stock·Update_Promising)이 도는 모드
 
 
 def log(msg):
@@ -89,7 +96,7 @@ def get_market_mode():
     elif TIME_KRX_START <= t < TIME_KRX_END:
         return "KRX"
     elif TIME_KRX_END <= t < TIME_NXT_END:
-        return "NXT"
+        return "AFTER"      # 장후 모니터링(자동매매 미적용)
     elif t >= TIME_NXT_END:
         return "CLOSED"
     else:
@@ -291,7 +298,9 @@ def ensure_viewer_alive():
 def start_bots(mode):
     """
     mode에 따라 시장 연동 봇을 실행합니다.
-      KRX / NXT : main_stock + Update_Promising_Stocks
+      KRX / NXT / AFTER : main_stock + Update_Promising_Stocks
+      (AFTER 는 inquiry·kiwoom_inquiry 에서 KRX 시장코드로 조회된다 — NXT 만 _NX/NX 분기.
+       통합(SOR) 현재가는 각 봇이 kiwoom_inquiry.fetch_sor_price 로 별도 조회)
       ※ main_etf.py 는 실행하지 않습니다.
     """
     global running_procs
@@ -299,7 +308,7 @@ def start_bots(mode):
     stop_market_bots()  # 기존 시장 연동 봇 먼저 종료
 
     env = os.environ.copy()
-    env["MARKET_MODE"] = mode  # inquiry.py 에서 KRX/NXT 분기에 사용
+    env["MARKET_MODE"] = mode  # inquiry.py 에서 KRX/NXT 분기에 사용 (AFTER=KRX 시세)
 
     scripts = {
         "stock":  "main_stock.py",
@@ -373,7 +382,7 @@ def check_market_bots_alive():
     """시장 연동 봇이 비정상 종료됐으면 재시작합니다."""
     global running_procs, current_mode
 
-    if current_mode not in ("NXT", "KRX"):
+    if current_mode not in MARKET_MODES:
         return
 
     script_map = {
@@ -924,7 +933,7 @@ def main():
         mode = get_market_mode()
 
         # ── 날짜가 바뀌면 업데이트 플래그 초기화
-        if mode in ("NXT", "KRX") and data_updated_today:
+        if mode in MARKET_MODES and data_updated_today:
             data_updated_today = False
 
         # ── 공휴일 대기 중: search/telegram 봇만 유지, 시장봇 건드리지 않음
@@ -946,7 +955,7 @@ def main():
             log(f"📌 모드 전환: {current_mode} → {mode}")
             current_mode = mode
 
-            if mode in ("NXT", "KRX"):
+            if mode in MARKET_MODES:
                 # NXT 아침 첫 전환(08:00)이면 공휴일 체크
                 if mode == "NXT" and datetime.now().time() < TIME_KRX_START:
                     log("🔍 NXT 개장 — 삼성전자 시세로 공휴일 여부 확인 중...")
@@ -994,7 +1003,7 @@ def main():
 
         # ── 현재 상태 주기적 출력 (폴링 주기 내 첫 번째 틱)
         if datetime.now().second < POLL_INTERVAL:
-            if mode in ("NXT", "KRX"):
+            if mode in MARKET_MODES:
                 market_alive = sum(
                     1 for k in ("stock", "update")
                     if running_procs.get(k) and running_procs[k].poll() is None
