@@ -44,6 +44,26 @@ from datetime import datetime, timedelta, time as dtime
 PYTHON_EXE = r"C:\Users\JH_Signature\miniconda3\envs\trading_env\python.exe"
 PROJECT_DIR = r"C:\Projects\RealtimeMonitor"
 
+# 새 콘솔 창 제목을 스크립트 파일명으로 표시 (기본은 python.exe 경로라 창 구분 불가).
+#   python.exe 가 먼저 SetConsoleTitleW 후 runpy 로 스크립트/모듈 실행 → 같은 PID 유지(poll/terminate 영향 없음).
+#   sys.path[0] 은 'python script.py' 와 같게 스크립트 폴더로 맞춘다(kis_api/telegram_chat.py 의 형제 import).
+_TITLE_LAUNCHER = (
+    "import ctypes,os,runpy,sys;"
+    "t=sys.argv[1];a=sys.argv[2:];"
+    "ctypes.windll.kernel32.SetConsoleTitleW(t);"
+    "m=a[1] if a[0]=='-m' else None;"
+    "sys.argv=[m]+a[2:] if m else a;"
+    "sys.path[0]=os.getcwd() if m else os.path.dirname(os.path.abspath(a[0]));"
+    "runpy.run_module(m,run_name='__main__',alter_sys=True) if m else runpy.run_path(a[0],run_name='__main__')"
+)
+
+
+def titled_cmd(args, python=None, title=None):
+    """[python, *args] 와 동일하게 실행하되 콘솔 창 제목을 파일명(또는 title)으로 설정하는 명령 리스트."""
+    if title is None:
+        title = os.path.basename(args[0]) if args[0] != "-m" else args[1]
+    return [python or PYTHON_EXE, "-c", _TITLE_LAUNCHER, title, *args]
+
 # 시간대 설정
 TIME_NXT_START   = dtime(8,  0)   # NXT 프리마켓 시작
 TIME_KRX_START   = dtime(9,  0)   # KRX 정규장 시작
@@ -155,7 +175,7 @@ def start_search_bot():
     script_path = os.path.join(PROJECT_DIR, "Search_Stock_V3.py")
     try:
         proc = subprocess.Popen(
-            [PYTHON_EXE, script_path],
+            titled_cmd([script_path]),
             cwd=PROJECT_DIR,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
@@ -181,7 +201,7 @@ def start_telegram_bot():
     script_path = os.path.join(PROJECT_DIR, "kis_api", "telegram_chat.py")
     try:
         proc = subprocess.Popen(
-            [PYTHON_EXE, script_path],
+            titled_cmd([script_path]),
             cwd=PROJECT_DIR,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
@@ -205,7 +225,7 @@ def start_exec_monitor():
     script_path = os.path.join(PROJECT_DIR, "execution_monitor.py")
     try:
         proc = subprocess.Popen(
-            [PYTHON_EXE, script_path],
+            titled_cmd([script_path]),
             cwd=PROJECT_DIR,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
@@ -228,7 +248,7 @@ def start_paper_trader():
     script_path = os.path.join(PROJECT_DIR, "paper_trader.py")
     try:
         proc = subprocess.Popen(
-            [PYTHON_EXE, script_path],
+            titled_cmd([script_path]),
             cwd=PROJECT_DIR,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
@@ -269,9 +289,9 @@ def start_viewer():
         return
     try:
         proc = subprocess.Popen(
-            [viewer_py, "-m", "streamlit", "run", app_path,
+            titled_cmd(["-m", "streamlit", "run", app_path,
              "--server.headless", "true", "--browser.gatherUsageStats", "false",
-             "--server.port", str(VIEWER_PORT)],
+             "--server.port", str(VIEWER_PORT)], python=viewer_py, title="viewer_v3_web.py"),
             cwd=PROJECT_DIR,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
@@ -320,7 +340,7 @@ def start_bots(mode):
         script_path = os.path.join(PROJECT_DIR, script)
         try:
             proc = subprocess.Popen(
-                [PYTHON_EXE, script_path],
+                titled_cmd([script_path]),
                 cwd=PROJECT_DIR,
                 env=env,
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
@@ -400,7 +420,7 @@ def check_market_bots_alive():
             env["MARKET_MODE"] = current_mode
             try:
                 new_proc = subprocess.Popen(
-                    [PYTHON_EXE, os.path.join(PROJECT_DIR, script)],
+                    titled_cmd([os.path.join(PROJECT_DIR, script)]),
                     cwd=PROJECT_DIR,
                     env=env,
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
@@ -469,7 +489,7 @@ def run_update_data_all():
 
     try:
         proc = subprocess.Popen(
-            [PYTHON_EXE, script_path],
+            titled_cmd([script_path]),
             cwd=PROJECT_DIR,
             stdin=subprocess.PIPE,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
@@ -499,7 +519,7 @@ def _run_blocking(script_name, timeout_sec, label):
     log(f"🧺 {label} 실행 시작... ({script_name})")
     try:
         proc = subprocess.Popen(
-            [PYTHON_EXE, script_path],
+            titled_cmd([script_path]),
             cwd=PROJECT_DIR,
             creationflags=subprocess.CREATE_NEW_CONSOLE,
         )
