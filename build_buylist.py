@@ -10,7 +10,7 @@ EOD 스냅샷(logs\\stock_master.json)과 개별 종목 CSV 만으로 **다음 �
   2. 감리구분 != '정상'  (관리종목·거래정지·투자경고·투자위험·투자주의환기 등)
   3. state 에 '거래정지' 포함                    (중복 안전장치)
   4. 거래일수(CSV 행수) < 95   (모델 최대 lookback 미만 → 분석 불가. 신규 상장 등)
-  5. 최근 20거래일 일평균 거래대금(close×volume) < 20억   (CSV)
+  5. 최근 20거래일 일평균 거래대금(close×volume) < 10억   (CSV, 2026-09-28 20억→10억 완화)
   6. 최근 ~6개월(120거래일) 내 연속 동일종가 ≥ 10일       (비공식 정지/초저유동 방어, CSV)
 
   ※ promising·키움 보유종목은 조건 미달이어도 강제 포함(감시 유지) — 아래 강제 포함 참고.
@@ -41,7 +41,7 @@ MASTER   = os.path.join(LOG_DIR, "stock_master.json")
 
 # ── 임계값 (튜닝 지점) ─────────────────────────────────────────────────────────
 MARKET_CAP_MIN_EOK   = 1_000            # 시가총액 최소(억원)
-TRADING_VALUE_MIN    = 2_000_000_000    # 일평균 거래대금 최소(원) = 20억
+TRADING_VALUE_MIN    = 1_000_000_000    # 일평균 거래대금 최소(원) = 10억 (2026-09-28 20억→10억)
 TV_WINDOW            = 20               # 거래대금 평균 창(거래일)
 HALT_WINDOW          = 120              # 거래정지 근사 관찰 창(≈6개월)
 CONSEC_SAME_CLOSE    = 10               # 연속 동일종가 임계(일)
@@ -140,7 +140,7 @@ def main():
         return
     with open(MASTER, "r", encoding="utf-8") as f:
         stocks = json.load(f).get("stocks", {})
-    print(f"  마스터 보통주: {len(stocks)}개")
+    print(f"  마스터 종목(보통주·우선주): {len(stocks)}개")
 
     # ── 1차: 마스터 필드(시총·감리·상태) 필터 — API 0콜 ─────────────────────────
     cand, drop_cap, drop_audit, drop_state = [], 0, 0, 0
