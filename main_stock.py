@@ -568,6 +568,15 @@ if __name__ == "__main__":
                 time.sleep(600)
                 continue
 
+            # ── NXT 모드 프로세스는 KRX 정규장(09:00~15:30)에 절대 점수를 쓰지 않는다(2026-09-29).
+            #    정상이면 scheduler 가 09:00 에 KRX 모드로 재기동하지만, scheduler 비정상 종료로 남은
+            #    고아 NXT 봇이 NX 시세로 계산한 점수를 09시 이후 시각으로 Stock_V3 에 쓰면
+            #    '정규장 재평가' 게이트를 통과해 버린다 → 스스로 종료.
+            if (os.environ.get("MARKET_MODE", "KRX").upper() == "NXT"
+                    and kt.MARKET_OPEN <= _now.time() <= kt.MARKET_CLOSE):
+                print(f"🛑 [{_now:%H:%M:%S}] NXT 모드인데 정규장 시간 — 종료(KRX 봇이 정규장 점수 담당)")
+                sys.exit(0)
+
             # 정규장 ↔ 장후 경계를 넘긴 채 계속 도는 경우(보통은 scheduler 가 모드 전환 시 재시작) 기준 전환
             if kt.is_post_close(_now) != after_mode:
                 after_mode = not after_mode
@@ -590,6 +599,11 @@ if __name__ == "__main__":
             history_codes = _search_history_codes(today_str)
 
             for idx, filename in enumerate(files, 1):
+                # 사이클(~8분) 도중 09:00 을 넘긴 NXT 모드 프로세스도 즉시 종료(미저장 결과는 버림)
+                if (os.environ.get("MARKET_MODE", "KRX").upper() == "NXT"
+                        and kt.MARKET_OPEN <= datetime.now().time() <= kt.MARKET_CLOSE):
+                    print("🛑 NXT 모드인데 정규장 시간 — 사이클 중단·종료")
+                    sys.exit(0)
                 # ✅ [수정] 1번 종목(시작) 및 50개 종목마다 지수 데이터 갱신
                 if (idx - 1) % 50 == 0:
                     k_val = inquiry.fetch_index_change("0001")  # 코스피

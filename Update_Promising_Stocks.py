@@ -605,6 +605,11 @@ def run_updater():
 
             today_str   = now.strftime("%Y%m%d")
             market_mode = os.environ.get("MARKET_MODE", "KRX")
+            # NXT 모드 프로세스는 KRX 정규장(09:00~15:30)에 점수를 쓰지 않는다(2026-09-29) — scheduler
+            # 비정상 종료로 남은 고아 NXT 봇이 NX 시세 점수를 '정규장 재평가'로 오인시키지 않도록 종료.
+            if market_mode.upper() == "NXT" and trading.MARKET_OPEN <= now.time() <= trading.MARKET_CLOSE:
+                print(f"   🛑 [{now:%H:%M:%S}] NXT 모드인데 정규장 시간 — 종료(KRX 봇이 정규장 점수 담당)")
+                sys.exit(0)
             post_close  = trading.is_post_close(now)   # 15:30~20:00 장후: 모니터링·알림만
             if post_close and after_sell_alert is None:
                 after_sell_alert = load_after_sell_alerts(today_str)
@@ -1164,6 +1169,11 @@ def run_updater():
                     print(f"   ❌ [{code}] 오류: {e}")
                     continue
 
+            # 저장 직전 재확인: 사이클 도중 09:00 을 넘긴 NXT 모드 프로세스는 쓰지 않고 종료
+            if market_mode.upper() == "NXT" and trading.MARKET_OPEN <= datetime.now().time() <= trading.MARKET_CLOSE:
+                print("   🛑 NXT 모드인데 정규장 시간 — 이번 사이클 결과 미저장·종료")
+                sys.exit(0)
+
             # 3. 로그 저장
             update_split_logs(results_stock, results_etf, today_str, after=post_close)
             if post_close:
@@ -1171,7 +1181,10 @@ def run_updater():
                 time.sleep(CYCLE_DELAY)
                 continue
             # 보유종목 set(5분 캐시) — promising 자동정리(60+미달·미보유 제거)에 사용
-            holdings_set = get_holdings_set()
+            #   장전(NXT) 중엔 정리 생략: 장전 60점+ 종목은 promising 에 보류해 두었다가
+            #   09시 정규장 재평가 점수로 판단한다(장전 점수 일시 하락으로 미리 지우지 않음, 2026-09-29).
+            premkt = market_mode == "NXT" and datetime.now().time() < dtime(9, 0)
+            holdings_set = None if premkt else get_holdings_set()
             update_search_history_scores(history_updates, today_str, holdings_set)
             save_last_scores(last_scores)
             # ── 비중구간 변동(상승·하락) → auto_buy 즉시 킥 (KRX 정규장에만, PLAN_KICK_MIN_SEC 디바운스).

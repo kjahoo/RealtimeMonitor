@@ -49,6 +49,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import secrets
 from kis_api import auth, kiwoom_trading as kt
+import buy_gate
 
 LOG_DIR = secrets.LOCAL_DATA_PATH
 OWNER_ID = str(secrets.TELEGRAM_CHAT_ID)
@@ -141,57 +142,16 @@ def _is_closing_auction():
     return 15 * 3600 + 20 * 60 <= sec < 15 * 3600 + 30 * 60
 
 
-def _is_krx_session_ts(ts):
-    """'YYYY-MM-DD HH:MM:SS' 가 KRX 정규장(09:00~15:30) 시각인가.
-       장전/장후 NXT 세션 행을 매매 판단에서 배제하기 위한 필터. 파싱 실패 시 제외(False)."""
-    try:
-        h, m, s = (int(x) for x in ts.split(" ")[1].split(":"))
-        sec = h * 3600 + m * 60 + s
-        return 9 * 3600 <= sec <= 15 * 3600 + 30 * 60
-    except Exception:
-        return False
-
-
 def _load_live_scores(today_str):
-    """코드별 '정규장' 최신 점수(×100). Stock_V3(폴백) → promising(Search_History, 우선)으로 덮어씀.
-       매수 직전 '현재도 SCORE_MIN(60)+인가' 재확인용.
-       ※ NXT 점수 배제: Search_History 는 KRX 정규장(09:00~15:30) 시각 행만 사용한다.
-         장전/장후 NXT 세션의 순간 점수는 매매에 관여시키지 않는다(참고용일 뿐)."""
-    import csv
-    scores = {}
-    v3 = _p(f"{today_str}_Stock_V3.csv")
-    if os.path.exists(v3):
-        try:
-            with open(v3, encoding="utf-8-sig") as f:
-                for row in csv.DictReader(f):
-                    c = _fmt(row.get("code", ""))
-                    if not c:
-                        continue
-                    try:
-                        scores[c] = float(row.get("score_total", 0) or 0) * 100.0
-                    except Exception:
-                        pass
-        except Exception as e:
-            print(f"   ⚠️ Stock_V3 점수 로드 실패: {e}")
-    hist = _p(f"{today_str}_Search_History.csv")
-    if os.path.exists(hist):
-        try:
-            latest_ts = {}
-            with open(hist, encoding="utf-8-sig") as f:
-                for row in csv.DictReader(f):
-                    c = _fmt(row.get("code", ""))
-                    ts = (row.get("timestamp") or "").strip()
-                    if not c or not _is_krx_session_ts(ts):   # NXT/장외 시각 행 제외
-                        continue
-                    if c not in latest_ts or ts >= latest_ts[c]:
-                        latest_ts[c] = ts
-                        try:
-                            scores[c] = float(row.get("total_score", 0) or 0) * 100.0
-                        except Exception:
-                            pass
-        except Exception as e:
-            print(f"   ⚠️ Search_History 점수 로드 실패: {e}")
-    return scores
+    """코드별 '정규장 재평가' 점수(×100) — 매수 직전 '현재도 임계(60/보조 40)+인가' 재확인용.
+       buy_gate 공용 규칙: 오늘 Stock_V3 행 중 KRX 봇 기동 경계(since) 이후 계산된 행만 인정.
+       재평가 전 종목은 목록에 없음(None) → 매수 보류(재평가 대기).
+       ※ Stock_V3 전 행을 시각 필터 없이 쓰던 폴백이 장전 77점을 통과시켜 09:01 매수가 났다
+         (2026-09-29 STX엔진). Search_History 는 자동등록·평가후처리가 장전 점수에 현재시각을
+         찍을 수 있어 '재평가' 증거가 못 되므로 쓰지 않는다."""
+    since = buy_gate.krx_since(LOG_DIR, today_str)
+    rows = buy_gate.rescored_rows(buy_gate.load_v3_rows(LOG_DIR, today_str), since)
+    return {c: r["score100"] for c, r in rows.items()}
 
 
 # ── 1 틱: plan 을 읽어 호가 sweep 집행 ────────────────────────────────────
@@ -349,14 +309,16 @@ def _tick(today_str):
             cst["smwarn"] = False        # 평활 회복(≥임계) → 다음 하락 시 재알림
             changed = True
 
-        # ── 매수 직전 실시간 점수 재확인(순간 스파이크 매수 방지)(실격 → 예약 없음).
+        # ── 매수 직전 정규장 재평가 점수 재확인(장전 NXT 점수·순간 스파이크 매수 방지)(실격 → 예약 없음).
         live_sc = live_scores.get(code)
         min_sc = float(t.get("min_score", SCORE_MIN) or SCORE_MIN)   # plan 기록 임계(보조매수 40, 기본 60)
         if live_sc is None or live_sc < min_sc:
-            shown = "미확인(정규장 점수없음)" if live_sc is None else f"{live_sc:.0f}"
-            _log_once(f"buy:{code}", f"  ⏭️ {name}({code}) 잔여{remaining} · 현재점수 {shown}<{min_sc:.0f} — 매수 보류")
+            shown = "재평가대기" if live_sc is None else f"{live_sc:.0f}"
+            why = ("정규장 재평가 전 — 매수 보류" if live_sc is None
+                   else f"정규장 점수 {live_sc:.0f}<{min_sc:.0f} — 매수 보류")
+            _log_once(f"buy:{code}", f"  ⏭️ {name}({code}) 잔여{remaining} · {why}")
             if cst.get("last_skip_score") != shown:      # 같은 사유 반복 알림 방지
-                report.append(f"⏭️ {name}({code}) 현재점수 {shown}<{min_sc:.0f} — 매수 보류(스파이크 방지)")
+                report.append(f"⏭️ {name}({code}) {why}")
                 cst["last_skip_score"] = shown
                 changed = True
             continue

@@ -2,7 +2,7 @@
 """
 build_stock_master.py
 =====================
-키움 ka10099(종목정보 리스트)로 코스피·코스닥 **전체 상장 보통주** 목록을 만들고,
+키움 ka10099(종목정보 리스트)로 코스피·코스닥 **전체 상장 주식(보통주·우선주)** 목록을 만들고,
 Data\\Stock 에 아직 CSV 가 없는 신규 상장 종목의 과거 이력을 백필한다.
 
 산출:
@@ -13,11 +13,14 @@ Data\\Stock 에 아직 CSV 가 없는 신규 상장 종목의 과거 이력을 �
   }
   (build_buylist.py 가 이 스냅샷만 읽어 API 재호출 없이 매수리스트를 만든다)
 
-보통주 판정(응답 필드 기준 — 요청 mrkt_tp 와 무관하게 응답 marketName 이 실제 유형):
+주식 판정(응답 필드 기준 — 요청 mrkt_tp 와 무관하게 응답 marketName 이 실제 유형):
   - marketName ∈ {거래소, 코스닥} 만 통과   (ETF/ETN/리츠/뮤추얼펀드/인프라 제외)
   - companyClassName=='스팩' 또는 이름에 '스팩' 포함  → 제외
-  - 우선주 정규식  \\d*우[A-C]?(\\(전환\\))?$          → 제외 (전환우선주 포함)
-  - 이름에 '리츠' 포함                                → 제외 (안전)
+    (스팩 5종목은 companyClassName 이 비어 있어 이름 검사가 필요 — 2026-09-15 확인)
+  ※ 2026-09-15: 이름 기반 우선주·'리츠' 제외 삭제. 리츠는 marketName='리츠'로 이미 제외되고,
+     우선주는 시총·거래대금 조건(build_buylist)에서 대부분 탈락. 이름 검사가 메리츠금융지주·
+     블리츠웨이엔터테인먼트('리츠' 포함), 에코글로우·이오플로우·성우('우'로 끝남)를 오탐하던 문제 해소.
+     롤백: logs\\build_stock_master.py.bak_20260915_namefix
 
 사용:
   python -X utf8 build_stock_master.py                # 목록 생성 + 신규종목 백필
@@ -26,7 +29,6 @@ Data\\Stock 에 아직 CSV 가 없는 신규 상장 종목의 과거 이력을 �
 """
 
 import os
-import re
 import sys
 import json
 import argparse
@@ -47,20 +49,14 @@ DATA_DIR   = os.path.join(ROOT, "Data", "Stock")
 LOG_DIR    = os.path.join(ROOT, "logs")
 MASTER_OUT = os.path.join(LOG_DIR, "stock_master.json")
 
-# ── 보통주 판정 ────────────────────────────────────────────────────────────────
+# ── 주식 판정 ──────────────────────────────────────────────────────────────────
 COMMON_MARKETS = ("거래소", "코스닥")
-PREF_RE        = re.compile(r"\d*우[A-C]?(\(전환\))?$")   # 우/우B/2우B/우(전환) 등 우선주
 
 
 def is_common_stock(row: dict) -> bool:
     if row.get("marketName") not in COMMON_MARKETS:
         return False
-    name = row.get("name", "")
-    if row.get("companyClassName") == "스팩" or "스팩" in name:
-        return False
-    if PREF_RE.search(name):
-        return False
-    if "리츠" in name:
+    if row.get("companyClassName") == "스팩" or "스팩" in row.get("name", ""):
         return False
     return True
 

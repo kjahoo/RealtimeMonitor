@@ -31,6 +31,7 @@ scheduler.py - RealtimeMonitor 자동 스케줄러
 
 import os
 import sys
+import json
 import time
 import shutil
 import subprocess
@@ -315,6 +316,32 @@ def ensure_viewer_alive():
 # ====================================================
 # 🚀 시장 연동 봇 관리 (main_stock + Update_Promising)
 # ====================================================
+def _write_krx_session_marker():
+    """정규장 재평가 경계(logs/{날짜}_krx_session.json)를 당일 1회 기록.
+    이 시각 이후 계산된 Stock_V3 점수만 매수 판단·비중에 쓰인다(buy_gate.krx_since).
+    - 첫 기록 = 지금(NXT 봇 종료 직후) 시각. 늦게 기동돼도(절전 복귀·루프 지연) 그때까지 돈
+      NXT 봇 행을 확실히 배제한다. 대가는 첫 KRX 재계산(UPS ~1분)까지의 짧은 대기뿐.
+    - 이미 있으면 유지(장중 scheduler 재시작이 경계를 뒤로 밀어 매수가 멈추지 않게)"""
+    try:
+        import buy_gate
+        now = datetime.now()
+        day = now.strftime("%Y%m%d")
+        path = buy_gate.krx_session_path(LOGS_DIR, day)
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                if json.load(f).get("date") == day:
+                    return
+        hhmmss = now.strftime("%H:%M:%S")
+        since = hhmmss
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"date": day, "since": since, "written": hhmmss}, f, ensure_ascii=False)
+        os.replace(tmp, path)
+        log(f"🕘 정규장 재평가 경계 기록: {since} 이후 계산된 점수만 매수에 사용")
+    except Exception as e:
+        log(f"   ⚠️ 정규장 재평가 경계 기록 실패(기본 09:01:00 적용): {e}")
+
+
 def start_bots(mode):
     """
     mode에 따라 시장 연동 봇을 실행합니다.
@@ -326,6 +353,8 @@ def start_bots(mode):
     global running_procs
 
     stop_market_bots()  # 기존 시장 연동 봇 먼저 종료
+    if mode == "KRX":
+        _write_krx_session_marker()   # NXT 봇 종료 직후 = 정규장 재평가 경계
 
     env = os.environ.copy()
     env["MARKET_MODE"] = mode  # inquiry.py 에서 KRX/NXT 분기에 사용 (AFTER=KRX 시세)
@@ -865,34 +894,48 @@ def run_fast_claude_trigger():
     threading.Thread(target=_fast_trigger_worker, args=(new_codes,), daemon=True).start()
 
 
-_openkick_day = None
+
+
+OPENKICK_END      = dtime(9, 20)   # 개장 킥 반복 종료(첫 정규장 스캔·40점 보조모드 판정까지 커버)
+OPENKICK_INTERVAL = 60             # 개장 킥 반복 간격(초)
+_openkick_last    = 0.0
+_openkick_busy    = threading.Event()
+
+
+def _openkick_worker():
+    # 동시 auto_buy 직렬화는 auto_buy 내부 파일락이 담당(프로세스 간). promote 락은 잡지 않는다
+    # — 잡으면 CLI직후/10분 사이클 promote 가 통째로 건너뛰어진다.
+    try:
+        _run_eval_script("auto_buy.py", "auto_buy(개장킥)")
+    finally:
+        _openkick_busy.clear()
 
 
 def run_autobuy_open_kick():
-    """개장 직후(09:00~09:10) auto_buy 만 1회 즉시 실행해 plan 을 바로 생성한다.
-    평가 파이프라인은 10분 주기 + 선행단계(build_pending·promote)가 ~10분 걸려
-    개장 후 ~15분간 plan 부재 → execution_monitor 매수가 늦던 문제 해소.
-    (매수 안전은 monitor 의 '매수직전 정규장 점수 재확인'이 그대로 담당 — NXT 스파이크 차단 유지)"""
-    global _openkick_day
+    """개장 직후(09:00:30~09:20) auto_buy 를 60초마다 실행해 '정규장 재평가' 점수가 나오는 즉시
+    plan 에 반영한다(2026-09-29 개정 — 1회 킥은 재평가 전이라 장전 점수로 plan 이 만들어졌음).
+    auto_buy 는 재평가 전 종목을 보류(⏳)하므로, 장전 60점+ 종목은 재평가 60점+ 유지 시에만
+    그 시점 점수 비중으로 편입된다. 평가 파이프라인(10분 주기)만으론 개장 후 ~15분 plan 부재였던
+    문제도 함께 막는다. auto_buy 는 종목구성·비중·보류사유가 바뀔 때만 알리므로(가격 변동에 따른
+    목표수량 미세변동은 무알림) 반복해도 텔레그램 도배 없음. 동시 실행은 auto_buy 파일락이 직렬화."""
+    global _openkick_last
     now = datetime.now()
     if now.weekday() >= 5:
         return
-    day = now.strftime("%Y%m%d")
-    if _openkick_day == day:
-        return
-    if not (dtime(9, 0) <= now.time() <= dtime(9, 10)):
+    if not (dtime(9, 0, 30) <= now.time() <= OPENKICK_END):
         return
     try:
         from kis_api import kiwoom_trading as _kt
-        if day in _kt.KRX_HOLIDAYS:
-            _openkick_day = day
+        if now.strftime("%Y%m%d") in _kt.KRX_HOLIDAYS:
             return
     except Exception:
         pass
-    _openkick_day = day
-    log("⚡ 개장 킥: auto_buy 즉시 실행(plan 선생성)")
-    threading.Thread(target=_run_eval_script,
-                     args=("auto_buy.py", "auto_buy(개장킥)"), daemon=True).start()
+    if _openkick_busy.is_set() or time.time() - _openkick_last < OPENKICK_INTERVAL:
+        return
+    _openkick_busy.set()
+    _openkick_last = time.time()
+    log("⚡ 개장 킥: auto_buy 실행(정규장 재평가 반영 plan 갱신)")
+    threading.Thread(target=_openkick_worker, daemon=True).start()
 
 
 def run_eval_pipeline_if_due():
