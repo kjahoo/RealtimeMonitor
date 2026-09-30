@@ -760,7 +760,7 @@ def run_updater():
                         "high": inquiry.safe_int(rt.get("stck_hgpr")),
                         "low":  inquiry.safe_int(rt.get("stck_lwpr")),
                         "close": curr, "volume": vol,
-                        "change_pct":    (curr / oprc - 1) if oprc > 0 else 0,
+                        "change_pct":    indicators.today_change_pct(rt, curr, df, target_date),  # 전일종가 대비(학습과 동일)
                         "kospi_change":  k_val,
                         "kosdaq_change": kq_val,
                         "prog_net_qty":   p_net,
@@ -1113,7 +1113,7 @@ def run_updater():
                             'total_score': total_score,
                             'close_price': curr,
                             'market_cap':  cap,
-                            'change_pct':  round((curr / oprc - 1) * 100, 2) if oprc > 0 else 0,
+                            'change_pct':  round(today_row["change_pct"] * 100, 2),  # 전일종가 대비
                             'net_hits':    s_hits - d_hits,
                             'surge_hits':  s_hits,
                             'drop_hits':   d_hits,

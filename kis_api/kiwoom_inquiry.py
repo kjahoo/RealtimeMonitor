@@ -86,7 +86,7 @@ def _post(api_id, url_path, body):
 
 # ====================================================
 # 1. 주식 현재가 시세 (ka10001) — KIS inquire-price 호환 반환
-#    반환 키: stck_prpr, stck_oprc, stck_hgpr, stck_lwpr, acml_vol, hts_avls
+#    반환 키: stck_prpr, stck_oprc, stck_hgpr, stck_lwpr, stck_sdpr, acml_vol, hts_avls
 # ====================================================
 def fetch_realtime_price(code):
     stk_cd = code + _market_suffix()
@@ -98,6 +98,7 @@ def fetch_realtime_price(code):
         "stck_oprc": str(_abs(data.get("open_pric"))),  # 시가
         "stck_hgpr": str(_abs(data.get("high_pric"))),  # 고가
         "stck_lwpr": str(_abs(data.get("low_pric"))),   # 저가
+        "stck_sdpr": str(_abs(data.get("base_pric"))),  # 기준가(전일종가) — change_pct 산출용
         "acml_vol":  str(_abs(data.get("trde_qty"))),   # 누적거래량
         "hts_avls":  str(_abs(data.get("mac"))),        # 시가총액(억원)
     }

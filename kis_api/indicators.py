@@ -2,6 +2,25 @@ import pandas as pd
 import numpy as np
 
 
+def today_change_pct(rt, curr, df=None, target_date=None):
+    """실시간 오늘 행의 change_pct = 현재가 / 전일종가 - 1.
+    학습·과거 일봉(Update_Data_All 의 close.pct_change)과 같은 정의. (2026-09-30 수정: 기존 현재가/시가-1 은
+    오늘 행만 정의가 달라 갭상승 종목 점수가 부풀려짐 — 60일 재현 비교에서 현행 방식에서만 60점+ 인 종목 D+5 -1.4%)
+    전일종가 = 시세 응답의 기준가(stck_sdpr), 없으면 일봉 CSV 의 target_date 직전 종가."""
+    try:
+        prev = float(rt.get("stck_sdpr") or 0)
+    except (TypeError, ValueError):
+        prev = 0.0
+    if prev <= 0 and df is not None and target_date is not None:
+        try:
+            past = df[pd.to_datetime(df['date']) < pd.Timestamp(target_date)]
+            if not past.empty:
+                prev = float(past['close'].iloc[-1])
+        except Exception:
+            prev = 0.0
+    return (curr / prev - 1) if prev > 0 and curr > 0 else 0.0
+
+
 # ====== v3용 지표 전체 계산 함수 ======
 def calculate_indicators_v3_save(df):
     """
