@@ -259,6 +259,7 @@ def fetch_holdings_tranche_map():
                 "sell_possible_qty": _pint(item.get("trde_able_qty")),
                 "avg_buy_price":     float(_pint(item.get("pur_pric"))),
                 "purchase_amount":   _pint(item.get("pur_amt")),
+                "cur_price":         float(_pabs(item.get("cur_prc"))),   # 현재가(없으면 0 → 호출부 폴백)
                 "loan_dt":           item.get("crd_loan_dt", "").strip(),
                 "crd_type":          crd_type,
                 "loan_amt":          0,

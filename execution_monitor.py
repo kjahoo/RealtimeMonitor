@@ -27,15 +27,22 @@ auto_buy.py 가 매 30분 세션마다 산출한 매수 계획(logs/{날짜}_aut
   - 매매는 KRX 정규장(09:00~15:30)에만. 매수 직전 '정규장 점수'가 SCORE_MIN(60)+ 인지 재확인한다.
     ▶ NXT(장전/장후) 점수는 매수/매도에 관여하지 않는다(참고용). 정규장 시각 행만 사용.
   - 콘솔(모니터 창)에 매 틱 감시 현황·체결 현황을 출력한다(무엇을 보고 왜 대기/집행하는지).
+  - (2026-10-07) 매수 순서 = plan 순서(신규종목 → 기존 보유). 신규종목(target.new) 매수 예산이 모자라면
+    '순위교체 매도': 보유비중(평가금액) 순위대로 '수익 중'(매수최우선 > 평단) 종목을 부족분만큼만 매도해
+    자금을 마련한다(_rotate_tick). 기존 보유 추가매수를 위해서는 팔지 않는다. 교체매도 종목은 당일 재매수 금지.
+    제외: 오늘 우리가 매수체결한 종목·매도 plan 종목·신규 plan 종목·수기영역(ETF/마스터 미등재)·상한가.
+    끄기: ROTATE_ENABLED=False. 롤백: logs/execution_monitor.py.bak_20261007_rotate
 
 상태파일 (logs/):
   {날짜}_autobuy_plan.json   (읽기) auto_buy 가 쓴 종목별 목표수량·기준가
   {날짜}_autobuy_exec.json   (쓰기) 종목별 체결추적·미체결주문 상태
+  {날짜}_rotate_exec.json    (쓰기) 순위교체 매도 체결추적·미체결주문 상태
 """
 
 import os
 import sys
 import json
+import math
 import time
 from datetime import datetime
 
@@ -60,6 +67,14 @@ SCORE_MIN = 60.0                                              # 매수 직전 �
 SMOOTHED_SELL_THRESH = 0.10                                   # 평활 하락(청산 예정) 매수 금지 임계 — sell_strategy_b.SELL_THRESH(0.10)와 동일하게 유지(변경 시 함께 수정)
 UPL_GUARD_SEC  = 1.0                                          # 상한가 잠김 보류 종목 감시 주기(초)
 UPL_BREAK_DROP = 0.03                                         # 상한가 해제 시 매도가 = 상한가 × (1 − 3%), 호가단위 내림
+ROTATE_ENABLED = True                                         # (2026-10-07) 신규종목 자금 부족 시 순위교체 매도
+ROT_SETTLE_SEC = 12                                           # 교체매도 주문 해소·체결 후 현금(d2) 반영 대기 — 중복 매도 방지
+ROT_MAX_DROP   = 0.01                                         # 교체매도 지정가 하한 = 매수최우선 × (1 − 1%) (평단 초과 유지)
+BUY_FEE_EST, SELL_FEE_EST = 0.00015, 0.00195                  # 필요금액 추정용 수수료(매수 0.015% / 매도 수수료+세금)
+ETF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "ETF")
+
+_rot_need = []      # 이번 틱 _tick 이 기록한 '예산 부족 신규종목' (plan 순서) → _rotate_tick 이 소비
+_hold_names = {}    # {code: 종목명} — 이번 틱 잔고 조회 결과(교체매도 알림용)
 
 
 def _fmt(x):
@@ -75,6 +90,7 @@ def _plan_path(d):  return _p(f"{d}_autobuy_plan.json")
 def _exec_path(d):  return _p(f"{d}_autobuy_exec.json")
 def _sell_plan_path(d):  return _p(f"{d}_autosell_plan.json")
 def _sell_exec_path(d):  return _p(f"{d}_autosell_exec.json")
+def _rot_path(d):        return _p(f"{d}_rotate_exec.json")
 
 
 def _load_json(path, default):
@@ -156,6 +172,8 @@ def _load_live_scores(today_str):
 
 # ── 1 틱: plan 을 읽어 호가 sweep 집행 ────────────────────────────────────
 def _tick(today_str):
+    global _rot_need
+    _rot_need = []
     if not getattr(secrets, "AUTO_BUY_ENABLED", False):
         return
     if not kt.is_market_open():        # 평일 09:00~15:30 외에는 무동작
@@ -173,12 +191,14 @@ def _tick(today_str):
     if holdings is None:                # 조회 실패 → 깜깜이 매수 금지
         return
     held_map = {_fmt(h.get("code", "")): int(h.get("qty", 0) or 0) for h in holdings}
+    _hold_names.clear()
+    _hold_names.update({_fmt(h.get("code", "")): h.get("name", "") for h in holdings})
 
     cash = kt.fetch_order_cash()
     if cash is None:
         return
-    if cash < 1:
-        return          # 미수 없이 매수 가능한 현금(D+2) 0 → 조용히 대기(매 틱 알림 방지)
+    # 현금 0 이어도 진행(2026-10-07): 신규종목 예산 부족을 _rot_need 에 기록해야 순위교체 매도가 돈다.
+    # (현금부족 알림은 아래 cash_short 마커로 현금값이 바뀔 때만 1회)
 
     live_scores = _load_live_scores(today_str)   # 매수 직전 SCORE_MIN(60)+ 재확인용(전 종목 공용, 1회 로드)
 
@@ -193,6 +213,10 @@ def _tick(today_str):
     if isinstance(sell_exec, dict) and sell_exec.get("date") == today_str:
         sold_today = {_fmt(c) for c, v in (sell_exec.get("codes") or {}).items()
                       if int((v or {}).get("sold", 0) or 0) > 0}
+    rot_exec = _load_json(_rot_path(today_str), None)          # 순위교체 매도 종목도 당일 재매수 금지
+    if isinstance(rot_exec, dict) and rot_exec.get("date") == today_str:
+        sold_today |= {_fmt(c) for c, v in (rot_exec.get("codes") or {}).items()
+                       if int((v or {}).get("sold", 0) or 0) > 0}
 
     # 평활 하락(청산 예정) 종목 → 매수 금지. sell_state_b.json(=Update_Promising 이 갱신)에서
     # last_smoothed < SMOOTHED_SELL_THRESH 인 종목은 곧 팔릴/약해지는 종목이므로, raw 가 잠깐 60+로 튀어도 사지 않음.
@@ -329,6 +353,10 @@ def _tick(today_str):
         # ── 예산 배분: 이 종목 몫 = base_cash − (상위 유효종목 예약분). 그 뒤 이 종목도 예약한다.
         is_top_valid = (committed == 0)          # 아직 상위 유효 미완료 종목이 없음 = 이 종목이 최우선
         budget = max(0, base_cash - committed)
+        if t.get("new") and budget < remaining_amt and not _is_closing_auction():
+            # 신규종목 예산 부족 → 순위교체 매도 후보로 기록(plan 순서 유지). 기존 보유 추가매수는 기록 안 함.
+            _rot_need.append({"code": code, "name": name, "remaining": remaining,
+                              "price": price, "budget": budget})
         committed += remaining_amt                # 이 종목 잔여목표를 하위 위해 예약
 
         if budget < price:                        # 예산으로 1주도 못 삼(상위가 현금 다 가져감) → 대기
@@ -425,6 +453,192 @@ def _tick(today_str):
         _save_json(_exec_path(today_str), exec_state)
     if report:
         _send_owner("🛒 실시간 sweep 집행\n" + "\n".join(report))
+
+
+# ── 순위교체 매도 (2026-10-07) ────────────────────────────────────────────
+#   신규종목(plan target.new) 매수 예산이 모자라면, 보유비중(평가금액) 1위부터 순서대로
+#   '수익 중'(매수최우선 > 평단) 종목을 부족분만큼만 매도해 자금을 만든다. 손실 중 종목은 건너뛴다.
+#   백테스트(addbuy_analysis/rotate_test.py '최종안') 규칙을 장중 sweep 으로 옮긴 것.
+#   · 매도 수량 = 부족금액 ÷ 매수최우선 (트랜치별 발주, 신용·담보 먼저). 지정가 = max(매수최우선×(1−1%), 평단 초과 최소호가)
+#   · '걸어두지 않음': 다음 틱에 미체결 잔량 취소 → ROT_SETTLE_SEC 동안 현금 반영을 기다린 뒤 부족분 재계산
+#   · 부족분 = 신규종목들이 지금 지정가 이하 호가로 살 수 있는 금액 합 − 첫 부족 신규종목의 예산
+#     (호가가 지정가 위로 달아난 신규종목 때문에 미리 팔지 않음)
+_master_cache = {"ts": 0.0, "set": None}
+
+
+def _rot_eligible(code):
+    """교체매도 가능 종목 = V3 주식 마스터(logs/stock_master.json) 등재 & ETF 아님.
+       수기 매수 영역(ETF·ETN·우선주 등)은 건드리지 않는다. 마스터 로드 실패 시 False(fail-closed)."""
+    if os.path.exists(os.path.join(ETF_DIR, f"A{code}.csv")):
+        return False
+    now = time.time()
+    if _master_cache["set"] is None or now - _master_cache["ts"] > 3600:
+        try:
+            with open(_p("stock_master.json"), encoding="utf-8") as f:
+                _master_cache["set"] = set(json.load(f).get("stocks", {}).keys())
+            _master_cache["ts"] = now
+        except Exception:
+            return False
+    return code in _master_cache["set"]
+
+
+def _price_above(x):
+    """x 보다 큰 가장 낮은 KRX 호가(호가단위 정렬)."""
+    p = kt.normalize_krx_price(int(x))
+    while p <= x:
+        p += kt.krx_tick_size(p)
+    return p
+
+
+def _rotate_place(today_str, need, tranche_map, codes, report):
+    """부족금액을 계산해 보유비중 순위대로 교체매도 주문. 주문을 냈으면 True."""
+    want_amt = 0.0
+    for n in need:
+        avail, _ = kt.ask_qty_at_or_below(n["code"], n["price"])
+        want_amt += min(n["remaining"], avail) * n["price"] * (1 + BUY_FEE_EST)
+    need_amt = want_amt - need[0]["budget"]
+    min_px = min(n["price"] for n in need)
+    if need_amt < min_px:
+        _log_once("rot", f"  🔁 교체매도 불필요(신규종목 즉시매수 가능분 {want_amt:,.0f}원 ≤ 예산 {need[0]['budget']:,}원)")
+        return False
+
+    plan = _load_json(_plan_path(today_str), {}) or {}
+    new_codes = {_fmt(c) for c, t in (plan.get("targets") or {}).items() if (t or {}).get("new")}
+    sp = _load_json(_sell_plan_path(today_str), {}) or {}
+    selling = {_fmt(c) for c in (sp.get("targets") or {})} if sp.get("date") == today_str else set()
+    ex = _load_json(_exec_path(today_str), {}) or {}
+    bought = ({_fmt(c) for c, v in (ex.get("codes") or {}).items() if int((v or {}).get("bought", 0) or 0) > 0}
+              if ex.get("date") == today_str else set())
+
+    srcs = []
+    for code, poss in tranche_map.items():
+        code = _fmt(code)
+        if code in new_codes or code in selling or code in bought or not _rot_eligible(code):
+            continue
+        qty = sum(p["qty"] for p in poss)
+        sellable = sum(p.get("sell_possible_qty", 0) for p in poss)
+        if qty < 1 or sellable < 1:
+            continue
+        avg = sum(p["qty"] * p["avg_buy_price"] for p in poss) / qty
+        cur = max((p.get("cur_price", 0) or 0) for p in poss) or avg
+        srcs.append((qty * cur, code, poss, qty, sellable, avg))
+    srcs.sort(key=lambda x: -x[0])
+
+    for_names = ", ".join(f"{n['name']}({n['code']})" for n in need[:3]) + (" 외" if len(need) > 3 else "")
+    placed = False
+    for rank, (_, code, poss, qty, sellable, avg) in enumerate(srcs, 1):
+        if need_amt < min_px:
+            break
+        name = _hold_names.get(code, "")
+        levels = kt.fetch_bid_book(code + "_AL") or kt.fetch_bid_book(code)
+        if not levels:
+            continue
+        best_bid = levels[0][0]
+        if best_bid <= avg:
+            _log_once(f"rot:{code}", f"  🔁 {name}({code}) 비중{rank}위 손실 중(매수최우선 {best_bid:,}≤평단 {avg:,.0f}) — 교체매도 제외")
+            continue
+        upl = _upper_limit(code)
+        if upl and best_bid >= upl:
+            _log_once(f"rot:{code}", f"  🔁 {name}({code}) 상한가 — 교체매도 제외")
+            continue
+        floor = _price_above(max(best_bid * (1 - ROT_MAX_DROP), avg))
+        if floor > best_bid:
+            continue
+        avail = sum(q for px, q in levels if px >= floor)
+        q_total = min(int(math.ceil(need_amt / (best_bid * (1 - SELL_FEE_EST)))), sellable, avail)
+        if q_total < 1:
+            continue
+        rem, orders = q_total, []
+        for pos in sorted(poss, key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"])):
+            sq = min(pos.get("sell_possible_qty", 0), rem)
+            if sq < 1:
+                continue
+            res = kt.place_sell_order(code, sq, floor, pos["loan_dt"], pos.get("crd_type", "00"), stex="SOR")
+            if res and res.get("return_code") == 0:
+                orders.append({"no": res.get("ord_no", "?"), "qty": sq, "price": floor, "loan_dt": pos["loan_dt"]})
+                rem -= sq
+            else:
+                err = (res or {}).get("return_msg", "응답 없음")
+                report.append(f"❌ 교체매도 실패 {name}({code}) {pos['order_type']} {sq}주: {err}")
+                _log_once(f"rot:{code}", f"  ❌ 교체매도 실패 {name}({code}): {err}")
+            if rem < 1:
+                break
+        if not orders:
+            continue
+        q_ord = q_total - rem
+        c = codes.get(code)
+        if c is None:
+            c = codes[code] = {"name": name, "held_seen": qty, "sold": 0, "open_orders": [], "events": []}
+        c["open_orders"] = orders
+        c["events"].append({"time": datetime.now().strftime("%H:%M:%S"), "qty": q_ord, "price": floor,
+                            "best_bid": best_bid, "avg": round(avg, 1), "rank": rank,
+                            "for": [n["code"] for n in need]})
+        need_amt -= q_ord * best_bid * (1 - SELL_FEE_EST)
+        placed = True
+        report.append(f"🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원↑ (보유비중 {rank}위 · 평단 {avg:,.0f} → "
+                      f"매수최우선 {best_bid:,} {(best_bid / avg - 1) * 100:+.1f}%) → 신규 {for_names} 매수자금")
+        _log_once(f"rot:{code}", f"  🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원 (비중{rank}위, {(best_bid/avg-1)*100:+.1f}%)")
+    if need_amt >= min_px and not placed:
+        _log_once("rot", f"  🔁 교체매도 대상 없음(수익 중 보유종목 없음) — 부족 {need_amt:,.0f}원")
+    return placed
+
+
+def _rotate_tick(today_str):
+    """매 틱: ① 교체매도 체결 판정 ② 직전 주문 미체결 잔량 취소(1틱 대기) ③ 현금 반영 대기 후 부족분 교체매도."""
+    if not (ROTATE_ENABLED and getattr(secrets, "AUTO_BUY_ENABLED", False)
+            and getattr(secrets, "AUTO_SELL_ENABLED", False)):
+        return
+    if not kt.is_market_open():
+        return
+    need = list(_rot_need)
+    rs = _load_json(_rot_path(today_str), None)
+    if not isinstance(rs, dict) or rs.get("date") != today_str:
+        rs = {"date": today_str, "codes": {}, "last_action": 0.0}
+    codes = rs["codes"]
+    open_any = any(c.get("open_orders") for c in codes.values())
+    if not need and not open_any:
+        return
+
+    tranche_map = kt.fetch_holdings_tranche_map()
+    if tranche_map is None:
+        return
+    report, changed, now = [], False, time.time()
+
+    for code, c in codes.items():                     # ① 체결 판정: 보유 감소 = 교체매도 체결
+        held = sum(p["qty"] for p in tranche_map.get(code, []))
+        if held < c["held_seen"]:
+            d = c["held_seen"] - held
+            c["sold"] += d
+            rs["last_action"] = now
+            report.append(f"✅ 교체매도 체결 {c.get('name', '')}({code}) -{d}주 → 잔여보유 {held}주")
+        if held != c["held_seen"]:
+            c["held_seen"] = held
+            changed = True
+
+    if open_any:                                      # ② 직전 주문 해소(걸어두지 않음) → 이번 틱 대기
+        for code, c in codes.items():
+            if not c.get("open_orders"):
+                continue
+            opens = kt.fetch_open_sell_orders(code)
+            for od in c["open_orders"]:
+                mine = next((x for x in opens if x["order_no"] == od.get("no")), None)
+                if mine is not None and mine.get("remaining_qty", 0) > 0:
+                    kt.cancel_order(od["no"], code, mine["remaining_qty"], od.get("loan_dt", ""))
+            c["open_orders"] = []
+        rs["last_action"] = now
+        changed = True
+    elif need and not _is_closing_auction():          # ③ 부족분 교체매도
+        if now - float(rs.get("last_action", 0) or 0) >= ROT_SETTLE_SEC:
+            if _rotate_place(today_str, need, tranche_map, codes, report):
+                rs["last_action"] = now
+                changed = True
+        else:
+            _log_once("rot", "  🔁 교체매도 현금 반영 대기")
+
+    if changed:
+        _save_json(_rot_path(today_str), rs)
+    if report:
+        _send_owner("🔁 순위교체 매도 (신규종목 매수자금)\n" + "\n".join(report))
 
 
 # ── 상한가 잠김 가드 ──────────────────────────────────────────────────────
@@ -874,6 +1088,7 @@ def run_forever():
                 _log(f"💓 execution_monitor 대기/감시 중 · {st}")
                 last_beat = now
             _tick(today)          # 매수 sweep (KRX 정규장에만 동작)
+            _rotate_tick(today)   # 순위교체 매도 (신규종목 매수자금 부족 시, 정규장에만)
             _sell_tick(today)     # 매도 sweep (KRX 정규장에만 동작)
             _maybe_post_close_report(today)   # 장마감 후 동시호가 주문 체결 결과 1회 알림
         except Exception as e:
@@ -897,6 +1112,7 @@ if __name__ == "__main__":
         # 디버그: 1틱만 실행
         run_today = sys.argv[2] if len(sys.argv) > 2 else datetime.now().strftime("%Y%m%d")
         _tick(run_today)
+        _rotate_tick(run_today)
         _sell_tick(run_today)
     else:
         run_forever()

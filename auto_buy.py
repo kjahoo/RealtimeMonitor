@@ -30,6 +30,11 @@ auto_buy.py — AI '매수'(BUY) & 정규장 재평가 60점+(SCORE_MIN) 종목 
   - 종목당 목표수량(절대치) = (기준금액 × alloc%) ÷ 기준가(promising 지정가)
   - 목표 1주 미만(초고가주)인 종목은 plan 제외
   - 30분 세션마다 plan 전체를 새 promising 가격으로 재계산(목표수량·기준가 갱신)
+  - (2026-10-07) 매수 순서 = 신규종목(장 시작 시 미보유) AI점수순 → 기존 보유종목 AI점수순.
+    target 에 new 표시 → execution_monitor 가 신규종목 자금 부족 시 '순위교체 매도'(보유비중 순위대로
+    수익 중 종목을 부족분만큼 매도) 수행. 40점 보조매수는 미보유 종목만 5% 신규매수 —
+    이미 보유한 종목은 60점 넘기 전까지 추가매수 없음.
+    롤백: logs/auto_buy.py.bak_20261007_rotate
 
 상태파일 (logs/):
   {날짜}_autobuy_base.json    당일 기준금액(총자산) 스냅샷
@@ -216,6 +221,22 @@ def _build_plan(today_str):
              if str(r.get("recommendation", "")).upper() == "BUY"]
     cands.sort(key=lambda r: float(r.get("claude_score", 0) or 0), reverse=True)
 
+    # ── 신규/기존 보유 구분 (2026-10-07): 기존 = 장 시작 시 보유(현재보유 − 오늘 우리 sweep 체결분 > 0).
+    #    오늘 막 사기 시작한 신규종목은 끝까지 '신규'로 남아 우선순위를 유지한다.
+    hs = kt.fetch_all_holdings()
+    if hs is None:
+        print("   ⚠️ 잔고 조회 실패 — 신규/보유 구분 불가, plan 갱신 생략(직전 plan 유지)")
+        return
+    held = {_fmt(h.get("code", "")): int(h.get("qty", 0) or 0) for h in hs}
+    ex = _load_json(_p(f"{today_str}_autobuy_exec.json"), {})
+    bought_today = {}
+    if isinstance(ex, dict) and ex.get("date") == today_str:
+        bought_today = {_fmt(c): int((v or {}).get("bought", 0) or 0)
+                        for c, v in (ex.get("codes") or {}).items()}
+
+    def _existing(c):
+        return held.get(c, 0) - bought_today.get(c, 0) > 0
+
     targets = {}
     notes = {}      # {code: (사유종류, 알림줄)} — BUY 인데 plan 에 못 넣은 종목
     low_txt =" · 정규장 60점+ 0개 → 40점+ 보조매수(종목당 5%)" if low else ""
@@ -249,6 +270,13 @@ def _build_plan(today_str):
             lines.append(ln); notes[code] = ("below", ln)
             continue
 
+        existing = _existing(code)
+        if low_t and existing:
+            # 40점 보조매수는 미보유 종목만 5% — 이미 보유한 종목은 60점 넘기 전까지 추가매수 없음
+            ln = f"⏸️ {name}({code}) 40점 보조 · 이미 보유 — 60점 전까지 추가매수 없음({sc:.0f}점)"
+            lines.append(ln); notes[code] = ("lowheld", ln)
+            continue
+
         target_amt = int(base * alloc / 100)
         target_qty = target_amt // price if price > 0 else 0
         if target_qty < 1:
@@ -266,9 +294,15 @@ def _build_plan(today_str):
             "price_src": psrc,
             "min_score": min_sc,             # 집행 직전 재확인 임계(점) — 보조매수는 40
             "low": low_t,
+            "new": not existing,             # 신규종목(장 시작 시 미보유) — 매수 우선 + 순위교체 매도 대상
         }
         lines.append(f"🎯 {name}({code}) 목표 {target_qty}주×{price:,}원 "
-                     f"(비중 {alloc:.0f}%{'·40점보조' if low_t else ''}·AI{cscore:.0f}·{psrc})")
+                     f"(비중 {alloc:.0f}%{'·40점보조' if low_t else ''}{'·신규' if not existing else '·보유'}"
+                     f"·AI{cscore:.0f}·{psrc})")
+
+    # 매수 순서: 신규종목(AI점수순) → 기존 보유종목(AI점수순). monitor 는 이 순서로 현금을 예약한다.
+    targets = {**{c: t for c, t in targets.items() if t["new"]},
+               **{c: t for c, t in targets.items() if not t["new"]}}
 
     plan = {
         "date": today_str,
@@ -279,9 +313,9 @@ def _build_plan(today_str):
         "v3_cnt": len(v3_all),
         "session_primary_cnt": buy_gate.primary_count([x["score100"] / 100.0 for x in rescored.values()]),
         "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        # AI점수 상위 우선 선착순 집행을 위해 순서를 보존(dict는 삽입순)
+        # 집행 우선순위 = 신규종목 AI점수순 → 기존 보유 AI점수순 (dict 삽입순 보존)
         "targets": targets,
-        # BUY 인데 plan 에 못 들어간 종목의 사유 종류(wait=재평가대기·below=점수미달·small=1주미만)
+        # BUY 인데 plan 에 못 들어간 종목의 사유 종류(wait=재평가대기·below=점수미달·small=1주미만·lowheld=40점 보유종목)
         "held": {c: k for c, (k, _) in notes.items()},
     }
     # ── 직전 plan 과 비교: 종목구성·비중 변동 시에만 알림 (2026-08-19, 2026-09-29 개정)
@@ -309,15 +343,7 @@ def _build_plan(today_str):
         return
 
     # ── 잔고 대비 부족수량 계산 (2026-08-19): 전 종목 목표 이상 보유 시 알림 생략,
-    #    부족 종목은 목표/보유/부족수량 + 매수 필요 금액 표시.
-    hs = kt.fetch_all_holdings()
-    if hs is None:
-        # 잔고 조회 실패 → 정보 손실 방지 위해 기존 형식으로 발송
-        if len(lines) > 1:
-            _send_owner("\n".join(lines))
-        return
-
-    held = {_fmt(h.get("code", "")): int(h.get("qty", 0) or 0) for h in hs}
+    #    부족 종목은 목표/보유/부족수량 + 매수 필요 금액 표시. (잔고는 plan 빌드 시 조회한 값 재사용)
     out = [f"🧮 매수 plan 갱신 (기준 총자산 {base:,}원){low_txt}"]
     need_total = 0
     shortage = False
@@ -330,7 +356,8 @@ def _build_plan(today_str):
             need_total += amt
             out.append(f"🎯 {t['name']}({code}) 목표 {t['target_qty']}주 / 보유 {hq}주 "
                        f"→ 부족 {diff}주 ≈ {amt:,}원 "
-                       f"(기준가 {t['promising_price']:,}원·비중 {t['alloc']:.0f}%·AI{t['claude_score']:.0f})")
+                       f"(기준가 {t['promising_price']:,}원·비중 {t['alloc']:.0f}%·{'신규' if t['new'] else '보유'}"
+                       f"·AI{t['claude_score']:.0f})")
         else:
             out.append(f"✅ {t['name']}({code}) 목표 {t['target_qty']}주 충족(보유 {hq}주)")
     if not shortage:
@@ -340,7 +367,7 @@ def _build_plan(today_str):
             print("   🔕 전 종목 목표수량 이상 보유 — 알림 생략")
         return
     out.append(f"💸 총 매수 필요 금액 ≈ {need_total:,}원")
-    out += [ln for ln in lines[1:] if ln.startswith(("⏭️", "⏳"))]   # 제외·재평가대기 사유 그대로 표기
+    out += [ln for ln in lines[1:] if ln.startswith(("⏭️", "⏳", "⏸️"))]   # 제외·재평가대기·40점보유 사유 그대로 표기
     _send_owner("\n".join(out))
 
 

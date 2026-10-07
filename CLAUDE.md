@@ -19,6 +19,7 @@ description: 평일 08:00~16:30 15분마다 60점+ 종목 AI 평가(14항목, �
   → promote_evaluated.py(results.json 후처리: 텔레그램 요약 + BUY promising 추가 + done 기록, results.json 없으면 no-op)
   → auto_buy.py(주문을 직접 내지 않음. BUY 종목별 목표수량+sweep 기준가만 계산해 logs/{날짜}_autobuy_plan.json 에 기록).
     ※ auto_buy 집행 게이트 = 실시간 total_score×100 ≥ 60점(SCORE_MIN=60). 비중 구간제(1안): 60~69=5% · 70~79=10% · 80~89=15% · 90~99=20% · 100=25%. 집행 게이트·평가 대상·execution_monitor 재확인 모두 60점+로 통일(2026-07-22).
+    ※ (2026-10-07) 매수 순서 = 신규종목(장 시작 시 미보유) → 기존 보유. 신규종목 자금 부족 시 execution_monitor 가 '순위교체 매도'(보유비중 순위대로 수익 중 종목을 부족분만큼 매도). 40점 보조매수는 미보유 종목만 5%, 보유 종목은 60점 전까지 추가매수 없음. (AI 평가 작업과 무관 — 참고) 롤백: logs\*.bak_20261007_rotate.
     ※ (2026-09-29) 집행 게이트·비중의 점수 = '정규장 재평가' 점수만: 오늘 Stock_V3 행 중 KRX 봇 기동 경계(logs/{날짜}_krx_session.json 의 since, 없으면 09:01) 이후 계산된 행. 장전 NXT 60점+ 는 promising 등록·AI 평가까지만 하고 매수 보류 → 09시 정규장 재산출 60점+ 유지 시에만 그 시점 점수 비중으로 plan 편입(40점+ 보조모드도 장전 60점+ 재평가 완료·첫 정규장 스캔 80% 이후에만 판정). AI 평가 대상 선정은 종전대로(장전 60점+ 도 평가). 롤백: logs\*.bak_20260929_krxrescore.
 - scheduler.py 가 시작과 동시에 상시 데몬 execution_monitor.py 도 기동: plan 을 읽어 KRX 정규장 09:00~15:30에 4초마다 매도호가(ka10004)를 실시간 감시 → promising 지정가 이하 호가 잔량만큼 sweep 매수, target_qty 채울 때까지 반복. 체결현황 텔레그램 보고도 monitor 담당.
 
