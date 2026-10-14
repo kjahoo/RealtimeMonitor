@@ -234,8 +234,20 @@ def _build_plan(today_str):
         bought_today = {_fmt(c): int((v or {}).get("bought", 0) or 0)
                         for c, v in (ex.get("codes") or {}).items()}
 
+    # 오늘 매도 체결분(손절/청산·순위교체)을 되더해 '장 시작 시 보유'를 복원(2026-10-14):
+    #   오늘 판 종목이 잔고 0 이라고 '신규'로 잡히면 재매수 자금 마련용 순위교체 매도가 돌아 churn 발생.
+    sold_today = {}
+    for fn in (f"{today_str}_autosell_exec.json", f"{today_str}_rotate_exec.json"):
+        st = _load_json(_p(fn), {})
+        if isinstance(st, dict) and st.get("date") == today_str:
+            for c, v in (st.get("codes") or {}).items():
+                sold_today[_fmt(c)] = sold_today.get(_fmt(c), 0) + int((v or {}).get("sold", 0) or 0)
+    fills = kt.fetch_today_sell_fills()         # 실제 매도체결(수기 매도 포함) — 조회 실패 시 상태파일 값만 사용
+    for c, f in (fills or {}).items():
+        sold_today[_fmt(c)] = max(sold_today.get(_fmt(c), 0), int((f or {}).get("qty", 0) or 0))
+
     def _existing(c):
-        return held.get(c, 0) - bought_today.get(c, 0) > 0
+        return held.get(c, 0) - bought_today.get(c, 0) + sold_today.get(c, 0) > 0
 
     targets = {}
     notes = {}      # {code: (사유종류, 알림줄)} — BUY 인데 plan 에 못 넣은 종목

@@ -28,7 +28,7 @@ auto_buy.py 가 매 30분 세션마다 산출한 매수 계획(logs/{날짜}_aut
     ▶ NXT(장전/장후) 점수는 매수/매도에 관여하지 않는다(참고용). 정규장 시각 행만 사용.
   - 콘솔(모니터 창)에 매 틱 감시 현황·체결 현황을 출력한다(무엇을 보고 왜 대기/집행하는지).
   - (2026-10-07) 매수 순서 = plan 순서(신규종목 → 기존 보유). 신규종목(target.new) 매수 예산이 모자라면
-    '순위교체 매도': 보유비중(평가금액) 순위대로 '수익 중'(매수최우선 > 평단) 종목을 부족분만큼만 매도해
+    '순위교체 매도': 보유비중(평가금액) 순위대로 '수수료·세금 차감 후 이익'(매수최우선 > 손익분기) 종목을 부족분만큼만 매도해
     자금을 마련한다(_rotate_tick). 기존 보유 추가매수를 위해서는 팔지 않는다. 교체매도 종목은 당일 재매수 금지.
     제외: 오늘 우리가 매수체결한 종목·매도 plan 종목·신규 plan 종목·수기영역(ETF/마스터 미등재)·상한가.
     끄기: ROTATE_ENABLED=False. 롤백: logs/execution_monitor.py.bak_20261007_rotate
@@ -71,6 +71,14 @@ ROTATE_ENABLED = True                                         # (2026-10-07) 신
 ROT_SETTLE_SEC = 12                                           # 교체매도 주문 해소·체결 후 현금(d2) 반영 대기 — 중복 매도 방지
 ROT_MAX_DROP   = 0.01                                         # 교체매도 지정가 하한 = 매수최우선 × (1 − 1%) (평단 초과 유지)
 BUY_FEE_EST, SELL_FEE_EST = 0.00015, 0.00195                  # 필요금액 추정용 수수료(매수 0.015% / 매도 수수료+세금)
+ROT_SELL_COST  = 0.00215                                      # 교체매도 손익분기용 매도비용 = 수수료 0.015% + 증권거래세 0.20%(2026, 보수적)
+ROT_MIN_PROFIT = 0.0                                          # 손익분기 위 최소 순이익률(0 = 수수료·세금 차감 후 손실 매도만 금지)
+ROT_BLOCK_ON_LOAN = False                                     # 담보대출·융자 잔고만으로는 막지 않음(팔면 상환 후 일부라도 매수여력 생김) — 미수만 차단
+ROT_CASH_MIN_RATIO = 0.5                                      # 교체매도 체결 후 매수현금이 체결대금의 이 비율 미만으로만 늘면 당일 교체매도 중지
+ROT_BLOCK_RECHECK_SEC = 60                                    # 교체매도 보류 중 현금·미수 재확인 간격(초)
+ROT_KEEP_SCORE = 60.0                                         # (2026-10-14) 현재 정규장 점수 이 값 이상인 보유종목은 교체매도 제외
+REBUY_DISCOUNT = 0.02                                         # (2026-10-14) 당일 매도 종목 재매수: 매도 순수령 평균 대비 2% 이상 싸야 매수
+SELL_FILL_TTL  = 20                                           # 당일 매도체결 집계(ka10076) 캐시 유효시간(초) — 유량 보호
 ETF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "ETF")
 
 _rot_need = []      # 이번 틱 _tick 이 기록한 '예산 부족 신규종목' (plan 순서) → _rotate_tick 이 소비
@@ -170,6 +178,35 @@ def _load_live_scores(today_str):
     return {c: r["score100"] for c, r in rows.items()}
 
 
+_sell_fill_cache = {"ts": 0.0, "date": "", "data": None}
+
+
+def _today_sell_fills(today_str):
+    """당일 매도체결 집계(kt.fetch_today_sell_fills) — SELL_FILL_TTL 초 캐시. 조회 실패 시 None(호출부 fail-closed)."""
+    now = time.time()
+    c = _sell_fill_cache
+    if c["date"] == today_str and c["data"] is not None and now - c["ts"] < SELL_FILL_TTL:
+        return c["data"]
+    data = kt.fetch_today_sell_fills()
+    if data is not None:
+        c.update(ts=now, date=today_str, data=data)
+    return data
+
+
+def _rebuy_cap(f):
+    """당일 매도 종목 재매수 상한가(KRX 호가 내림). 조건(사용자 확정 2026-10-14):
+         재매수 1주 원가(가격×(1+매수수수료)) ≤ 당일 매도 1주 순수령액(체결가 − 실제 수수료·세금) × (1 − 2%)
+       반환 (매도평균 체결가, 1주 순수령액, 상한가). 집계 없으면 상한가 0."""
+    qty, amt, cost = int(f.get("qty", 0) or 0), float(f.get("amt", 0) or 0), float(f.get("cost", 0) or 0)
+    if qty < 1 or amt <= 0:
+        return 0.0, 0.0, 0
+    if cost <= 0:
+        cost = amt * ROT_SELL_COST              # 수수료·세금 미집계 시 추정치(0.215%)
+    avg, net = amt / qty, (amt - cost) / qty
+    cap = kt.normalize_krx_price(int(net * (1 - REBUY_DISCOUNT) / (1 + BUY_FEE_EST)))
+    return avg, net, cap
+
+
 # ── 1 틱: plan 을 읽어 호가 sweep 집행 ────────────────────────────────────
 def _tick(today_str):
     global _rot_need
@@ -207,16 +244,20 @@ def _tick(today_str):
         exec_state = {"date": today_str, "codes": {}}
     codes_state = exec_state["codes"]
 
-    # 오늘 이미 매도 체결(손절/청산)된 종목 → 당일 재매수 금지(sell→buy churn 방지)
+    # 오늘 매도 체결된 종목(손절/청산·순위교체·수기) → 조건부 재매수(2026-10-14, 아래 루프):
+    #   당일 매도 순수령 평균 × (1−2%) 이하 가격에서만 매수. 체결집계 조회 실패 시 매수 금지(fail-closed).
     sell_exec = _load_json(_sell_exec_path(today_str), None)
     sold_today = set()
     if isinstance(sell_exec, dict) and sell_exec.get("date") == today_str:
         sold_today = {_fmt(c) for c, v in (sell_exec.get("codes") or {}).items()
                       if int((v or {}).get("sold", 0) or 0) > 0}
-    rot_exec = _load_json(_rot_path(today_str), None)          # 순위교체 매도 종목도 당일 재매수 금지
+    rot_exec = _load_json(_rot_path(today_str), None)          # 순위교체 매도 종목
     if isinstance(rot_exec, dict) and rot_exec.get("date") == today_str:
         sold_today |= {_fmt(c) for c, v in (rot_exec.get("codes") or {}).items()
                        if int((v or {}).get("sold", 0) or 0) > 0}
+    sell_fills = _today_sell_fills(today_str)                  # 실제 매도체결(수기 매도 포함)
+    if sell_fills:
+        sold_today |= {_fmt(c) for c in sell_fills}
 
     # 평활 하락(청산 예정) 종목 → 매수 금지. sell_state_b.json(=Update_Promising 이 갱신)에서
     # last_smoothed < SMOOTHED_SELL_THRESH 인 종목은 곧 팔릴/약해지는 종목이므로, raw 가 잠깐 60+로 튀어도 사지 않음.
@@ -312,14 +353,28 @@ def _tick(today_str):
             _log_once(f"buy:{code}", f"  ✔️ {name}({code}) 목표달성 보유{held}/목표{target_qty}")
             continue
 
-        # ── 당일 매도체결 종목 재매수 금지(실격 → 예약 없음: 현금은 하위 유효종목으로).
+        # ── 당일 매도체결 종목: 조건부 재매수(2026-10-14). 지정가를 '매도 순수령 평균×98%'(매수수수료 포함) 이하로
+        #    낮춰 그 가격 이하 매도호가만 sweep. 체결집계를 못 구하면 종전대로 매수 금지(실격 → 예약 없음).
         if code in sold_today:
-            _log_once(f"buy:{code}", f"  ⛔ {name}({code}) 오늘 매도체결 → 당일 재매수 금지")
-            if not cst.get("buy_locked"):
-                cst["buy_locked"] = True
+            avg_s, net_s, cap = _rebuy_cap((sell_fills or {}).get(code) or {})
+            if cap <= 0:
+                _log_once(f"buy:{code}", f"  ⛔ {name}({code}) 오늘 매도체결 · 매도평균 확인 불가 → 재매수 보류")
+                if not cst.get("buy_locked"):
+                    cst["buy_locked"] = True
+                    changed = True
+                    report.append(f"⛔ {name}({code}) 오늘 매도체결 · 매도평균 확인 불가 → 재매수 보류")
+                continue
+            if cst.get("buy_locked"):
+                cst["buy_locked"] = False
                 changed = True
-                report.append(f"⛔ {name}({code}) 오늘 매도체결 → 당일 재매수 금지(churn 방지)")
-            continue
+            if cap < price:
+                price = cap
+                remaining_amt = remaining * price
+            if cst.get("rebuy_cap") != cap:            # 상한가가 바뀔 때만 알림(추가 매도체결 시 갱신)
+                cst["rebuy_cap"] = cap
+                changed = True
+                report.append(f"🔁 {name}({code}) 당일 매도분 재매수 조건 — 매도평균 {avg_s:,.0f}원"
+                              f"(수수료·세금 차감 {net_s:,.0f}원) −{REBUY_DISCOUNT*100:.0f}% → {cap:,}원 이하에서만 매수")
 
         # ── 평활 하락(청산 예정) 종목 매수 금지(실격 → 예약 없음).
         if code in sell_warn:
@@ -457,9 +512,10 @@ def _tick(today_str):
 
 # ── 순위교체 매도 (2026-10-07) ────────────────────────────────────────────
 #   신규종목(plan target.new) 매수 예산이 모자라면, 보유비중(평가금액) 1위부터 순서대로
-#   '수익 중'(매수최우선 > 평단) 종목을 부족분만큼만 매도해 자금을 만든다. 손실 중 종목은 건너뛴다.
+#   '수수료·세금 차감 후 이익'(매수최우선 > 손익분기 = 평단×(1+0.015%)÷(1−0.215%)) 종목만 부족분만큼 매도. 그 외 건너뜀.
+#   (2026-10-14) 현재 정규장 재평가 점수 60점(ROT_KEEP_SCORE)+ 보유종목은 교체매도 제외(점수 미산출 종목은 대상 유지).
 #   백테스트(addbuy_analysis/rotate_test.py '최종안') 규칙을 장중 sweep 으로 옮긴 것.
-#   · 매도 수량 = 부족금액 ÷ 매수최우선 (트랜치별 발주, 신용·담보 먼저). 지정가 = max(매수최우선×(1−1%), 평단 초과 최소호가)
+#   · 매도 수량 = 부족금액 ÷ 매수최우선 (트랜치별 발주, 신용·담보 먼저). 지정가 = max(매수최우선×(1−1%), 손익분기 초과 최소호가)
 #   · '걸어두지 않음': 다음 틱에 미체결 잔량 취소 → ROT_SETTLE_SEC 동안 현금 반영을 기다린 뒤 부족분 재계산
 #   · 부족분 = 신규종목들이 지금 지정가 이하 호가로 살 수 있는 금액 합 − 첫 부족 신규종목의 예산
 #     (호가가 지정가 위로 달아난 신규종목 때문에 미리 팔지 않음)
@@ -480,6 +536,12 @@ def _rot_eligible(code):
         except Exception:
             return False
     return code in _master_cache["set"]
+
+
+def _rot_breakeven(avg):
+    """교체매도 손익분기 매도가 = 평단 × (1+매수수수료) × (1+최소이익) ÷ (1−매도수수료−거래세).
+       이 가격 이하로 팔면 수수료·세금 차감 후 손실(2026-10-14: '평단 초과'만 보다 손실 매도 발생)."""
+    return avg * (1 + BUY_FEE_EST) * (1 + ROT_MIN_PROFIT) / (1 - ROT_SELL_COST)
 
 
 def _price_above(x):
@@ -509,11 +571,16 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
     ex = _load_json(_exec_path(today_str), {}) or {}
     bought = ({_fmt(c) for c, v in (ex.get("codes") or {}).items() if int((v or {}).get("bought", 0) or 0) > 0}
               if ex.get("date") == today_str else set())
+    live = _load_live_scores(today_str)      # (2026-10-14) 현재 정규장 점수 ROT_KEEP_SCORE(60)+ 보유종목은 팔지 않음
 
     srcs = []
     for code, poss in tranche_map.items():
         code = _fmt(code)
         if code in new_codes or code in selling or code in bought or not _rot_eligible(code):
+            continue
+        sc = live.get(code)
+        if sc is not None and sc >= ROT_KEEP_SCORE:
+            _log_once(f"rot:{code}", f"  🔁 {_hold_names.get(code, '')}({code}) 정규장 점수 {sc:.0f}≥{ROT_KEEP_SCORE:.0f} — 교체매도 제외")
             continue
         qty = sum(p["qty"] for p in poss)
         sellable = sum(p.get("sell_possible_qty", 0) for p in poss)
@@ -534,22 +601,25 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
         if not levels:
             continue
         best_bid = levels[0][0]
-        if best_bid <= avg:
-            _log_once(f"rot:{code}", f"  🔁 {name}({code}) 비중{rank}위 손실 중(매수최우선 {best_bid:,}≤평단 {avg:,.0f}) — 교체매도 제외")
+        be = _rot_breakeven(avg)
+        if best_bid <= be:
+            _log_once(f"rot:{code}", f"  🔁 {name}({code}) 비중{rank}위 수수료·세금 차감 시 손실(매수최우선 {best_bid:,}"
+                                     f"≤손익분기 {be:,.0f}·평단 {avg:,.0f}) — 교체매도 제외")
             continue
         upl = _upper_limit(code)
         if upl and best_bid >= upl:
             _log_once(f"rot:{code}", f"  🔁 {name}({code}) 상한가 — 교체매도 제외")
             continue
-        floor = _price_above(max(best_bid * (1 - ROT_MAX_DROP), avg))
+        # 지정가 하한 = 손익분기 초과 최소호가 → 어느 가격에 체결돼도 수수료·세금 차감 후 이익
+        floor = _price_above(max(best_bid * (1 - ROT_MAX_DROP), be))
         if floor > best_bid:
             continue
         avail = sum(q for px, q in levels if px >= floor)
-        q_total = min(int(math.ceil(need_amt / (best_bid * (1 - SELL_FEE_EST)))), sellable, avail)
+        q_total = min(int(math.ceil(need_amt / (best_bid * (1 - ROT_SELL_COST)))), sellable, avail)
         if q_total < 1:
             continue
         rem, orders = q_total, []
-        for pos in sorted(poss, key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"])):
+        for pos in sorted(poss, key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"])):   # 담보·신용 먼저(이자 절감)
             sq = min(pos.get("sell_possible_qty", 0), rem)
             if sq < 1:
                 continue
@@ -571,16 +641,48 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
             c = codes[code] = {"name": name, "held_seen": qty, "sold": 0, "open_orders": [], "events": []}
         c["open_orders"] = orders
         c["events"].append({"time": datetime.now().strftime("%H:%M:%S"), "qty": q_ord, "price": floor,
+                            "cash_qty": sum(o["qty"] for o in orders if not o.get("loan_dt")),   # 현금 트랜치분(안전망 기준)
                             "best_bid": best_bid, "avg": round(avg, 1), "rank": rank,
                             "for": [n["code"] for n in need]})
-        need_amt -= q_ord * best_bid * (1 - SELL_FEE_EST)
+        need_amt -= q_ord * best_bid * (1 - ROT_SELL_COST)
         placed = True
+        net_min = (floor * (1 - ROT_SELL_COST)) / (avg * (1 + BUY_FEE_EST)) - 1   # 하한가 체결 시 비용 차감 순수익률
         report.append(f"🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원↑ (보유비중 {rank}위 · 평단 {avg:,.0f} → "
-                      f"매수최우선 {best_bid:,} {(best_bid / avg - 1) * 100:+.1f}%) → 신규 {for_names} 매수자금")
-        _log_once(f"rot:{code}", f"  🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원 (비중{rank}위, {(best_bid/avg-1)*100:+.1f}%)")
+                      f"매수최우선 {best_bid:,} · 비용차감 순익 ≥{net_min * 100:+.2f}%) → 신규 {for_names} 매수자금")
+        _log_once(f"rot:{code}", f"  🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원 (비중{rank}위, 순익≥{net_min*100:+.2f}%)")
     if need_amt >= min_px and not placed:
-        _log_once("rot", f"  🔁 교체매도 대상 없음(수익 중 보유종목 없음) — 부족 {need_amt:,.0f}원")
+        _log_once("rot", f"  🔁 교체매도 대상 없음(정규장 {ROT_KEEP_SCORE:.0f}점 미만 중 수수료·세금 차감 후 이익 나는 보유종목 없음) — 부족 {need_amt:,.0f}원")
     return placed
+
+
+def _rot_cash_gate(rs):
+    """교체매도해도 매수현금이 나오는 상태인지 판정. 막아야 하면 사유 문자열, 괜찮으면 None.
+       ① 미수(D+2 예수금 음수 또는 현금미수금 발생) → 매도대금이 미수 상환에 먼저 쓰임
+       ② 담보대출·융자 잔고(ROT_BLOCK_ON_LOAN, 기본 꺼짐 — 담보·신용 잔고는 팔면 상환 후 일부라도 여력이 생김)
+       ③ 직전 교체매도 '현금 트랜치' 체결분만큼 매수현금이 실제로 늘지 않았으면 당일 중지(halt) — 원인 불문 안전망.
+          (오늘 매수 지출 d2_buy 를 되더해 '매수로 현금이 줄어든 것'은 미반영으로 오판하지 않게 함)"""
+    if rs.get("halt"):
+        return rs["halt"]
+    st = kt.fetch_cash_state()
+    if st is None:
+        return "현금·미수 조회 실패"
+    base = st["d2"] + st["d2_buy"]
+    sold_amt = float(rs.get("sold_amt", 0) or 0)
+    if sold_amt > 0 and rs.get("cash_ref") is not None:
+        rise = base - float(rs["cash_ref"])
+        if rise < ROT_CASH_MIN_RATIO * sold_amt * (1 - ROT_SELL_COST):
+            rs["halt"] = (f"교체매도 {sold_amt:,.0f}원 체결 후 매수현금 증가 {rise:,.0f}원뿐 "
+                          f"(매도대금이 미수·대출 상환에 쓰인 것으로 판단) — 당일 교체매도 중지")
+            return rs["halt"]
+    rs["cash_ref"], rs["sold_amt"] = base, 0.0
+    # 매수가능 현금 = max(0, D+2 예수금). D+2 가 음수면 매도대금이 그 구멍(미수)부터 메워 현금이 안 나온다.
+    # D+2 가 플러스면 판 만큼 그대로 매수현금이 되므로 허용(D+1 결제예정·미수변제소요금만으로는 막지 않음).
+    if st["d2"] < 0 or st.get("uncla", 0) > 0:
+        return (f"미수 상태(D+2 예수금 {st['d2']:,}원 · 현금미수 {st.get('uncla', 0):,}원) "
+                f"— 매도대금이 미수 상환에 먼저 쓰여 매수현금이 안 나옴")
+    if ROT_BLOCK_ON_LOAN and st["loan"] > 0:
+        return f"담보대출·융자 잔고 {st['loan']:,}원 — 매도대금이 대출상환에 쓰일 수 있음"
+    return None
 
 
 def _rotate_tick(today_str):
@@ -609,6 +711,10 @@ def _rotate_tick(today_str):
         if held < c["held_seen"]:
             d = c["held_seen"] - held
             c["sold"] += d
+            ev = (c.get("events") or [{}])[-1]
+            # 안전망 기준 금액은 '현금 트랜치' 체결분만 — 담보·신용분은 대출상환 후 일부만 현금이 되므로 제외
+            cash_d = min(d, int(ev.get("cash_qty", ev.get("qty", d)) or 0))
+            rs["sold_amt"] = float(rs.get("sold_amt", 0) or 0) + cash_d * float(ev.get("price", 0) or 0)  # 지정가 기준(보수적)
             rs["last_action"] = now
             report.append(f"✅ 교체매도 체결 {c.get('name', '')}({code}) -{d}주 → 잔여보유 {held}주")
         if held != c["held_seen"]:
@@ -628,10 +734,22 @@ def _rotate_tick(today_str):
         rs["last_action"] = now
         changed = True
     elif need and not _is_closing_auction():          # ③ 부족분 교체매도
-        if now - float(rs.get("last_action", 0) or 0) >= ROT_SETTLE_SEC:
-            if _rotate_place(today_str, need, tranche_map, codes, report):
-                rs["last_action"] = now
-                changed = True
+        if now < float(rs.get("block_until", 0) or 0):
+            pass                                      # 보류 중 — 계좌 재조회는 ROT_BLOCK_RECHECK_SEC 마다
+        elif now - float(rs.get("last_action", 0) or 0) >= ROT_SETTLE_SEC:
+            block = _rot_cash_gate(rs)                # 팔아도 매수현금이 안 나오면 교체매도 안 함
+            changed = True
+            if block:
+                rs["block_until"] = now + ROT_BLOCK_RECHECK_SEC
+                _log_once("rot", f"  🔁 교체매도 보류 — {block}")
+                kind = block.split("(")[0]
+                if rs.get("block_note") != kind:      # 같은 사유 알림은 하루 1회
+                    rs["block_note"] = kind
+                    report.append(f"⛔ 교체매도 보류 — {block}")
+            else:
+                rs["block_note"] = None
+                if _rotate_place(today_str, need, tranche_map, codes, report):
+                    rs["last_action"] = now
         else:
             _log_once("rot", "  🔁 교체매도 현금 반영 대기")
 

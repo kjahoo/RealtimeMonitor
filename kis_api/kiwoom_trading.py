@@ -450,6 +450,26 @@ def fetch_order_cash():
     return max(0, _pint(d.get("d2_entra")))
 
 
+def fetch_cash_state():
+    """매도대금이 실제 매수 현금으로 잡히는지 판단용 현금·미수·대출 상태(부호 유지). 실패 시 None.
+      d1, d2   : D+1/D+2 추정예수금 — 음수면 미정산 매수대금(미수)이 커서 매도대금이 그 상환에 먼저 쓰임
+      unpaid   : 현금미수금합계 + D+1/D+2 미수변제소요금
+      loan     : 예탁담보대출 + 매도담보대출 + 융자금 + 미상환융자 + 기타대여금 잔고
+      d2_buy   : 오늘 매수체결분(D+2 결제) — 매수 지출을 빼고 매도대금 반영 여부를 볼 때 사용"""
+    d = _post("kt00001", "/api/dostk/acnt", {"qry_tp": "3"})
+    if not d or d.get("return_code") != 0:
+        return None
+    g = lambda k: _pint(d.get(k))
+    return {
+        "d1": g("d1_entra"), "d2": g("d2_entra"),
+        "unpaid": g("ch_uncla_tot") + g("d1_out_rep_mor") + g("d2_out_rep_mor"),
+        "uncla": g("ch_uncla_tot"),     # 실제 발생한 현금미수금(연체 포함)
+        "loan": (g("dpst_grntl_remn") + g("sell_grntl_remn") + g("loan_sum")
+                 + g("nrpy_loan") + g("etc_loan_tot")),
+        "d2_buy": g("d2_buy_exct_amt"),
+    }
+
+
 # ====================================================
 # 📊 매도호가 10단계 조회 (ka10004 주식호가요청)
 #    실시간 sweep 매수 판단용. 최우선(가장 싼)부터 깊은 순으로 반환.
@@ -664,6 +684,62 @@ def fetch_open_sell_orders(code):
             "loan_dt":       "",   # ka10075 응답에 대출일 미포함 → 저장된 값 사용
         })
     return orders
+
+
+# ====================================================
+# 📜 당일 매도 체결 집계 (ka10076 체결요청, 통합=KRX+NXT·SOR 포함)
+# ====================================================
+def fetch_today_sell_fills():
+    """당일 매도 체결을 종목별로 합산: {code6: {"qty": 체결수량, "amt": Σ체결가×수량,
+       "cost": Σ(당일매매수수료+당일매매세금)}}. 자동(손절·청산·교체매도)·수기 매도 모두 포함.
+       ※ cntr_pric 는 주문별 평균 체결가. 연속조회(cont-yn/next-key)로 전 페이지 수집,
+         한 페이지라도 실패하면 None(부분 집계로 매도평균을 틀리게 잡지 않도록)."""
+    fills = {}
+    cont_yn, next_key = "N", ""
+    auth_retried = False
+    while True:
+        headers = _headers("ka10076")
+        headers["cont-yn"]  = cont_yn
+        headers["next-key"] = next_key
+        try:
+            res = requests.post(KIWOOM_URL_BASE + "/api/dostk/acnt", headers=headers,
+                                json={"stk_cd": "", "qry_tp": "0", "sell_tp": "1",
+                                      "ord_no": "", "stex_tp": "0"}, timeout=5)
+        except Exception as e:
+            print(f"   ❌ API 오류 [ka10076]: {e}")
+            return None
+        if res.status_code != 200:
+            print(f"   ❌ API HTTP 실패 [ka10076]: {res.status_code} → {res.text[:200]}")
+            return None
+        data = res.json()
+        if data.get("return_code", 0) != 0:
+            if data.get("return_code") == 3 and not auth_retried:
+                auth_retried = True
+                print("   🔄 [ka10076] 인증실패(8005) → 토큰 복구 후 재시도")
+                kiwoom_auth.refresh_after_auth_fail()
+                continue
+            print(f"   ❌ [ka10076] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
+            return None
+
+        for item in data.get("cntr", []) or []:
+            if "매도" not in item.get("io_tp_nm", ""):
+                continue
+            raw_cd = item.get("stk_cd", "")
+            code = raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
+            qty, px = _pint(item.get("cntr_qty")), _pabs(item.get("cntr_pric"))
+            if not code or qty <= 0 or px <= 0:
+                continue
+            f = fills.setdefault(code, {"qty": 0, "amt": 0, "cost": 0})
+            f["qty"]  += qty
+            f["amt"]  += qty * px
+            f["cost"] += _pint(item.get("tdy_trde_cmsn")) + _pint(item.get("tdy_trde_tax"))
+
+        if res.headers.get("cont-yn") == "Y" and res.headers.get("next-key"):
+            cont_yn, next_key = "Y", res.headers.get("next-key")
+            time.sleep(0.25)   # 페이지 간 간격 — 유량(5req/s) 보호
+            continue
+        break
+    return fills
 
 
 # ====================================================
