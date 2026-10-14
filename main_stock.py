@@ -412,6 +412,78 @@ def _search_history_codes(date_str):
     return codes
 
 
+# ====== AI(Claude CLI) 평가 점수 — 매수추천 알림에 병기 (2026-10-14) ======
+def _load_ai_day(date_str):
+    """{code: 평가항목} — 누적 평가풀(claude_results_all) + 신규 큐(claude_results), 같은 code 는 큐가 우선
+       (auto_buy plan 병합 순서와 동일). 파일이 없거나 쓰는 도중이라 깨졌으면 그 파일만 건너뛴다."""
+    out = {}
+    for fn in (f"{date_str}_claude_results_all.json", f"{date_str}_claude_results.json"):
+        path = os.path.join(secrets.LOCAL_DATA_PATH, fn)
+        if not os.path.exists(path):
+            continue
+        try:
+            # 읽고 바로 닫은 뒤 파싱 — 열어둔 동안엔 promote 의 os.replace 가 Windows 에서 실패한다
+            with open(path, encoding="utf-8-sig") as f:
+                raw = f.read()
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                data = data.get("results", [])
+            for r in data:
+                if not isinstance(r, dict) or r.get("claude_score") in (None, ""):
+                    continue
+                c = str(r.get("code", "")).split(".")[0].strip().zfill(6)
+                if c:
+                    out[c] = r
+        except Exception as e:
+            print(f"⚠️ AI 평가 결과 로드 실패({fn}): {e}")
+    return out
+
+
+_AI_PRIOR = {"date": None, "map": {}}
+
+
+def _ai_prior_map(date_str, days=10):
+    """오늘 이전 최근 {days}개 평가일의 종목별 마지막 AI 평가 {code: (YYYYMMDD, 항목)} — 날짜당 1회만 로드."""
+    if _AI_PRIOR["date"] != date_str:
+        m = {}
+        try:
+            dates = sorted({f[:8] for f in os.listdir(secrets.LOCAL_DATA_PATH)
+                            if f[:8].isdigit() and f[:8] < date_str
+                            and f[8:] in ("_claude_results_all.json", "_claude_results.json")})[-days:]
+            for d in dates:     # 오래된 날 → 최근 날 순으로 덮어써 가장 최근 평가가 남는다
+                for c, r in _load_ai_day(d).items():
+                    m[c] = (d, r)
+        except Exception as e:
+            print(f"⚠️ 과거 AI 평가 로드 실패: {e}")
+        _AI_PRIOR.update(date=date_str, map=m)
+    return _AI_PRIOR["map"]
+
+
+def _fmt_ai(r):
+    try:
+        sc = f"{float(r.get('claude_score')):.0f}점"
+    except (TypeError, ValueError):
+        sc = str(r.get("claude_score"))
+    op = r.get("grade") or r.get("recommendation") or ""
+    return f"{sc} · {op}" if op else sc
+
+
+def ai_eval_line(date_str, code):
+    """매수추천 알림용 'AI평가' 줄 — 당일 평가가 아직 없으면 '대기' + 최근 평가일 점수(참고)."""
+    try:
+        r = _load_ai_day(date_str).get(code)
+        if r:
+            return f"AI평가: {_fmt_ai(r)}"
+        prior = _ai_prior_map(date_str).get(code)
+        if prior:
+            d, r = prior
+            return f"AI평가: 대기 (직전 {d[4:6]}/{d[6:]} {_fmt_ai(r)})"
+        return "AI평가: 대기"
+    except Exception as e:
+        print(f"⚠️ AI 평가 표시 실패({code}): {e}")
+        return "AI평가: -"
+
+
 def load_scan_targets(date_str, verbose=True, after=False):
     """
     장중 스캔 대상 파일 목록을 반환.
@@ -669,7 +741,8 @@ if __name__ == "__main__":
                         else:
                             kind = "직전비중감소"
                         label = get_buy_label(score, kind)
-                        msg = f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n현재가: {res['close_price']:,}"
+                        msg = (f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n"
+                               f"{ai_eval_line(today_str, code)}\n현재가: {res['close_price']:,}")
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)
                         sent_tiers[code] = tier
