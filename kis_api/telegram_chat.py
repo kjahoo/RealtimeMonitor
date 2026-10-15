@@ -838,7 +838,8 @@ def run():
                         help_text += "  내 추적 종목 목록 조회 (다른 사용자의 목록은 보이지 않음)\n\n"
                     help_text += (
                         "🏆 /top5  /top10  /top20  (또는 /top 숫자)\n"
-                        "  오늘 스캔된 종목 중 점수 상위 N개 (AI평가가 있으면 함께 표시)\n"
+                        "  오늘 스캔된 종목 중 기술적 분석(V3) 점수 상위 N개\n"
+                        "  (AI 평가가 있으면 기본적 분석(AI) 점수도 함께 표시)\n"
                         "\n"
                         "🗑️ /del <종목>\n"
                         "  내 추적 목록에서 종목 삭제 (',' 로 여러 종목)\n"
@@ -885,7 +886,7 @@ def run():
                         help_text += (
                             "🔔 받는 알림\n"
                             "  · 🚀 매수추천 / 🚪 제외: 스캔 점수 60점+ 진입·비중변경·이탈 종목\n"
-                            "  · 🤖 AI평가: 60점+ 종목 투자매력도 요약\n"
+                            "  · 🤖 AI평가: 60점+ 종목 기본적 분석(AI) 요약\n"
                             "  · 🚨 매도 시그널 (내 추적 종목)\n"
                             f"    - 3일 평활점수 < {thr:.0f}점 이 {confirm}거래일 연속\n"
                             f"      (당일 점수 {thr:.0f}점 이상 회복 시 보류)\n"
@@ -1005,22 +1006,26 @@ def run():
                             df_v = pd.read_csv(stock_path, encoding="utf-8-sig", dtype=str)
                             df_v["score_total"] = pd.to_numeric(df_v["score_total"], errors="coerce").fillna(0)
                             df_v = df_v.sort_values("score_total", ascending=False).head(_top_n)
-                            # AI 평가풀(당일 누적) 로드 — 평가된 종목엔 AI점수·매수의견 병기(2026-08-25)
+                            # AI 평가 로드 — 평가된 종목엔 기본적 분석(AI) 점수·판단 병기(2026-08-25).
+                            #   누적풀(results_all) + 신규 큐(results), 같은 코드는 큐 우선(auto_buy plan 과 동일)
                             ai_map = {}
-                            try:
-                                _ai_path = os.path.join(LOG_DIR, f"{today_str_now}_claude_results_all.json")
+                            for _fn in (f"{today_str_now}_claude_results_all.json",
+                                        f"{today_str_now}_claude_results.json"):
+                                _ai_path = os.path.join(LOG_DIR, _fn)
                                 if not os.path.exists(_ai_path):
-                                    _ai_path = os.path.join(LOG_DIR, f"{today_str_now}_claude_results.json")
-                                if os.path.exists(_ai_path):
-                                    with open(_ai_path, encoding="utf-8") as _f:
-                                        _ai = json.load(_f)
-                                    _ai = _ai.get("results", _ai) if isinstance(_ai, dict) else _ai
+                                    continue
+                                try:
+                                    with open(_ai_path, encoding="utf-8-sig") as _f:
+                                        _ai = json.loads(_f.read())
+                                    _ai = _ai.get("results", []) if isinstance(_ai, dict) else _ai
                                     for _r in _ai:
+                                        if not isinstance(_r, dict):
+                                            continue
                                         _c = str(_r.get("code", "")).split(".")[0].strip().zfill(6)
-                                        if _c:
-                                            ai_map[_c] = (_r.get("claude_score"), _r.get("grade") or _r.get("recommendation", ""))
-                            except Exception:
-                                ai_map = {}
+                                        if _c and _r.get("claude_score") not in (None, ""):
+                                            ai_map[_c] = _r
+                                except Exception:
+                                    pass
                             if df_v.empty:
                                 send_message(chat_id, "📭 오늘 집계된 종목이 없습니다.")
                             else:
@@ -1032,14 +1037,19 @@ def run():
                                     _code6 = str(row["code"]).split(".")[0].strip().zfill(6)
                                     ai_str = ""
                                     if _code6 in ai_map:
-                                        _sc, _op = ai_map[_code6]
+                                        _r = ai_map[_code6]
+                                        _rec = str(_r.get("recommendation", "")).upper()
+                                        _op = ("✅강력매수" if _rec == "BUY" and _r.get("grade") == "강력매수"
+                                               else {"BUY": "✅매수", "HOLD": "⚪관망", "AVOID": "🔴회피"}.get(
+                                                   _rec, _r.get("grade") or _rec))
                                         try:
-                                            ai_str = f"  🤖AI {float(_sc):.0f}점·{_op}"
+                                            _sc = f"{float(_r.get('claude_score')):.0f}/100"
                                         except (TypeError, ValueError):
-                                            ai_str = f"  🤖AI {_op}" if _op else ""
+                                            _sc = str(_r.get("claude_score"))
+                                        ai_str = f"\n    기본적 분석(AI): {_sc} · {_op}"
                                     lines.append(
                                         f"{rank:2d}. {row.get('name','')} ({row['code']})\n"
-                                        f"    점수: {score:.1f}점  현재가: {price}원  {time_str}{ai_str}"
+                                        f"    기술적 분석(V3): {score:.1f}  현재가: {price}원  {time_str}{ai_str}"
                                     )
                                 send_message(chat_id, "\n".join(lines))
                         except Exception as e:

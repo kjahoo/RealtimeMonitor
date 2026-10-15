@@ -459,29 +459,35 @@ def _ai_prior_map(date_str, days=10):
     return _AI_PRIOR["map"]
 
 
+_REC_KR = {"BUY": "✅매수", "HOLD": "⚪관망", "AVOID": "🔴회피"}
+
+
 def _fmt_ai(r):
+    """'79/100 · ✅매수' — AI 평가 알림(claude_eval_pipeline)과 같은 표기. 강력매수만 등급으로 표시."""
     try:
-        sc = f"{float(r.get('claude_score')):.0f}점"
+        sc = f"{float(r.get('claude_score')):.0f}/100"
     except (TypeError, ValueError):
         sc = str(r.get("claude_score"))
-    op = r.get("grade") or r.get("recommendation") or ""
+    rec = str(r.get("recommendation", "")).upper()
+    op = ("✅강력매수" if rec == "BUY" and r.get("grade") == "강력매수"
+          else _REC_KR.get(rec, r.get("grade") or rec))
     return f"{sc} · {op}" if op else sc
 
 
 def ai_eval_line(date_str, code):
-    """매수추천 알림용 'AI평가' 줄 — 당일 평가가 아직 없으면 '대기' + 최근 평가일 점수(참고)."""
+    """매수추천 알림용 '기본적 분석(AI)' 줄 — 당일 평가가 아직 없으면 '대기' + 최근 평가일 점수(참고)."""
     try:
         r = _load_ai_day(date_str).get(code)
         if r:
-            return f"AI평가: {_fmt_ai(r)}"
+            return f"기본적 분석(AI): {_fmt_ai(r)}"
         prior = _ai_prior_map(date_str).get(code)
         if prior:
             d, r = prior
-            return f"AI평가: 대기 (직전 {d[4:6]}/{d[6:]} {_fmt_ai(r)})"
-        return "AI평가: 대기"
+            return f"기본적 분석(AI): 대기 (직전 {d[4:6]}/{d[6:]} {_fmt_ai(r)})"
+        return "기본적 분석(AI): 대기"
     except Exception as e:
         print(f"⚠️ AI 평가 표시 실패({code}): {e}")
-        return "AI평가: -"
+        return "기본적 분석(AI): -"
 
 
 def load_scan_targets(date_str, verbose=True, after=False):
@@ -741,7 +747,7 @@ if __name__ == "__main__":
                         else:
                             kind = "직전비중감소"
                         label = get_buy_label(score, kind)
-                        msg = (f"🚀 {label} {res['name']} ({code})\n점수: {score * 100:.1f}\n"
+                        msg = (f"🚀 {label} {res['name']} ({code})\n기술적 분석(V3): {score * 100:.1f}\n"
                                f"{ai_eval_line(today_str, code)}\n현재가: {res['close_price']:,}")
                         print(f"   🔔 {msg.replace(chr(10), ' ')}")
                         send_telegram(msg)

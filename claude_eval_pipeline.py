@@ -298,8 +298,8 @@ def load_pending(today_str):
 
 
 # ── 텔레그램 ──────────────────────────────────────────────────────────
-#   본인(_send_owner): AI평가 + 풀리포트 경로 + 매수(promising) 정보 전부
-#   친구(_send_friends): AI평가 요약만. 풀리포트 로컬경로·실제 매수/매도 정보는 제외
+#   본인(_send_owner): AI평가 + 매수(promising) 정보
+#   친구(_send_friends): AI평가 요약만. 실제 매수/매도 정보는 제외
 def _send(chat_id, msg):
     """전송 성공 여부를 bool 로 반환한다.
 
@@ -342,7 +342,8 @@ def _send_friends(msg):
         _send(cid, msg)
 
 
-# 원본 '트레이딩 종목 분석' 13항목 (핵심 압축) — 종목별 풀리포트 섹션
+# AI 평가 14항목 (CLAUDE.md 순서) — 종목별 풀리포트 섹션.
+#   기술적(차트) 분석은 V3 모델 담당이라 AI 평가에서 제외(2026-08-19) → 섹션 없음.
 ANALYSIS_SECTIONS = [
     ("business",      "1. 주요 사업 및 제품별 매출 비중"),
     ("customers",     "2. 주요 고객사 및 고객사별 매출 비중"),
@@ -351,11 +352,11 @@ ANALYSIS_SECTIONS = [
     ("competition",   "5. 경쟁사 대비 장단점"),
     ("valuation",     "6. 밸류에이션 분석 및 peer 비교"),
     ("invest_points", "7. 최신 투자 포인트와 주요 뉴스"),
-    ("technical",     "8. 기술적(차트) 분석"),
-    ("gossip",        "9. Gossip 및 웹상의 의견"),
-    ("dilution",      "10. 메자닌 등 주가 희석 요인"),
-    ("risks",         "11. 리스크 요인"),
-    ("verdict",       "12. 종합 판단"),
+    ("gossip",        "8. Gossip 및 웹상의 의견"),
+    ("dilution",      "9. 메자닌 등 주가 희석 요인"),
+    ("risks",         "10. 리스크 요인"),
+    ("verdict",       "11. 종합 판단"),
+    ("report",        "12. 애널리스트 분석보고서 (6개월 내)"),
     ("extra",         "13. 이외 투자 도움 사항"),
     ("catalyst",      "14. 단기 촉매/뉴스 모멘텀 (2주 내)"),
 ]
@@ -367,7 +368,7 @@ def _safe_name(name):
 
 
 def _write_stock_report(ev, today_str):
-    """종목별 13항목 풀리포트를 logs/{날짜}_{코드}_{종목명}.md 로 저장. 경로 반환."""
+    """종목별 14항목 풀리포트를 logs/{날짜}_{코드}_{종목명}.md 로 저장. 경로 반환."""
     code6 = _fmt_code(ev.get("code", ""))
     name = str(ev.get("name", "")).strip()
     an = ev.get("analysis") or {}
@@ -380,8 +381,8 @@ def _write_stock_report(ev, today_str):
         f"# {name} ({code6}) 투자분석",
         "",
         f"- 작성: {now}",
-        f"- **투자매력도(클로드): {ev.get('claude_score','-')}/100**  ·  등급: {ev.get('grade','-')}  ·  판단: {_REC_KR.get(rec, rec)}",
-        f"- V3 모델점수: {ev.get('v3_score100','-')}  ·  현재가: {ev.get('close_price','-')}  ·  시총: {ev.get('market_cap','-')}억",
+        f"- **기본적 분석(AI): {ev.get('claude_score','-')}/100**  ·  등급: {ev.get('grade','-')}  ·  판단: {_REC_KR.get(rec, rec)}",
+        f"- 기술적 분석(V3): {_num1(ev.get('v3_score100'))}  ·  현재가: {_won(ev.get('close_price'))}  ·  시총: {ev.get('market_cap','-')}억",
         f"- 한줄요약: {ev.get('summary','')}",
         "",
     ]
@@ -399,26 +400,44 @@ def _write_stock_report(ev, today_str):
         return None
 
 
-def _format_stock_msg(ev, added, report_path=None, public=False):
-    """텔레그램용 요약 (점수 + 종합판단 + 요약). 13항목 전문은 파일에.
-       public=True(친구용)는 풀리포트 로컬경로·실제 매수(promising 추가) 정보를 제외한다."""
+def _num1(v):
+    try:
+        return f"{float(v):.1f}"
+    except (TypeError, ValueError, OverflowError):
+        return "-"
+
+
+def _won(v):
+    try:
+        return f"{int(float(v)):,}"
+    except (TypeError, ValueError, OverflowError):
+        return "-"
+
+
+def _ai_opinion(ev):
+    """AI 판단 표시 — 강력매수만 등급으로, 나머지는 판단(✅매수/⚪관망/🔴회피)만 (등급·판단 중복 제거)."""
     rec = str(ev.get("recommendation", "")).upper()
+    if rec == "BUY" and ev.get("grade") == "강력매수":
+        return "✅강력매수"
+    return _REC_KR.get(rec, ev.get("grade") or rec or "-")
+
+
+def _format_stock_msg(ev, added, public=False):
+    """텔레그램용 요약 (점수 + 종합판단 + 요약). 14항목 전문은 logs 의 종목별 md 파일에.
+       public=True(친구용)는 실제 매수(promising 추가) 정보를 제외한다."""
     an = ev.get("analysis") or {}
     verdict = an.get("verdict") or ev.get("verdict") or ev.get("thesis") or ""
     lines = [
         f"🤖 [AI평가] {ev.get('name','')} ({_fmt_code(ev.get('code',''))})",
-        f"투자매력도 {ev.get('claude_score','-')}/100 · {ev.get('grade','-')} · {_REC_KR.get(rec, rec)}",
-        f"V3 {ev.get('v3_score100','-')} · 현재가 {ev.get('close_price','-')}",
+        f"기본적 분석(AI) {ev.get('claude_score','-')}/100 · {_ai_opinion(ev)}",
+        f"기술적 분석(V3) {_num1(ev.get('v3_score100'))} · 현재가 {_won(ev.get('close_price'))}",
     ]
     if verdict:
         lines.append(f"종합: {verdict}")
     if ev.get("summary"):
         lines.append(f"요약: {ev['summary']}")
-    if not public:                      # 본인 전용: 풀리포트 로컬경로 + 매수 추적 정보
-        if report_path:
-            lines.append(f"📄 풀리포트: {report_path}")
-        if added:
-            lines.append("➕ promising(본인)에 추가됨")
+    if not public and added:            # 본인 전용: 매수 추적 정보
+        lines.append("➕ promising(본인)에 추가됨")
     return "\n".join(lines)
 
 
@@ -574,7 +593,7 @@ def _write_report(all_results, today_str):
         f"- 갱신: {now}",
         f"- 평가 종목: {len(items)}개 (매수 {len(buys)} / 관망·회피 {len(items) - len(buys)})",
         "",
-        "| 판정 | 종목 | 코드 | V3 | 클로드 | 등급 | 요약 |",
+        "| 판정 | 종목 | 코드 | 기술적(V3) | 기본적(AI) | 등급 | 요약 |",
         "|------|------|------|----|--------|------|------|",
     ]
     for e in items:
@@ -592,7 +611,7 @@ def _write_report(all_results, today_str):
         verdict = an.get("verdict") or e.get("verdict") or e.get("thesis") or e.get("summary", "")
         lines.append(
             f"- {_REC_KR.get(rec, rec)} **{e.get('name','')}({_fmt_code(e.get('code',''))})** "
-            f"클로드 {e.get('claude_score','')}/100 · {e.get('grade','')} — {verdict}"
+            f"기본적 분석(AI) {e.get('claude_score','')}/100 · {e.get('grade','')} — {verdict}"
         )
     try:
         tmp = _report_path(today_str) + ".tmp"
@@ -661,8 +680,8 @@ def promote_and_notify(results, today_str):
         added = _append_to_history(ev, today_str) if is_buy else False
         if added:
             added_cnt += 1
-        report_path = _write_stock_report(ev, today_str)   # 종목별 13항목 풀리포트
-        queued.append((ev, added, report_path))
+        _write_stock_report(ev, today_str)   # 종목별 14항목 풀리포트(logs md, 텔레그램엔 경로 미표시)
+        queued.append((ev, added))
 
     buys = [r for r in fresh if str(r.get("recommendation", "")).upper() == "BUY"]
     header = (f"🤖 60점+ 종목 AI평가 {len(fresh)}건 "
@@ -670,10 +689,10 @@ def promote_and_notify(results, today_str):
     _send_owner(header)
     _send_friends(header)          # 친구에게도 AI평가 공개 (요약 헤더)
     fail_cnt = 0
-    for ev, added, report_path in queued:
+    for ev, added in queued:
         code6 = _fmt_code(ev.get("code", ""))
-        ok = _send_owner(_format_stock_msg(ev, added, report_path, public=False))
-        _send_friends(_format_stock_msg(ev, added, report_path, public=True))
+        ok = _send_owner(_format_stock_msg(ev, added, public=False))
+        _send_friends(_format_stock_msg(ev, added, public=True))
         if ok:
             done.add(code6)        # 발송 성공만 기록 → 다음 사이클 재발송 방지
             sent_cnt += 1
