@@ -686,60 +686,109 @@ def fetch_open_sell_orders(code):
     return orders
 
 
+def _post_pages(api_id, body, list_key):
+    """계좌 조회 연속조회(cont-yn/next-key) 전 페이지의 list_key 배열을 이어 붙여 반환.
+       8005(토큰 무효) 1회 복구·429(유량) 2회 재시도. 한 페이지라도 실패하면 None
+       (부분 목록으로 판정을 틀리게 하지 않도록 — 호출부는 fail-closed)."""
+    rows = []
+    cont_yn, next_key = "N", ""
+    auth_retried, rl_retry = False, 0
+    while True:
+        headers = _headers(api_id)
+        headers["cont-yn"]  = cont_yn
+        headers["next-key"] = next_key
+        try:
+            res = requests.post(KIWOOM_URL_BASE + "/api/dostk/acnt", headers=headers,
+                                json=body, timeout=5)
+        except Exception as e:
+            print(f"   ❌ API 오류 [{api_id}]: {e}")
+            return None
+        if res.status_code == 429 and rl_retry < 2:
+            rl_retry += 1
+            time.sleep(0.35)             # 유량 윈도(1초) 회복 대기 후 같은 페이지 재시도
+            continue
+        if res.status_code != 200:
+            print(f"   ❌ API HTTP 실패 [{api_id}]: {res.status_code} → {res.text[:200]}")
+            return None
+        data = res.json()
+        if data.get("return_code", 0) != 0:
+            if data.get("return_code") == 3 and not auth_retried:
+                auth_retried = True
+                print(f"   🔄 [{api_id}] 인증실패(8005) → 토큰 복구 후 재시도")
+                kiwoom_auth.refresh_after_auth_fail()
+                continue
+            print(f"   ❌ [{api_id}] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
+            return None
+        rows.extend(data.get(list_key, []) or [])
+        rl_retry = 0
+        if res.headers.get("cont-yn") == "Y" and res.headers.get("next-key"):
+            cont_yn, next_key = "Y", res.headers.get("next-key")
+            time.sleep(0.25)   # 페이지 간 간격 — 유량(5req/s) 보호
+            continue
+        return rows
+
+
+def _code6(raw_cd):
+    """'A005930' 처럼 접두어 1자리 붙은 7자리 코드 → 6자리."""
+    raw_cd = str(raw_cd or "").strip()
+    return raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
+
+
 # ====================================================
 # 📜 당일 매도 체결 집계 (ka10076 체결요청, 통합=KRX+NXT·SOR 포함)
 # ====================================================
 def fetch_today_sell_fills():
     """당일 매도 체결을 종목별로 합산: {code6: {"qty": 체결수량, "amt": Σ체결가×수량,
        "cost": Σ(당일매매수수료+당일매매세금)}}. 자동(손절·청산·교체매도)·수기 매도 모두 포함.
-       ※ cntr_pric 는 주문별 평균 체결가. 연속조회(cont-yn/next-key)로 전 페이지 수집,
+       ※ cntr_pric 는 주문별 평균 체결가. 연속조회로 전 페이지 수집,
          한 페이지라도 실패하면 None(부분 집계로 매도평균을 틀리게 잡지 않도록)."""
+    rows = _post_pages("ka10076", {"stk_cd": "", "qry_tp": "0", "sell_tp": "1",
+                                   "ord_no": "", "stex_tp": "0"}, "cntr")
+    if rows is None:
+        return None
     fills = {}
-    cont_yn, next_key = "N", ""
-    auth_retried = False
-    while True:
-        headers = _headers("ka10076")
-        headers["cont-yn"]  = cont_yn
-        headers["next-key"] = next_key
-        try:
-            res = requests.post(KIWOOM_URL_BASE + "/api/dostk/acnt", headers=headers,
-                                json={"stk_cd": "", "qry_tp": "0", "sell_tp": "1",
-                                      "ord_no": "", "stex_tp": "0"}, timeout=5)
-        except Exception as e:
-            print(f"   ❌ API 오류 [ka10076]: {e}")
-            return None
-        if res.status_code != 200:
-            print(f"   ❌ API HTTP 실패 [ka10076]: {res.status_code} → {res.text[:200]}")
-            return None
-        data = res.json()
-        if data.get("return_code", 0) != 0:
-            if data.get("return_code") == 3 and not auth_retried:
-                auth_retried = True
-                print("   🔄 [ka10076] 인증실패(8005) → 토큰 복구 후 재시도")
-                kiwoom_auth.refresh_after_auth_fail()
-                continue
-            print(f"   ❌ [ka10076] return_code={data.get('return_code')} msg={data.get('return_msg','')}")
-            return None
-
-        for item in data.get("cntr", []) or []:
-            if "매도" not in item.get("io_tp_nm", ""):
-                continue
-            raw_cd = item.get("stk_cd", "")
-            code = raw_cd[1:] if (len(raw_cd) == 7 and raw_cd[0].isalpha()) else raw_cd
-            qty, px = _pint(item.get("cntr_qty")), _pabs(item.get("cntr_pric"))
-            if not code or qty <= 0 or px <= 0:
-                continue
-            f = fills.setdefault(code, {"qty": 0, "amt": 0, "cost": 0})
-            f["qty"]  += qty
-            f["amt"]  += qty * px
-            f["cost"] += _pint(item.get("tdy_trde_cmsn")) + _pint(item.get("tdy_trde_tax"))
-
-        if res.headers.get("cont-yn") == "Y" and res.headers.get("next-key"):
-            cont_yn, next_key = "Y", res.headers.get("next-key")
-            time.sleep(0.25)   # 페이지 간 간격 — 유량(5req/s) 보호
+    for item in rows:
+        if "매도" not in item.get("io_tp_nm", ""):
             continue
-        break
+        code = _code6(item.get("stk_cd"))
+        qty, px = _pint(item.get("cntr_qty")), _pabs(item.get("cntr_pric"))
+        if not code or qty <= 0 or px <= 0:
+            continue
+        f = fills.setdefault(code, {"qty": 0, "amt": 0, "cost": 0})
+        f["qty"]  += qty
+        f["amt"]  += qty * px
+        f["cost"] += _pint(item.get("tdy_trde_cmsn")) + _pint(item.get("tdy_trde_tax"))
     return fills
+
+
+# ====================================================
+# 🗓️ 일자별 매수 체결 종목 (kt00007 계좌별주문체결내역상세, KRX+NXT+SOR 전체)
+# ====================================================
+def recent_trading_days(n, today=None):
+    """today(YYYYMMDD, 기본 오늘)부터 거슬러 올라간 최근 n 거래일 [오늘, D-1, D-2, …] — 주말·KRX_HOLIDAYS 제외.
+       today 가 휴장일이면 그 날은 빠지고 직전 거래일부터 센다."""
+    d = datetime.datetime.strptime(today, "%Y%m%d") if today else datetime.datetime.now()
+    out = []
+    while len(out) < n:
+        if is_trading_day(d):
+            out.append(d.strftime("%Y%m%d"))
+        d -= datetime.timedelta(days=1)
+    return out
+
+
+def fetch_buy_codes_on(ord_dt):
+    """주문일자 ord_dt(YYYYMMDD)에 매수 체결이 1주라도 있었던 종목코드(6자리) 집합.
+       자동·수기·현금·신용 매수 모두 포함(kt00007 체결내역만·매수·주식).
+       ※ kt00015 위탁종합거래내역의 거래일자는 결제일(D+2)이라 어제·오늘 매수가 빠지므로 쓰지 않는다.
+       조회 실패 시 None."""
+    rows = _post_pages("kt00007", {"ord_dt": ord_dt, "qry_tp": "4", "stk_bond_tp": "1", "sell_tp": "2",
+                                   "stk_cd": "", "fr_ord_no": "", "dmst_stex_tp": "%"},
+                       "acnt_ord_cntr_prps_dtl")
+    if rows is None:
+        return None
+    return {_code6(it.get("stk_cd")) for it in rows
+            if "매수" in it.get("io_tp_nm", "") and _pint(it.get("cntr_qty")) > 0
+            and _code6(it.get("stk_cd"))}
 
 
 # ====================================================

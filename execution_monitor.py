@@ -77,6 +77,7 @@ ROT_BLOCK_ON_LOAN = False                                     # 담보대출·�
 ROT_CASH_MIN_RATIO = 0.5                                      # 교체매도 체결 후 매수현금이 체결대금의 이 비율 미만으로만 늘면 당일 교체매도 중지
 ROT_BLOCK_RECHECK_SEC = 60                                    # 교체매도 보류 중 현금·미수 재확인 간격(초)
 ROT_KEEP_SCORE = 60.0                                         # (2026-10-14) 현재 정규장 점수 이 값 이상인 보유종목은 교체매도 제외
+ROT_MIN_HOLD_TD = 5                                           # (2026-10-16) 교체매도 대상 = 마지막 매수일로부터 거래일 D+5 이상 경과 종목만
 REBUY_DISCOUNT = 0.02                                         # (2026-10-14) 당일 매도 종목 재매수: 매도 순수령 평균 대비 2% 이상 싸야 매수
 SELL_FILL_TTL  = 20                                           # 당일 매도체결 집계(ka10076) 캐시 유효시간(초) — 유량 보호
 ETF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "ETF")
@@ -514,6 +515,8 @@ def _tick(today_str):
 #   신규종목(plan target.new) 매수 예산이 모자라면, 보유비중(평가금액) 1위부터 순서대로
 #   '수수료·세금 차감 후 이익'(매수최우선 > 손익분기 = 평단×(1+0.015%)÷(1−0.215%)) 종목만 부족분만큼 매도. 그 외 건너뜀.
 #   (2026-10-14) 현재 정규장 재평가 점수 60점(ROT_KEEP_SCORE)+ 보유종목은 교체매도 제외(점수 미산출 종목은 대상 유지).
+#   (2026-10-16) 마지막 매수일(자동·수기 전부, kt00007 체결내역)로부터 거래일 D+5(ROT_MIN_HOLD_TD) 이상 경과한 종목만 대상.
+#               해당 종목이 없으면 교체매도 안 함. 매수일 조회 실패 시에도 보류(fail-closed).
 #   백테스트(addbuy_analysis/rotate_test.py '최종안') 규칙을 장중 sweep 으로 옮긴 것.
 #   · 매도 수량 = 부족금액 ÷ 매수최우선 (트랜치별 발주, 신용·담보 먼저). 지정가 = max(매수최우선×(1−1%), 손익분기 초과 최소호가)
 #   · '걸어두지 않음': 다음 틱에 미체결 잔량 취소 → ROT_SETTLE_SEC 동안 현금 반영을 기다린 뒤 부족분 재계산
@@ -536,6 +539,31 @@ def _rot_eligible(code):
         except Exception:
             return False
     return code in _master_cache["set"]
+
+
+_buy_day_cache = {}   # {YYYYMMDD: set(code)} — 지난 거래일 매수체결 종목(당일엔 불변 → 날짜별 1회 조회)
+
+
+def _recent_buy_age(today_str):
+    """최근 ROT_MIN_HOLD_TD 거래일(오늘 포함)에 매수 체결이 있었던 종목의 경과 거래일 {code: k}
+       (k=0 오늘, 1 전일 … 가장 최근 매수 기준). 여기에 없는 보유종목 = 마지막 매수 후 D+5 이상 경과.
+       하루라도 조회 실패하면 None → 교체매도 보류(fail-closed). 오늘분은 매번 새로 조회(장중 수기 매수 반영)."""
+    days = kt.recent_trading_days(ROT_MIN_HOLD_TD, today_str)
+    for d in list(_buy_day_cache):
+        if d not in days:
+            del _buy_day_cache[d]
+    age = {}
+    for k, d in enumerate(days):
+        codes = _buy_day_cache.get(d) if d != today_str else None
+        if codes is None:
+            codes = kt.fetch_buy_codes_on(d)
+            if codes is None:
+                return None
+            if d != today_str:
+                _buy_day_cache[d] = codes
+        for c in codes:
+            age.setdefault(_fmt(c), k)
+    return age
 
 
 def _rot_breakeven(avg):
@@ -572,11 +600,20 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
     bought = ({_fmt(c) for c, v in (ex.get("codes") or {}).items() if int((v or {}).get("bought", 0) or 0) > 0}
               if ex.get("date") == today_str else set())
     live = _load_live_scores(today_str)      # (2026-10-14) 현재 정규장 점수 ROT_KEEP_SCORE(60)+ 보유종목은 팔지 않음
+    age = _recent_buy_age(today_str)         # (2026-10-16) 마지막 매수 후 D+5 미만 보유종목은 팔지 않음
+    if age is None:
+        _log_once("rot", "  🔁 교체매도 보류 — 최근 매수일 조회(kt00007) 실패, D+5 확인 불가")
+        return False
 
     srcs = []
     for code, poss in tranche_map.items():
         code = _fmt(code)
         if code in new_codes or code in selling or code in bought or not _rot_eligible(code):
+            continue
+        k = age.get(code)
+        if k is not None:
+            _log_once(f"rot:{code}", f"  🔁 {_hold_names.get(code, '')}({code}) 마지막 매수 D+{k}"
+                                     f"<D+{ROT_MIN_HOLD_TD} — 교체매도 제외")
             continue
         sc = live.get(code)
         if sc is not None and sc >= ROT_KEEP_SCORE:
@@ -651,7 +688,8 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
                       f"매수최우선 {best_bid:,} · 비용차감 순익 ≥{net_min * 100:+.2f}%) → 신규 {for_names} 매수자금")
         _log_once(f"rot:{code}", f"  🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원 (비중{rank}위, 순익≥{net_min*100:+.2f}%)")
     if need_amt >= min_px and not placed:
-        _log_once("rot", f"  🔁 교체매도 대상 없음(정규장 {ROT_KEEP_SCORE:.0f}점 미만 중 수수료·세금 차감 후 이익 나는 보유종목 없음) — 부족 {need_amt:,.0f}원")
+        _log_once("rot", f"  🔁 교체매도 대상 없음(매수 후 D+{ROT_MIN_HOLD_TD} 경과·정규장 {ROT_KEEP_SCORE:.0f}점 미만 중 "
+                         f"수수료·세금 차감 후 이익 나는 보유종목 없음) — 부족 {need_amt:,.0f}원")
     return placed
 
 
