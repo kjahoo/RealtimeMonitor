@@ -710,7 +710,11 @@ def _post_pages(api_id, body, list_key):
         if res.status_code != 200:
             print(f"   ❌ API HTTP 실패 [{api_id}]: {res.status_code} → {res.text[:200]}")
             return None
-        data = res.json()
+        try:
+            data = res.json()
+        except ValueError:               # 200 인데 빈/비JSON 본문(게이트웨이 오류 등) → 실패로 처리
+            print(f"   ❌ [{api_id}] 응답 파싱 실패 → {res.text[:200]}")
+            return None
         if data.get("return_code", 0) != 0:
             if data.get("return_code") == 3 and not auth_retried:
                 auth_retried = True

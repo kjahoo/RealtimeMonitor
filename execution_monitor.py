@@ -688,8 +688,9 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
                       f"매수최우선 {best_bid:,} · 비용차감 순익 ≥{net_min * 100:+.2f}%) → 신규 {for_names} 매수자금")
         _log_once(f"rot:{code}", f"  🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원 (비중{rank}위, 순익≥{net_min*100:+.2f}%)")
     if need_amt >= min_px and not placed:
+        # 부족금액은 호가에 따라 매 틱 바뀌어 문구에 넣으면 같은 상태가 4초마다 반복 출력됨 → 상태만 표시
         _log_once("rot", f"  🔁 교체매도 대상 없음(매수 후 D+{ROT_MIN_HOLD_TD} 경과·정규장 {ROT_KEEP_SCORE:.0f}점 미만 중 "
-                         f"수수료·세금 차감 후 이익 나는 보유종목 없음) — 부족 {need_amt:,.0f}원")
+                         f"수수료·세금 차감 후 이익 나는 보유종목 없음) — 교체매도 안 함")
     return placed
 
 
