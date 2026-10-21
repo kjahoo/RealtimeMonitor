@@ -49,6 +49,31 @@ def load_csv(path, mtime_ns):
     return df.dropna(subset=["score_total"])
 
 
+@st.cache_data(ttl=0.5, show_spinner=False)
+def _load_ai_json(path, mtime_ns):
+    import json
+    with open(path, encoding="utf-8") as f:
+        d = json.load(f)
+    return d if isinstance(d, list) else []
+
+
+def _ai_scores(day):
+    """오늘 AI(Claude) 평가 {code: (claude_score, grade)} — auto_buy 와 같은 병합 순서
+    (results_all → results.json, 같은 code 는 뒤의 results.json 이 이김)."""
+    out = {}
+    for name in (f"{day}_claude_results_all.json", f"{day}_claude_results.json"):
+        path = os.path.join(LOG_DIR, name)
+        try:
+            rows = _load_ai_json(path, os.stat(path).st_mtime_ns)
+        except Exception:
+            continue
+        for r in rows:
+            c = str(r.get("code", "")).split(".")[0].zfill(6)
+            if c.strip("0") and r.get("claude_score") is not None:
+                out[c] = (int(r["claude_score"]), r.get("grade") or r.get("recommendation") or "")
+    return out
+
+
 def _is_post_close(now):
     return now.weekday() < 5 and POST_CLOSE_START < now.time() < POST_CLOSE_END
 
@@ -99,6 +124,11 @@ def table():
     view["점수"] = (view["score_total"] * 100).round(1)
     cols  = ["순위", "code", "name", "close_price", "점수"]
     names = ["순위", "코드", "종목명", "현재가(통합)" if after else "현재가", "점수"]
+    ai = _ai_scores(day)
+    # 문자열로 만든다(미평가 '-') — 결측은 st.dataframe 이 'None' 으로 그림
+    view["AI점수"] = [f"{ai[c][0]} {ai[c][1]}" if c in ai else "-"
+                    for c in view["code"].str.split(".").str[0].str.zfill(6)]
+    cols.append("AI점수"); names.append("AI점수")
     if after:
         base = _regular_close_scores(day)
         st.caption("마감대비 = 장후 점수 − 정규장(09:00~15:30) 마지막 점수 · '-' = 오늘 정규장 점수 기록 없음")
@@ -130,8 +160,17 @@ def table():
             return ["background-color:#664d03;color:#fff3cd"] * len(row)
         return [""] * len(row)
 
+    def _ai_color(v):
+        if v == "-":
+            return ""
+        s = int(v.split()[0])
+        if s >= 70:
+            return "color:#4ade80;font-weight:bold"
+        return "color:#f87171" if s < 40 else ""
+
+    st.caption("AI점수 = Claude 기본적 분석 점수(70+ 매수 · 40~69 관망 · 40미만 회피) · '-' = 오늘 미평가")
     st.dataframe(
-        view.style.apply(_hl, axis=1).format({price_col: "{:,.0f}", "점수": "{:.1f}"}),
+        view.style.apply(_hl, axis=1).map(_ai_color, subset=["AI점수"]).format({price_col: "{:,.0f}", "점수": "{:.1f}"}),
         width="stretch", height=min(38 * (len(view) + 1) + 4, 900), hide_index=True,
     )
 
