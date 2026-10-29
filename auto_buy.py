@@ -43,8 +43,13 @@ auto_buy.py — AI '매수'(BUY) & 정규장 재평가 60점+(SCORE_MIN) 종목 
     15:30 종가 체결도 확정되고, 장 막판 재계산값·체결 없는 상향은 확정되지 않음. 기록 없는 보유종목은
     매 빌드 즉시 현재 평가비중의 가장 가까운 구간·현재 보유수량으로 초기화. 같은 구간 잔여가 확정 목표의
     3%(최소 1주) 이하면 채운 것으로 간주. 전량 매도 시 기억 삭제.
+    (2026-10-29 보완) 구간이 올랐는데 이미 그 목표를 채웠으면(잔여 3% 이하 포함) 지금 보유수량으로 즉시 확정
+    (체결이 없어 확정 안 된 채 매 빌드 재계산되며 단주 추가매수 나던 문제). 잔고가 0종목으로 왔는데 계좌 합계가
+    남아 있거나 조회 실패면(일시 오류 의심) 그 빌드는 기억 갱신 안 함(합계 0 = 진짜 전량 청산은 정상 처리).
+    오늘 전량 매도 후 재매수하는 기보유 종목도 pend 발행(부분체결 고착 방지).
     롤백: logs/auto_buy.py.bak_20261021_tierkeep (+ logs/autobuy_tier_state.json 삭제)
           10-27 개정만 되돌리기: logs/auto_buy.py.bak_20261027_tierpend + logs/autobuy_tier_state.json.bak_20261027
+          10-29 보완만 되돌리기: logs/auto_buy.py.bak_20261029_tierfix + logs/autobuy_tier_state.json.bak_20261029
 
 상태파일 (logs/):
   {날짜}_autobuy_base.json    당일 기준금액(총자산) 스냅샷
@@ -274,18 +279,28 @@ def _build_plan(today_str):
     tier_state = tier_state if isinstance(tier_state, dict) else {}
     tiers = dict(tier_state.get("codes") or {})
     pend = dict(tier_state.get("pend") or {})   # 직전 빌드가 낸 신규·구간상향 목표 {code: {alloc, target_qty, held_at, date}}
+    # (2026-10-29) 잔고가 통째로 비어 왔는데 기억이 있으면 계좌 합계(총매입·총평가)로 교차확인:
+    #    둘 다 0 = 진짜 빈 계좌(전량 청산) → 정상 처리(기억 삭제). 합계가 남아 있거나 조회 실패 = 일시 오류 의심
+    #    → 이번 빌드는 tier 기억을 읽기만 하고 확정·삭제·발행·저장 안 함(plan 은 그대로 빌드).
+    #    갱신하면 pend 유실 + 전 종목이 '신규'로 pend(held_at 0) 발행 → 다음 빌드에서 재계산값으로 일괄 덮어써짐.
+    tier_frozen = False
+    if not held and (tiers or pend):
+        tot = kt.fetch_stock_totals()
+        tier_frozen = not (tot and tot["pur"] == 0 and tot["evlt"] == 0)
+        if not tier_frozen:
+            print("   ℹ️ 잔고 0종목·계좌 합계 0 확인(전량 청산) — 보유 구간 기억 정리")
 
-    # ① 확정(2026-10-27): 직전 빌드가 낸 신규·구간상향 목표(pend) 이후 보유가 늘었으면 그 목표로 체결된 것
-    #    → 그 목표의 구간·목표수량으로 확정. 체결 후 plan 에서 빠졌거나 구간이 내려갔어도,
-    #    15:30 종가 체결이라 당일 재빌드가 없어도 다음 빌드(익일 첫 빌드)에서 확정된다.
-    #    (빌드 시점 재계산값·당일 누적 bought 로 기록하면 장 막판 가격 드리프트나 체결 없는 상향이 확정되던 문제 수정)
-    for c, p in pend.items():
-        if held.get(c, 0) > int((p or {}).get("held_at", 0) or 0):
-            tiers[c] = {"alloc": float(p["alloc"]), "target_qty": int(p["target_qty"]),
-                        "date": today_str, "src": "fill"}
-    pend = {}                           # 이번 빌드가 새로 발행(미체결 목표는 버림)
-    # ② 전량 매도 → 기억 삭제(다시 사면 신규로 새로 산정). 잔고가 통째로 비어 오면(일시 오류 의심) 건너뜀.
-    if held:
+    if not tier_frozen:
+        # ① 확정(2026-10-27): 직전 빌드가 낸 신규·구간상향 목표(pend) 이후 보유가 늘었으면 그 목표로 체결된 것
+        #    → 그 목표의 구간·목표수량으로 확정. 체결 후 plan 에서 빠졌거나 구간이 내려갔어도,
+        #    15:30 종가 체결이라 당일 재빌드가 없어도 다음 빌드(익일 첫 빌드)에서 확정된다.
+        #    (빌드 시점 재계산값·당일 누적 bought 로 기록하면 장 막판 가격 드리프트나 체결 없는 상향이 확정되던 문제 수정)
+        for c, p in pend.items():
+            if held.get(c, 0) > int((p or {}).get("held_at", 0) or 0):
+                tiers[c] = {"alloc": float(p["alloc"]), "target_qty": int(p["target_qty"]),
+                            "date": today_str, "src": "fill"}
+        pend = {}                       # 이번 빌드가 새로 발행(미체결 목표는 버림)
+        # ② 전량 매도 → 기억 삭제(다시 사면 신규로 새로 산정). 빈 잔고 응답은 위 tier_frozen 이 걸러냄.
         for c in list(tiers):
             if held.get(c, 0) <= 0:
                 del tiers[c]
@@ -355,7 +370,15 @@ def _build_plan(today_str):
                                      "date": today_str, "src": "bootstrap"}
             if est:
                 tier_from = float(est["alloc"])
-                if alloc > tier_from:
+                short = target_qty - hq
+                if alloc > tier_from and hq > 0 and short <= max(1, int(target_qty * KEEP_RESIDUAL)):
+                    # (2026-10-29) 이미 상향 구간 목표를 채웠거나 잔여 단주(≤3%)뿐 → 지금 보유수량으로 그 구간 즉시 확정.
+                    #    체결이 안 나 pend 로는 확정되지 않아 매 빌드 'up' 재계산 → 주가 하락·총자산 변동 때 단주 추가매수가 나던 문제.
+                    target_qty = hq
+                    if not tier_frozen:
+                        tiers[code] = {"alloc": float(alloc), "target_qty": hq, "date": today_str, "src": "up_met"}
+                    tier, tier_note = "up_met", f"·비중상향 {tier_from:.0f}→{alloc:.0f}% 기충족(보유 {hq}주 확정)"
+                elif alloc > tier_from:
                     tier, tier_note = "up", f"·비중상향 {tier_from:.0f}→{alloc:.0f}%"
                 else:
                     frozen = int(int(est["target_qty"]) * alloc / tier_from) if tier_from > 0 else 0
@@ -383,12 +406,17 @@ def _build_plan(today_str):
                      f"(비중 {alloc:.0f}%{'·40점보조' if low_t else ''}{'·신규' if not existing else '·보유'}"
                      f"{tier_note}·AI{cscore:.0f}·{psrc})")
         # ④ 신규·구간상향 목표는 '대기 목표(pend)'로 발행 — 이후 보유가 늘면 다음 빌드 ①에서 이 목표로 확정
-        if not existing or tier == "up":
+        #    (2026-10-29) tier=None 인 기보유(= 오늘 전량 매도해 기억이 지워진 종목)도 발행 — 당일 재매수 체결이
+        #    확정되지 않고 부분체결 수량으로 bootstrap 되어 나머지를 영영 안 채우던 문제
+        if tier in (None, "up") and not tier_frozen:
             pend[code] = {"alloc": round(alloc, 1), "target_qty": target_qty,
                           "held_at": held.get(code, 0), "date": today_str}
 
-    _save_json(_tier_path(), {"codes": tiers, "pend": pend,
-                              "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    if tier_frozen:
+        print("   ⚠️ 잔고 0종목인데 계좌 합계가 남아 있거나 조회 실패(일시 오류 의심) — 보유 구간 기억(tier_state) 갱신 생략")
+    else:
+        _save_json(_tier_path(), {"codes": tiers, "pend": pend,
+                                  "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 
     # 매수 순서: 신규종목(AI점수순) → 기존 보유종목(AI점수순). monitor 는 이 순서로 현금을 예약한다.
     targets = {**{c: t for c, t in targets.items() if t["new"]},
@@ -454,6 +482,9 @@ def _build_plan(today_str):
             why = ("같은 구간은 추가매수 없음" if t["alloc"] >= t["tier_from"]
                    else f"확정 {t['tier_from']:.0f}%보다 낮은 구간 — 추가매수 없음")
             out.append(f"✅ {t['name']}({code}) 비중 {t['alloc']:.0f}% (보유 {hq}주) — {why}")
+        elif t.get("tier") == "up_met":
+            out.append(f"✅ {t['name']}({code}) 비중상향 {t['tier_from']:.0f}→{t['alloc']:.0f}% "
+                       f"이미 충족(보유 {hq}주) — 추가매수 없음")
         else:
             out.append(f"✅ {t['name']}({code}) 목표 {t['target_qty']}주 충족(보유 {hq}주)")
     if not shortage:

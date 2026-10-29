@@ -451,6 +451,15 @@ def fetch_total_assets():
     return _pint(d.get("prsm_dpst_aset_amt"))
 
 
+def fetch_stock_totals():
+    """kt00018 계좌 합계 {pur: 총매입금액, evlt: 총평가금액}. 실패·합계 필드 누락 시 None.
+       보유 목록이 통째로 비어 왔을 때 '진짜 빈 계좌'(둘 다 0)인지 '일시 오류'인지 교차확인용(2026-10-29)."""
+    d = _post("kt00018", "/api/dostk/acnt", {"qry_tp": "1", "dmst_stex_tp": "KRX"})
+    if not d or d.get("return_code") != 0 or "tot_pur_amt" not in d or "tot_evlt_amt" not in d:
+        return None
+    return {"pur": _pint(d.get("tot_pur_amt")), "evlt": _pint(d.get("tot_evlt_amt"))}
+
+
 def fetch_order_cash():
     """미수 없이 현금으로 매수 가능한 금액 = D+2 추정예수금(d2_entra). 실패 시 None.
     HTS '주문가능금액 · 미수불가 100%' 값과 일치한다(실측: HTS 1,501,029 ≈ d2_entra 1,501,079).
