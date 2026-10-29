@@ -31,6 +31,7 @@ auto_buy.py 가 매 30분 세션마다 산출한 매수 계획(logs/{날짜}_aut
     '순위교체 매도': 보유비중(평가금액) 순위대로 '수수료·세금 차감 후 순익 3% 이상'(매수최우선 > 기준가) 종목을 부족분만큼만 매도해
     자금을 마련한다(_rotate_tick). 기존 보유 추가매수를 위해서는 팔지 않는다. 교체매도 종목은 당일 재매수 금지.
     제외: 오늘 우리가 매수체결한 종목·매도 plan 종목·신규 plan 종목·수기영역(ETF/마스터 미등재)·상한가.
+    (2026-10-29) 담보대출·신용 물량은 팔지 않고 현금 물량만 매도(전부 담보·신용인 종목은 제외, ROT_CASH_ONLY).
     끄기: ROTATE_ENABLED=False. 롤백: logs/execution_monitor.py.bak_20261007_rotate
 
 상태파일 (logs/):
@@ -74,6 +75,7 @@ BUY_FEE_EST, SELL_FEE_EST = 0.00015, 0.00195                  # 필요금액 추
 ROT_SELL_COST  = 0.00215                                      # 교체매도 손익분기용 매도비용 = 수수료 0.015% + 증권거래세 0.20%(2026, 보수적)
 ROT_MIN_PROFIT = 0.03                                         # (2026-10-27) 수수료·세금 차감 후 순수익률 이 값(3%) 이상일 때만 교체매도
 ROT_BLOCK_ON_LOAN = False                                     # 담보대출·융자 잔고만으로는 막지 않음(팔면 상환 후 일부라도 매수여력 생김) — 미수만 차단
+ROT_CASH_ONLY  = True                                         # (2026-10-29) 교체매도는 현금 물량만 — 담보대출·신용 물량은 팔면 대출상환에 쓰여 매수현금이 거의 안 나옴
 ROT_CASH_MIN_RATIO = 0.5                                      # 교체매도 체결 후 매수현금이 체결대금의 이 비율 미만으로만 늘면 당일 교체매도 중지
 ROT_BLOCK_RECHECK_SEC = 60                                    # 교체매도 보류 중 현금·미수 재확인 간격(초)
 ROT_KEEP_SCORE = 60.0                                         # (2026-10-14) 현재 정규장 점수 이 값 이상인 보유종목은 교체매도 제외
@@ -519,7 +521,9 @@ def _tick(today_str):
 #   (2026-10-16) 마지막 매수일(자동·수기 전부, kt00007 체결내역)로부터 거래일 D+6(ROT_MIN_HOLD_TD, 10-27 D+5→D+6) 이상 경과한 종목만 대상.
 #               해당 종목이 없으면 교체매도 안 함. 매수일 조회 실패 시에도 보류(fail-closed).
 #   백테스트(addbuy_analysis/rotate_test.py '최종안') 규칙을 장중 sweep 으로 옮긴 것.
-#   · 매도 수량 = 부족금액 ÷ 매수최우선 (트랜치별 발주, 신용·담보 먼저). 지정가 = max(매수최우선×(1−1%), 손익분기 초과 최소호가)
+#   (2026-10-29) 담보대출·신용 물량은 팔지 않는다(ROT_CASH_ONLY) — 매도대금이 대출상환에 먼저 쓰여 매수현금이 거의 안 나옴.
+#               현금 물량만 매도(평단·순익도 현금 물량 기준), 현금 물량이 없는 종목은 제외. 비중 순위는 종목 전체 평가금액 기준.
+#   · 매도 수량 = 부족금액 ÷ 매수최우선 (현금 트랜치만 발주). 지정가 = max(매수최우선×(1−1%), 손익분기 초과 최소호가)
 #   · '걸어두지 않음': 다음 틱에 미체결 잔량 취소 → ROT_SETTLE_SEC 동안 현금 반영을 기다린 뒤 부족분 재계산
 #   · 부족분 = 신규종목들이 지금 지정가 이하 호가로 살 수 있는 금액 합 − 첫 부족 신규종목의 예산
 #     (호가가 지정가 위로 달아난 신규종목 때문에 미리 팔지 않음)
@@ -574,6 +578,16 @@ def _rot_breakeven(avg):
     return avg * (1 + BUY_FEE_EST) * (1 + ROT_MIN_PROFIT) / (1 - ROT_SELL_COST)
 
 
+def _is_cash_tranche(p):
+    """현금 잔고 트랜치 여부 — 대출일자가 있거나 신용구분이 현금(00)이 아니면 담보대출·신용 물량."""
+    return not str(p.get("loan_dt") or "").strip() and str(p.get("crd_type") or "00").strip() == "00"
+
+
+def _cash_held(poss):
+    """트랜치 목록 중 현금 물량 합계(교체매도 체결 판정 기준)."""
+    return sum(p["qty"] for p in poss if _is_cash_tranche(p))
+
+
 def _price_above(x):
     """x 보다 큰 가장 낮은 KRX 호가(호가단위 정렬)."""
     p = kt.normalize_krx_price(int(x))
@@ -621,18 +635,26 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
         if sc is not None and sc >= ROT_KEEP_SCORE:
             _log_once(f"rot:{code}", f"  🔁 {_hold_names.get(code, '')}({code}) 정규장 점수 {sc:.0f}≥{ROT_KEEP_SCORE:.0f} — 교체매도 제외")
             continue
-        qty = sum(p["qty"] for p in poss)
-        sellable = sum(p.get("sell_possible_qty", 0) for p in poss)
-        if qty < 1 or sellable < 1:
+        qty = sum(p["qty"] for p in poss)               # 종목 전체 보유(비중 순위·체결 판정 기준)
+        # (2026-10-29) 매도는 현금 물량만 — 담보대출·신용 물량은 대금이 대출상환에 쓰여 매수현금이 거의 안 나옴
+        sell_poss = [p for p in poss if _is_cash_tranche(p)] if ROT_CASH_ONLY else poss
+        cash_q = sum(p["qty"] for p in sell_poss)
+        sellable = sum(p.get("sell_possible_qty", 0) for p in sell_poss)
+        if qty < 1:
             continue
-        avg = sum(p["qty"] * p["avg_buy_price"] for p in poss) / qty
+        if cash_q < 1:
+            _log_once(f"rot:{code}", f"  🔁 {_hold_names.get(code, '')}({code}) 담보·신용 물량만 보유(현금 0주) — 교체매도 제외")
+            continue
+        if sellable < 1:
+            continue
+        avg = sum(p["qty"] * p["avg_buy_price"] for p in sell_poss) / cash_q   # 파는 물량(현금분) 평단
         cur = max((p.get("cur_price", 0) or 0) for p in poss) or avg
-        srcs.append((qty * cur, code, poss, qty, sellable, avg))
+        srcs.append((qty * cur, code, sell_poss, qty, sellable, avg, qty - cash_q))
     srcs.sort(key=lambda x: -x[0])
 
     for_names = ", ".join(f"{n['name']}({n['code']})" for n in need[:3]) + (" 외" if len(need) > 3 else "")
     placed = False
-    for rank, (_, code, poss, qty, sellable, avg) in enumerate(srcs, 1):
+    for rank, (_, code, poss, qty, sellable, avg, loan_q) in enumerate(srcs, 1):
         if need_amt < min_px:
             break
         name = _hold_names.get(code, "")
@@ -658,7 +680,7 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
         if q_total < 1:
             continue
         rem, orders = q_total, []
-        for pos in sorted(poss, key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"])):   # 담보·신용 먼저(이자 절감)
+        for pos in sorted(poss, key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"])):   # 현금 트랜치만(ROT_CASH_ONLY 끄면 종전대로 담보·신용 먼저)
             sq = min(pos.get("sell_possible_qty", 0), rem)
             if sq < 1:
                 continue
@@ -677,7 +699,8 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
         q_ord = q_total - rem
         c = codes.get(code)
         if c is None:
-            c = codes[code] = {"name": name, "held_seen": qty, "sold": 0, "open_orders": [], "events": []}
+            c = codes[code] = {"name": name, "held_seen": qty, "sold": 0, "open_orders": [], "events": [],
+                               "cash_seen": _cash_held(tranche_map.get(code, []))}
         c["open_orders"] = orders
         c["events"].append({"time": datetime.now().strftime("%H:%M:%S"), "qty": q_ord, "price": floor,
                             "cash_qty": sum(o["qty"] for o in orders if not o.get("loan_dt")),   # 현금 트랜치분(안전망 기준)
@@ -686,12 +709,13 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
         need_amt -= q_ord * best_bid * (1 - ROT_SELL_COST)
         placed = True
         net_min = (floor * (1 - ROT_SELL_COST)) / (avg * (1 + BUY_FEE_EST)) - 1   # 하한가 체결 시 비용 차감 순수익률
+        loan_txt = f" · 현금분만(담보·신용 {loan_q}주 제외)" if loan_q > 0 else ""
         report.append(f"🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원↑ (보유비중 {rank}위 · 평단 {avg:,.0f} → "
-                      f"매수최우선 {best_bid:,} · 비용차감 순익 ≥{net_min * 100:+.2f}%) → 신규 {for_names} 매수자금")
+                      f"매수최우선 {best_bid:,} · 비용차감 순익 ≥{net_min * 100:+.2f}%{loan_txt}) → 신규 {for_names} 매수자금")
         _log_once(f"rot:{code}", f"  🔁 교체매도 {name}({code}) {q_ord}주×{floor:,}원 (비중{rank}위, 순익≥{net_min*100:+.2f}%)")
     if need_amt >= min_px and not placed:
         # 부족금액은 호가에 따라 매 틱 바뀌어 문구에 넣으면 같은 상태가 4초마다 반복 출력됨 → 상태만 표시
-        _log_once("rot", f"  🔁 교체매도 대상 없음(매수 후 D+{ROT_MIN_HOLD_TD} 경과·정규장 {ROT_KEEP_SCORE:.0f}점 미만 중 "
+        _log_once("rot", f"  🔁 교체매도 대상 없음(매수 후 D+{ROT_MIN_HOLD_TD} 경과·정규장 {ROT_KEEP_SCORE:.0f}점 미만·현금 물량 중 "
                          f"비용차감 순익 {ROT_MIN_PROFIT*100:.0f}% 이상인 보유종목 없음) — 교체매도 안 함")
     return placed
 
@@ -748,18 +772,32 @@ def _rotate_tick(today_str):
     report, changed, now = [], False, time.time()
 
     for code, c in codes.items():                     # ① 체결 판정: 보유 감소 = 교체매도 체결
-        held = sum(p["qty"] for p in tranche_map.get(code, []))
-        if held < c["held_seen"]:
-            d = c["held_seen"] - held
+        poss = tranche_map.get(code, [])
+        held = sum(p["qty"] for p in poss)
+        held_cash = _cash_held(poss)
+        d_tot = max(0, c["held_seen"] - held)
+        if ROT_CASH_ONLY:
+            # 교체매도는 현금 물량만 팖 → 체결 = 현금 물량 감소(총보유도 같이 준 만큼). 담보·신용 물량 감소(수기·반대매매·
+            # 자동매도)나 현금→담보 전환은 교체매도 체결로 집계하지 않음(허위 체결보고·안전망 오발동 방지)
+            d = min(d_tot, max(0, int(c.get("cash_seen", held_cash)) - held_cash))
+            if d_tot > d:
+                _log_once(f"rotx:{code}", f"  🔁 {c.get('name', '')}({code}) 담보·신용 물량 {d_tot - d}주 감소 — 교체매도 체결 아님(집계 제외)")
+        else:
+            d = d_tot
+        if d > 0:
             c["sold"] += d
             ev = (c.get("events") or [{}])[-1]
-            # 안전망 기준 금액은 '현금 트랜치' 체결분만 — 담보·신용분은 대출상환 후 일부만 현금이 되므로 제외
-            cash_d = min(d, int(ev.get("cash_qty", ev.get("qty", d)) or 0))
+            # 안전망 기준 금액은 '현금 트랜치' 체결분만 — 담보·신용분은 대출상환 후 일부만 현금이 되므로 제외.
+            # 이벤트별 집계 누계(cash_done)로 같은 주문분이 여러 번 더해지지 않게 함
+            cash_left = int(ev.get("cash_qty", ev.get("qty", d)) or 0) - int(ev.get("cash_done", 0) or 0)
+            cash_d = min(d, max(0, cash_left))
+            if ev:
+                ev["cash_done"] = int(ev.get("cash_done", 0) or 0) + cash_d
             rs["sold_amt"] = float(rs.get("sold_amt", 0) or 0) + cash_d * float(ev.get("price", 0) or 0)  # 지정가 기준(보수적)
             rs["last_action"] = now
             report.append(f"✅ 교체매도 체결 {c.get('name', '')}({code}) -{d}주 → 잔여보유 {held}주")
-        if held != c["held_seen"]:
-            c["held_seen"] = held
+        if held != c["held_seen"] or held_cash != c.get("cash_seen"):
+            c["held_seen"], c["cash_seen"] = held, held_cash
             changed = True
 
     if open_any:                                      # ② 직전 주문 해소(걸어두지 않음) → 이번 틱 대기
