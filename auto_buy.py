@@ -38,9 +38,13 @@ auto_buy.py — AI '매수'(BUY) & 정규장 재평가 60점+(SCORE_MIN) 종목 
   - (2026-10-21) 기존 보유종목은 비중 '구간'이 올라갈 때만 추가매수. 종목별 확정 구간·목표수량을
     logs/autobuy_tier_state.json 에 기억해, 같은 구간이면 확정 목표수량 고정(구간 하향 시 비례 축소)
     → 주가 하락·총자산 변동으로 목표수량이 늘어나도 단주 추가매수 없음. 덜 채워진 분량은 계속 채움.
-    확정 = 오늘 실제 매수된 신규·구간상향 종목의 그 시점 구간·목표수량. 기록 없는 기존 보유분은
-    장 시작 보유수량·평가비중의 가장 가까운 구간으로 초기화. 전량 매도 시 기억 삭제.
+    확정(2026-10-27 개정) = 빌드가 신규·구간상향 목표를 낼 때 '대기 목표(pend)+그때 보유수량'을 적어두고,
+    다음 빌드(익일 첫 빌드 포함)에서 보유가 늘었으면 그 목표의 구간·목표수량으로 확정 — 체결 후 plan 제외·
+    15:30 종가 체결도 확정되고, 장 막판 재계산값·체결 없는 상향은 확정되지 않음. 기록 없는 보유종목은
+    매 빌드 즉시 현재 평가비중의 가장 가까운 구간·현재 보유수량으로 초기화. 같은 구간 잔여가 확정 목표의
+    3%(최소 1주) 이하면 채운 것으로 간주. 전량 매도 시 기억 삭제.
     롤백: logs/auto_buy.py.bak_20261021_tierkeep (+ logs/autobuy_tier_state.json 삭제)
+          10-27 개정만 되돌리기: logs/auto_buy.py.bak_20261027_tierpend + logs/autobuy_tier_state.json.bak_20261027
 
 상태파일 (logs/):
   {날짜}_autobuy_base.json    당일 기준금액(총자산) 스냅샷
@@ -70,6 +74,7 @@ OWNER_ID = str(secrets.TELEGRAM_CHAT_ID)
 
 ALLOC_MAX = 25.0          # 비중 상한 % (1안: 100점 25%)
 SCORE_MIN = 60.0          # Total score 최소(점) (1안: 진입 60점)
+KEEP_RESIDUAL = 0.03      # (2026-10-27) 기보유 같은 구간: 확정 목표 대비 부족분이 이 비율(최소 1주) 이하면 추가매수 안 함
 
 
 def _fmt(x):
@@ -266,10 +271,32 @@ def _build_plan(today_str):
     #    같은 구간이면 확정 당시 목표수량으로 고정 → 주가 하락·총자산 변동으로 목표수량이 늘어도 단주 추가매수 없음
     #    (2026-10-21 파두 15% 동일구간 11주·프로텍 1주 추가매수 사례). 덜 채워진 분량은 계속 채운다.
     tier_state = _load_json(_tier_path(), {})
-    tiers = (tier_state.get("codes") or {}) if isinstance(tier_state, dict) else {}
-    for c in list(tiers):
-        if held.get(c, 0) <= 0:        # 전량 매도 → 기억 삭제(다시 사면 신규로 새로 산정)
-            del tiers[c]
+    tier_state = tier_state if isinstance(tier_state, dict) else {}
+    tiers = dict(tier_state.get("codes") or {})
+    pend = dict(tier_state.get("pend") or {})   # 직전 빌드가 낸 신규·구간상향 목표 {code: {alloc, target_qty, held_at, date}}
+
+    # ① 확정(2026-10-27): 직전 빌드가 낸 신규·구간상향 목표(pend) 이후 보유가 늘었으면 그 목표로 체결된 것
+    #    → 그 목표의 구간·목표수량으로 확정. 체결 후 plan 에서 빠졌거나 구간이 내려갔어도,
+    #    15:30 종가 체결이라 당일 재빌드가 없어도 다음 빌드(익일 첫 빌드)에서 확정된다.
+    #    (빌드 시점 재계산값·당일 누적 bought 로 기록하면 장 막판 가격 드리프트나 체결 없는 상향이 확정되던 문제 수정)
+    for c, p in pend.items():
+        if held.get(c, 0) > int((p or {}).get("held_at", 0) or 0):
+            tiers[c] = {"alloc": float(p["alloc"]), "target_qty": int(p["target_qty"]),
+                        "date": today_str, "src": "fill"}
+    pend = {}                           # 이번 빌드가 새로 발행(미체결 목표는 버림)
+    # ② 전량 매도 → 기억 삭제(다시 사면 신규로 새로 산정). 잔고가 통째로 비어 오면(일시 오류 의심) 건너뜀.
+    if held:
+        for c in list(tiers):
+            if held.get(c, 0) <= 0:
+                del tiers[c]
+    # ③ 기록 없는 보유종목은 plan 편입 여부와 무관하게 지금 즉시 초기화(수기 매수 등).
+    #    나중에 plan 에 들어올 때 초기화하면 그새 주가·총자산이 변해 구간을 잘못 읽는다.
+    #    = 지금 평가비중에 가장 가까운 구간 + 지금 보유수량을 확정으로 간주.
+    for c, q in held.items():
+        px = int((v3_all.get(c) or {}).get("price", 0) or 0)
+        if q > 0 and c not in tiers and px > 0:
+            tiers[c] = {"alloc": _nearest_tier(q * px / base * 100), "target_qty": q,
+                        "date": today_str, "src": "bootstrap"}
 
     targets = {}
     notes = {}      # {code: (사유종류, 알림줄)} — BUY 인데 plan 에 못 넣은 종목
@@ -322,10 +349,9 @@ def _build_plan(today_str):
         tier, tier_from, tier_note = None, None, ""
         if existing:
             est = tiers.get(code)
-            held_open = held.get(code, 0) - bought_today.get(code, 0)     # 오늘 추가매수 전 보유
-            if not est and held_open > 0:
-                w = held_open * price / base * 100
-                est = tiers[code] = {"alloc": _nearest_tier(w), "target_qty": held_open,
+            hq = held.get(code, 0)
+            if not est and hq > 0:          # (Stock_V3 가격이 없어 위 ③에서 못 한 경우) 재평가 가격으로 초기화
+                est = tiers[code] = {"alloc": _nearest_tier(hq * price / base * 100), "target_qty": hq,
                                      "date": today_str, "src": "bootstrap"}
             if est:
                 tier_from = float(est["alloc"])
@@ -334,6 +360,9 @@ def _build_plan(today_str):
                 else:
                     frozen = int(int(est["target_qty"]) * alloc / tier_from) if tier_from > 0 else 0
                     target_qty = min(target_qty, frozen)
+                    short = target_qty - hq
+                    if 0 < short <= max(1, int(target_qty * KEEP_RESIDUAL)):
+                        target_qty = hq     # 확정 목표 대비 잔여 단주(≤3%) → 채운 것으로 간주(단주 추가매수 안 함)
                     tier, tier_note = "keep", f"·비중유지({tier_from:.0f}% 확정 {int(est['target_qty'])}주)"
 
         targets[code] = {
@@ -353,17 +382,13 @@ def _build_plan(today_str):
         lines.append(f"🎯 {name}({code}) 목표 {target_qty}주×{price:,}원 "
                      f"(비중 {alloc:.0f}%{'·40점보조' if low_t else ''}{'·신규' if not existing else '·보유'}"
                      f"{tier_note}·AI{cscore:.0f}·{psrc})")
+        # ④ 신규·구간상향 목표는 '대기 목표(pend)'로 발행 — 이후 보유가 늘면 다음 빌드 ①에서 이 목표로 확정
+        if not existing or tier == "up":
+            pend[code] = {"alloc": round(alloc, 1), "target_qty": target_qty,
+                          "held_at": held.get(code, 0), "date": today_str}
 
-    # 확정 구간 갱신: 오늘 실제 매수가 있었던 신규·구간상향 종목만 지금 구간·목표수량으로 확정.
-    #   같은 날 더 높은 구간 기록은 유지(장중 점수 하락으로 구간을 내리지 않음).
-    for code, t in targets.items():
-        if bought_today.get(code, 0) <= 0 or not (t["new"] or t.get("tier") == "up"):
-            continue
-        cur = tiers.get(code)
-        if cur and cur.get("date") == today_str and float(cur.get("alloc", 0)) > t["alloc"]:
-            continue
-        tiers[code] = {"alloc": t["alloc"], "target_qty": t["target_qty"], "date": today_str, "src": "fill"}
-    _save_json(_tier_path(), {"codes": tiers, "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    _save_json(_tier_path(), {"codes": tiers, "pend": pend,
+                              "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 
     # 매수 순서: 신규종목(AI점수순) → 기존 보유종목(AI점수순). monitor 는 이 순서로 현금을 예약한다.
     targets = {**{c: t for c, t in targets.items() if t["new"]},
