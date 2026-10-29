@@ -28,7 +28,7 @@ auto_buy.py 가 매 30분 세션마다 산출한 매수 계획(logs/{날짜}_aut
     ▶ NXT(장전/장후) 점수는 매수/매도에 관여하지 않는다(참고용). 정규장 시각 행만 사용.
   - 콘솔(모니터 창)에 매 틱 감시 현황·체결 현황을 출력한다(무엇을 보고 왜 대기/집행하는지).
   - (2026-10-07) 매수 순서 = plan 순서(신규종목 → 기존 보유). 신규종목(target.new) 매수 예산이 모자라면
-    '순위교체 매도': 보유비중(평가금액) 순위대로 '수수료·세금 차감 후 이익'(매수최우선 > 손익분기) 종목을 부족분만큼만 매도해
+    '순위교체 매도': 보유비중(평가금액) 순위대로 '수수료·세금 차감 후 순익 3% 이상'(매수최우선 > 기준가) 종목을 부족분만큼만 매도해
     자금을 마련한다(_rotate_tick). 기존 보유 추가매수를 위해서는 팔지 않는다. 교체매도 종목은 당일 재매수 금지.
     제외: 오늘 우리가 매수체결한 종목·매도 plan 종목·신규 plan 종목·수기영역(ETF/마스터 미등재)·상한가.
     끄기: ROTATE_ENABLED=False. 롤백: logs/execution_monitor.py.bak_20261007_rotate
@@ -72,12 +72,12 @@ ROT_SETTLE_SEC = 12                                           # 교체매도 주
 ROT_MAX_DROP   = 0.01                                         # 교체매도 지정가 하한 = 매수최우선 × (1 − 1%) (평단 초과 유지)
 BUY_FEE_EST, SELL_FEE_EST = 0.00015, 0.00195                  # 필요금액 추정용 수수료(매수 0.015% / 매도 수수료+세금)
 ROT_SELL_COST  = 0.00215                                      # 교체매도 손익분기용 매도비용 = 수수료 0.015% + 증권거래세 0.20%(2026, 보수적)
-ROT_MIN_PROFIT = 0.0                                          # 손익분기 위 최소 순이익률(0 = 수수료·세금 차감 후 손실 매도만 금지)
+ROT_MIN_PROFIT = 0.03                                         # (2026-10-27) 수수료·세금 차감 후 순수익률 이 값(3%) 이상일 때만 교체매도
 ROT_BLOCK_ON_LOAN = False                                     # 담보대출·융자 잔고만으로는 막지 않음(팔면 상환 후 일부라도 매수여력 생김) — 미수만 차단
 ROT_CASH_MIN_RATIO = 0.5                                      # 교체매도 체결 후 매수현금이 체결대금의 이 비율 미만으로만 늘면 당일 교체매도 중지
 ROT_BLOCK_RECHECK_SEC = 60                                    # 교체매도 보류 중 현금·미수 재확인 간격(초)
 ROT_KEEP_SCORE = 60.0                                         # (2026-10-14) 현재 정규장 점수 이 값 이상인 보유종목은 교체매도 제외
-ROT_MIN_HOLD_TD = 5                                           # (2026-10-16) 교체매도 대상 = 마지막 매수일로부터 거래일 D+5 이상 경과 종목만
+ROT_MIN_HOLD_TD = 6                                           # (2026-10-27) 교체매도 대상 = 마지막 매수일로부터 거래일 D+6 이상(D+6일부터) — 10-16 D+5 에서 변경
 REBUY_DISCOUNT = 0.02                                         # (2026-10-14) 당일 매도 종목 재매수: 매도 순수령 평균 대비 2% 이상 싸야 매수
 SELL_FILL_TTL  = 20                                           # 당일 매도체결 집계(ka10076) 캐시 유효시간(초) — 유량 보호
 ETF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "ETF")
@@ -513,9 +513,10 @@ def _tick(today_str):
 
 # ── 순위교체 매도 (2026-10-07) ────────────────────────────────────────────
 #   신규종목(plan target.new) 매수 예산이 모자라면, 보유비중(평가금액) 1위부터 순서대로
-#   '수수료·세금 차감 후 이익'(매수최우선 > 손익분기 = 평단×(1+0.015%)÷(1−0.215%)) 종목만 부족분만큼 매도. 그 외 건너뜀.
+#   '수수료·세금 차감 후 순익 3%(ROT_MIN_PROFIT) 이상'(매수최우선 > 기준가 = 평단×(1+0.015%)×1.03÷(1−0.215%)) 종목만
+#   부족분만큼 매도. 그 외 건너뜀. (2026-10-27: 최소 순익 0% → 3%)
 #   (2026-10-14) 현재 정규장 재평가 점수 60점(ROT_KEEP_SCORE)+ 보유종목은 교체매도 제외(점수 미산출 종목은 대상 유지).
-#   (2026-10-16) 마지막 매수일(자동·수기 전부, kt00007 체결내역)로부터 거래일 D+5(ROT_MIN_HOLD_TD) 이상 경과한 종목만 대상.
+#   (2026-10-16) 마지막 매수일(자동·수기 전부, kt00007 체결내역)로부터 거래일 D+6(ROT_MIN_HOLD_TD, 10-27 D+5→D+6) 이상 경과한 종목만 대상.
 #               해당 종목이 없으면 교체매도 안 함. 매수일 조회 실패 시에도 보류(fail-closed).
 #   백테스트(addbuy_analysis/rotate_test.py '최종안') 규칙을 장중 sweep 으로 옮긴 것.
 #   · 매도 수량 = 부족금액 ÷ 매수최우선 (트랜치별 발주, 신용·담보 먼저). 지정가 = max(매수최우선×(1−1%), 손익분기 초과 최소호가)
@@ -546,7 +547,7 @@ _buy_day_cache = {}   # {YYYYMMDD: set(code)} — 지난 거래일 매수체결 
 
 def _recent_buy_age(today_str):
     """최근 ROT_MIN_HOLD_TD 거래일(오늘 포함)에 매수 체결이 있었던 종목의 경과 거래일 {code: k}
-       (k=0 오늘, 1 전일 … 가장 최근 매수 기준). 여기에 없는 보유종목 = 마지막 매수 후 D+5 이상 경과.
+       (k=0 오늘, 1 전일 … 가장 최근 매수 기준). 여기에 없는 보유종목 = 마지막 매수 후 D+{ROT_MIN_HOLD_TD} 이상 경과.
        하루라도 조회 실패하면 None → 교체매도 보류(fail-closed). 오늘분은 매번 새로 조회(장중 수기 매수 반영)."""
     days = kt.recent_trading_days(ROT_MIN_HOLD_TD, today_str)
     for d in list(_buy_day_cache):
@@ -567,8 +568,9 @@ def _recent_buy_age(today_str):
 
 
 def _rot_breakeven(avg):
-    """교체매도 손익분기 매도가 = 평단 × (1+매수수수료) × (1+최소이익) ÷ (1−매도수수료−거래세).
-       이 가격 이하로 팔면 수수료·세금 차감 후 손실(2026-10-14: '평단 초과'만 보다 손실 매도 발생)."""
+    """교체매도 최저 매도가 = 평단 × (1+매수수수료) × (1+최소순이익 ROT_MIN_PROFIT) ÷ (1−매도수수료−거래세).
+       이 가격 이하로 팔면 수수료·세금 차감 후 순수익률이 ROT_MIN_PROFIT(3%) 미만
+       (2026-10-14: '평단 초과'만 보다 손실 매도 발생 → 비용 반영, 2026-10-27: 최소 순익 0% → 3%)."""
     return avg * (1 + BUY_FEE_EST) * (1 + ROT_MIN_PROFIT) / (1 - ROT_SELL_COST)
 
 
@@ -600,9 +602,9 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
     bought = ({_fmt(c) for c, v in (ex.get("codes") or {}).items() if int((v or {}).get("bought", 0) or 0) > 0}
               if ex.get("date") == today_str else set())
     live = _load_live_scores(today_str)      # (2026-10-14) 현재 정규장 점수 ROT_KEEP_SCORE(60)+ 보유종목은 팔지 않음
-    age = _recent_buy_age(today_str)         # (2026-10-16) 마지막 매수 후 D+5 미만 보유종목은 팔지 않음
+    age = _recent_buy_age(today_str)         # (2026-10-16) 마지막 매수 후 D+6(ROT_MIN_HOLD_TD) 미만 보유종목은 팔지 않음
     if age is None:
-        _log_once("rot", "  🔁 교체매도 보류 — 최근 매수일 조회(kt00007) 실패, D+5 확인 불가")
+        _log_once("rot", "  🔁 교체매도 보류 — 최근 매수일 조회(kt00007) 실패, 보유기간 확인 불가")
         return False
 
     srcs = []
@@ -640,14 +642,14 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
         best_bid = levels[0][0]
         be = _rot_breakeven(avg)
         if best_bid <= be:
-            _log_once(f"rot:{code}", f"  🔁 {name}({code}) 비중{rank}위 수수료·세금 차감 시 손실(매수최우선 {best_bid:,}"
-                                     f"≤손익분기 {be:,.0f}·평단 {avg:,.0f}) — 교체매도 제외")
+            _log_once(f"rot:{code}", f"  🔁 {name}({code}) 비중{rank}위 비용차감 순익 {ROT_MIN_PROFIT*100:.0f}% 미만(매수최우선 {best_bid:,}"
+                                     f"≤기준가 {be:,.0f}·평단 {avg:,.0f}) — 교체매도 제외")
             continue
         upl = _upper_limit(code)
         if upl and best_bid >= upl:
             _log_once(f"rot:{code}", f"  🔁 {name}({code}) 상한가 — 교체매도 제외")
             continue
-        # 지정가 하한 = 손익분기 초과 최소호가 → 어느 가격에 체결돼도 수수료·세금 차감 후 이익
+        # 지정가 하한 = 기준가(비용차감 순익 3%) 초과 최소호가 → 어느 가격에 체결돼도 순익 3% 이상
         floor = _price_above(max(best_bid * (1 - ROT_MAX_DROP), be))
         if floor > best_bid:
             continue
@@ -690,7 +692,7 @@ def _rotate_place(today_str, need, tranche_map, codes, report):
     if need_amt >= min_px and not placed:
         # 부족금액은 호가에 따라 매 틱 바뀌어 문구에 넣으면 같은 상태가 4초마다 반복 출력됨 → 상태만 표시
         _log_once("rot", f"  🔁 교체매도 대상 없음(매수 후 D+{ROT_MIN_HOLD_TD} 경과·정규장 {ROT_KEEP_SCORE:.0f}점 미만 중 "
-                         f"수수료·세금 차감 후 이익 나는 보유종목 없음) — 교체매도 안 함")
+                         f"비용차감 순익 {ROT_MIN_PROFIT*100:.0f}% 이상인 보유종목 없음) — 교체매도 안 함")
     return placed
 
 
