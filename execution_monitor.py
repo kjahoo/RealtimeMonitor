@@ -33,6 +33,22 @@ auto_buy.py 가 매 30분 세션마다 산출한 매수 계획(logs/{날짜}_aut
     제외: 오늘 우리가 매수체결한 종목·매도 plan 종목·신규 plan 종목·수기영역(ETF/마스터 미등재)·상한가.
     (2026-10-29) 담보대출·신용 물량은 팔지 않고 현금 물량만 매도(전부 담보·신용인 종목은 제외, ROT_CASH_ONLY).
     끄기: ROTATE_ENABLED=False. 롤백: logs/execution_monitor.py.bak_20261007_rotate
+  - (2026-11-09) 신용매수 우선: plan target.credit 종목은 신용(kt10006)으로 2배 목표(target_qty)까지 sweep.
+    주문 직전 신용주문가능금액(kt00012)을 실시간 확인(현금의 live_cash 역할), 신용여력 부족·신용주문 거부면
+    CREDIT_RETRY_SEC 동안 현금·당초 비중 목표(cash_target_qty)로 대체 후 신용 재시도. 현금 예약·예산·순위교체
+    필요액은 '현금 소요' 기준(신용 = 잔여금액×보증금율, 현금 = 전액)으로 같은 top-down 규칙 적용.
+    신용 미체결 주문 취소는 kt10009. 운영 스위치 credit_buy(텔레그램 /신용 켜기|끄기)를 매 틱 읽어 꺼지면 즉시
+    전 종목 현금·당초 비중. 감시 슬롯(MAX_CODES)은 할 일이 남은 종목에만 배정.
+    신용 종목 예산은 현금이 아니라 '신용주문가능금액'을 top-down 예약(보증금이 대용으로 충당돼 현금과 무관할 수 있음).
+  - (2026-11-09) NXT 애프터 신용매수(_tick session="NXT", 15:35~19:55, 스위치 nxt_buy): 오늘 plan 을 장후 1회 재산출한 뒤
+    신용 종목만 NXT 주문(kt10006, NXT)으로 신용 2배 목표까지 sweep.
+    (2026-11-11 개정) 매수 조건 = NXT 시장 평균(전 NXT 종목 시총가중, 오늘 KRX 종가 대비 등락률, nxt_market)이 마이너스일 때만,
+    NXT 매도호가가 오늘 종가 × (1 + 시장평균 − NXT_REL_GAP 3%p) 이하인 잔량(시장보다 3%p 이상 더 빠진 가격). 종전 '종가 −2%' 규칙 폐지.
+    점수(정규장 재평가 60+/보조 40)·청산예정·당일매도 재매수 규칙 동일. 신용 불가면 현금 대체 없이 대기.
+    롤백: logs/execution_monitor.py.bak_20261109_credit(신용 이전) · .bak_20261109_switch(검토 수정·스위치 이전)
+  - (2026-11-09) 수능일 등 KRX 지연 개장일(kt.KRX_LATE_DAYS): 정규장 10:00~16:30 · 동시호가 16:20~16:30 ·
+    장마감 체결 리포트 16:30:30~18:00 · NXT 애프터 16:35~19:55 — 모든 장 시각은 kt.krx_t()/krx_open_time()/
+    krx_close_time() 로 그날 기준으로 판정. 롤백: logs/execution_monitor.py.bak_20261109_suneung
 
 상태파일 (logs/):
   {날짜}_autobuy_plan.json   (읽기) auto_buy 가 쓴 종목별 목표수량·기준가
@@ -45,7 +61,7 @@ import sys
 import json
 import math
 import time
-from datetime import datetime
+from datetime import datetime, time as dtime
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -56,8 +72,9 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import secrets
-from kis_api import auth, kiwoom_trading as kt
+from kis_api import auth, kiwoom_trading as kt, trade_switches
 import buy_gate
+import nxt_market
 
 LOG_DIR = secrets.LOCAL_DATA_PATH
 OWNER_ID = str(secrets.TELEGRAM_CHAT_ID)
@@ -82,6 +99,10 @@ ROT_KEEP_SCORE = 60.0                                         # (2026-10-14) 현
 ROT_MIN_HOLD_TD = 6                                           # (2026-10-27) 교체매도 대상 = 마지막 매수일로부터 거래일 D+6 이상(D+6일부터) — 10-16 D+5 에서 변경
 REBUY_DISCOUNT = 0.02                                         # (2026-10-14) 당일 매도 종목 재매수: 매도 순수령 평균 대비 2% 이상 싸야 매수
 SELL_FILL_TTL  = 20                                           # 당일 매도체결 집계(ka10076) 캐시 유효시간(초) — 유량 보호
+CREDIT_RETRY_SEC = 300                                        # (2026-11-09) 신용주문 거부·신용여력 부족 시 이 시간 동안 현금·당초 비중으로 대체 후 신용 재시도
+CREDIT_RATE_DEFAULT = 0.60                                    # plan 에 신용보증금율이 없을 때 신용여력 조회 구간 기본값(보수적 — kt00012 최고 구간)
+NXT_REL_GAP = 0.03                                            # (2026-11-11) NXT 애프터 매수: 시장 평균(종가 대비, 음수일 때만)보다 이 폭(3%p) 이상 더 빠진 가격 이하만 매수
+NEW_MIN_QTY = 10                                              # (2026-11-10) 신규종목: 주문 후 보유가 이 수량(목표가 더 작으면 목표 전량) 미만인 자투리 주문은 안 냄
 ETF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "ETF")
 
 _rot_need = []      # 이번 틱 _tick 이 기록한 '예산 부족 신규종목' (plan 순서) → _rotate_tick 이 소비
@@ -161,12 +182,14 @@ def _new_cst(held):
             "open_order_price": 0, "bought": 0}
 
 
-def _is_closing_auction():
-    """장마감 동시호가(15:20~15:30) — 호가 접수만 되고 체결이 없는 시간대.
+CLOSE_AUCTION_BASE = dtime(15, 20)    # 평소 기준 종가 단일가 시작 — 그날 시각은 kt.krx_t (수능일 16:20)
+
+
+def _is_closing_auction(now=None):
+    """장마감 동시호가(15:20~15:30, 수능일 16:20~16:30) — 호가 접수만 되고 체결이 없는 시간대.
        이 시간에는 sweep(취소·재주문 반복)이 무의미하므로 '1회 주문 후 유지' 모드로 전환."""
-    now = datetime.now()
-    sec = now.hour * 3600 + now.minute * 60 + now.second
-    return 15 * 3600 + 20 * 60 <= sec < 15 * 3600 + 30 * 60
+    now = now or datetime.now()
+    return kt.krx_t(CLOSE_AUCTION_BASE, now) <= now.time() < kt.krx_close_time(now)
 
 
 def _load_live_scores(today_str):
@@ -177,7 +200,7 @@ def _load_live_scores(today_str):
          (2026-09-29 STX엔진). Search_History 는 자동등록·평가후처리가 장전 점수에 현재시각을
          찍을 수 있어 '재평가' 증거가 못 되므로 쓰지 않는다."""
     since = buy_gate.krx_since(LOG_DIR, today_str)
-    rows = buy_gate.rescored_rows(buy_gate.load_v3_rows(LOG_DIR, today_str), since)
+    rows = buy_gate.rescored_rows(buy_gate.load_v3_rows(LOG_DIR, today_str), since, today_str)
     return {c: r["score100"] for c, r in rows.items()}
 
 
@@ -210,18 +233,153 @@ def _rebuy_cap(f):
     return avg, net, cap
 
 
+def _waterfill(members, total):
+    """(2026-11-11) 비중 비례 배분. members {code: (비중, 필요금액)} · total 배분 가능 금액 → {code: 배분액(int)}.
+       각 종목 몫 = 남은 금액 × 비중/비중합, 단 필요금액이 상한 — 상한에 걸린 종목의 남는 몫은 나머지에 재배분.
+       total ≥ 필요금액 합이면 모두 필요금액 전부."""
+    out = {c: 0.0 for c in members}
+    active = {c for c, (w, need) in members.items() if w > 0 and need > 0}
+    rem = float(max(0, total))
+    while active and rem > 0.5:
+        wsum = sum(members[c][0] for c in active)
+        capped = {c for c in active if rem * members[c][0] / wsum >= members[c][1] - out[c]}
+        if capped:
+            for c in capped:
+                rem -= members[c][1] - out[c]
+                out[c] = float(members[c][1])
+            active -= capped
+        else:
+            for c in active:
+                out[c] += rem * members[c][0] / wsum
+            rem = 0.0
+    return {c: int(v) for c, v in out.items()}
+
+
+def _new_small(t, held, qty, target_qty):
+    """(2026-11-10) 신규종목(장 시작 시 미보유) 자투리 주문이면 최소 보유 수량을, 아니면 0 을 반환.
+       자투리 = 이번 주문 후 보유 < min(NEW_MIN_QTY, 목표수량). 호가 잔량·예산 끝자락으로 1~2주씩 담겨
+       소액 종목이 늘어나는 것 방지. 기존 보유 종목(추가매수)은 제한 없음. 이미 10주 이상이면 이후 소량 채움 허용."""
+    need = min(NEW_MIN_QTY, max(1, int(target_qty)))
+    return need if (t.get("new") and held + qty < need) else 0
+
+
+def _close_key(p):
+    """매도 트랜치 키 — 대출일(신용·담보), 현금은 'CASH'. (2026-11-09) 대출일 없는 신용 트랜치(당일 신용매수분 등)는
+       'CRD{구분}' 로 따로 — 현금 트랜치와 키가 겹쳐 실패 트랜치 재시도가 막히지 않게(기존 'CASH' 키는 호환 유지)."""
+    ld = str(p.get("loan_dt") or "").strip()
+    if ld:
+        return ld
+    ct = str(p.get("crd_type") or "00").strip()
+    return "CASH" if ct in ("", "00") else f"CRD{ct}"
+
+
+def _nxt_cancel_open(today_str, why):
+    """(2026-11-09) NXT 애프터 신용매수가 꺼졌거나(스위치) 매수창이 끝났을 때(19:55~20:00) 직전 틱에 낸 NXT 주문 잔량 취소
+       — '걸어두지 않음': 꺼진 뒤 20:00 까지 체결될 수 있는 주문을 남기지 않는다. 취소 실패면 다음 틱 재시도."""
+    ex = _load_json(_exec_path(today_str), None)
+    if not isinstance(ex, dict) or ex.get("date") != today_str:
+        return
+    changed, lines = False, []
+    for c, cst in (ex.get("codes") or {}).items():
+        if not (cst or {}).get("open_order_no") or cst.get("open_order_stex") != "NXT":
+            continue
+        c6 = _fmt(c)
+        mine = next((x for x in kt.fetch_open_buy_orders(c6) if x["order_no"] == cst["open_order_no"]), None)
+        if mine is not None and mine.get("remaining_qty"):
+            if not kt.cancel_order(cst["open_order_no"], c6, mine["remaining_qty"], credit=True, stex="NXT"):
+                continue                     # 취소 실패 → 다음 틱 재시도
+            lines.append(f"🚫 NXT 미체결취소 {_hold_names.get(c6, '')}({c6}) 잔량 {mine['remaining_qty']}주 — {why}")
+        cst["open_order_no"] = ""; cst["open_order_qty"] = 0; cst["open_order_price"] = 0
+        cst["open_order_credit"] = False; cst["open_order_stex"] = ""
+        changed = True
+    if changed:
+        _save_json(_exec_path(today_str), ex)
+    if lines:
+        _send_owner("🌙 NXT 애프터 신용매수\n" + "\n".join(lines))
+
+
+def _credit_off(cst, code, name, why, report, key=None, nxt=False):
+    """(2026-11-09) 신용매수 불가(신용여력 부족·신용주문 거부) → CREDIT_RETRY_SEC 동안 현금·당초 비중(cash_target_qty)으로
+       대체(NXT 애프터는 현금 대체 없이 대기). 같은 사유(key, 없으면 why)는 1회만 알림. 상태가 바뀌었으면 True."""
+    cst["credit_off_until"] = time.time() + CREDIT_RETRY_SEC
+    then = "신용 재시도 대기(NXT 는 현금 매수 안 함)" if nxt else "현금·당초 비중으로 매수, 이후 신용 재시도"
+    _log_once(f"buy:{code}", f"  ⚠️ {name}({code}) 신용매수 불가({why}) — {CREDIT_RETRY_SEC // 60}분간 {then}")
+    if cst.get("credit_off_why") != (key or why):
+        cst["credit_off_why"] = key or why
+        report.append(f"⚠️ {name}({code}) 신용매수 불가({why}) — {CREDIT_RETRY_SEC // 60}분간 {then}")
+    return True
+
+
+_close_cache = {"date": "", "px": {}}     # (2026-11-09) NXT 애프터용 오늘 KRX 종가 캐시 {code: 종가}
+_nxt_nobook  = {}                        # {code: 마지막으로 NXT 매도호가가 없던 시각} — NXT 미거래 종목 슬롯 제외용
+NXT_NOBOOK_SEC = 600
+_nxt_build = {"date": "", "ts": 0.0}     # NXT 애프터 plan 재산출 시도 시각(재시도 간격 보호)
+
+
+def _krx_close(today_str, code):
+    """오늘 KRX 종가(15:30 이후 ka10001 KRX 현재가). 종목당 하루 1회 조회 캐시. 실패 시 0."""
+    if _close_cache["date"] != today_str:
+        _close_cache.update(date=today_str, px={})
+    px = _close_cache["px"].get(code)
+    if not px:
+        px = kt.fetch_krx_close(code, today_str)   # 1분봉 15:30 종가 단일가 봉 — 장후 애프터마켓 체결가 아님
+        if px > 0:
+            _close_cache["px"][code] = px
+    return px or 0
+
+
+def _nxt_rebuild_plan(today_str):
+    """NXT 애프터 창에서 오늘 plan 을 1회 재산출(auto_buy after=True) — 정규장에 만든 plan 에 신용가능·2배 목표
+       (credit/cash_target_qty)가 없거나 장중 신용여력 0 으로 정렬된 경우를 위해. 실패 시 120초 후 재시도."""
+    now = time.time()
+    if _nxt_build["date"] == today_str and now - _nxt_build["ts"] < 120:
+        return None
+    _nxt_build.update(date=today_str, ts=now)
+    try:
+        import auto_buy
+        _log("🌙 NXT 애프터 신용매수 — 오늘 plan 장후 재산출(정규장 점수·가격 그대로, 신용 2배 목표)")
+        auto_buy.run(today_str, after=True)
+    except Exception as e:
+        _log(f"  ⚠️ NXT 애프터 plan 재산출 실패: {e}")
+        return None
+    p = _load_json(_plan_path(today_str), None)
+    return p if isinstance(p, dict) and p.get("date") == today_str and p.get("built_after") else None
+
+
 # ── 1 틱: plan 을 읽어 호가 sweep 집행 ────────────────────────────────────
-def _tick(today_str):
+#   session="KRX"(기본): 정규장 09:00~15:30 sweep — 현금·신용.
+#   session="NXT"(2026-11-09): NXT 애프터 신용매수 창(15:35~19:55) — plan 의 신용 종목만, 오늘 KRX 종가 대비
+#     (2026-11-11) NXT 시장 평균 등락률 M(음수일 때만) − 3%p 이상 하락한 가격(지정가 = 종가×(1+M−3%p), 호가단위 내림) 이하의 NXT 매도호가만 신용 2배 목표까지
+#     sweep(dmst_stex_tp=NXT). 스위치 nxt_buy·credit_buy 둘 다 켜져 있어야 동작. 신용 불가면 현금 대체 없이 대기.
+#   신용 종목 예산(2026-11-09 검토 반영): 신용 보증금은 대용(보유주식)으로도 충당되어 현금(d2)과 무관할 수 있으므로
+#     (실측: 주문가능현금 3,435원인데 신용주문가능 7,986만원) 현금이 아니라 '신용주문가능금액'을 top-down 예약한다
+#     — 상위 신용 종목 몫을 하위 신용 종목이 못 가져감. 현금 종목은 종전대로 현금을 top-down 예약.
+def _tick(today_str, session="KRX"):
     global _rot_need
-    _rot_need = []
+    nxt = (session == "NXT")
+    if not nxt:
+        _rot_need = []
     if not getattr(secrets, "AUTO_BUY_ENABLED", False):
         return
-    if not kt.is_market_open():        # 평일 09:00~15:30 외에는 무동작
+    if nxt:
+        win = kt.is_nxt_after_buy_window()
+        sw_on = trade_switches.get("nxt_buy") and trade_switches.get("credit_buy")
+        if not (win and sw_on):
+            if kt.is_post_close():           # 장후(~20:00): 꺼졌거나 창이 끝났으면 남은 NXT 주문 취소(걸어두지 않음)
+                _nxt_cancel_open(today_str, "NXT 매수 꺼짐" if not sw_on else "매수창 종료(19:55)")
+            if win and not sw_on:
+                _log_once("nxthdr", "🌙 NXT 애프터 신용매수 꺼짐(스위치 nxt_buy/credit_buy) — 매수 안 함")
+            return
+    elif not kt.is_market_open():        # 평일 09:00~15:30 외에는 무동작
         return
 
     plan = _load_json(_plan_path(today_str), None)
     if not isinstance(plan, dict) or plan.get("date") != today_str:
         return                          # 오늘자 plan 아직 없음
+    if nxt and not plan.get("built_after"):
+        plan = _nxt_rebuild_plan(today_str)
+        if not plan:
+            return                      # 재산출 전/실패 → 다음 틱(재시도 간격 120초)
     targets = plan.get("targets") or {}
     if not targets:
         return
@@ -234,9 +392,12 @@ def _tick(today_str):
     _hold_names.clear()
     _hold_names.update({_fmt(h.get("code", "")): h.get("name", "") for h in holdings})
 
-    cash = kt.fetch_order_cash()
-    if cash is None:
-        return
+    if nxt:
+        cash = 0                        # NXT 애프터는 신용만 — 현금 매수 없음
+    else:
+        cash = kt.fetch_order_cash()
+        if cash is None:
+            return
     # 현금 0 이어도 진행(2026-10-07): 신규종목 예산 부족을 _rot_need 에 기록해야 순위교체 매도가 돈다.
     # (현금부족 알림은 아래 cash_short 마커로 현금값이 바뀔 때만 1회)
 
@@ -276,7 +437,108 @@ def _tick(today_str):
                 pass
 
     report, changed = [], False
-    _log_once("buyhdr", f"🛒 매수감시 {min(len(targets), MAX_CODES)}종목 · 주문가능현금 {cash:,}원")
+    # (2026-11-11) NXT 애프터 매수 기준 — 시장 평균(전 NXT 종목 시총가중, 오늘 KRX 종가 대비)이 음수일 때만 '평균 − 3%p'
+    nxt_thr, nxt_info = None, ""
+    if nxt:
+        _m_avg, _m_n, nxt_info = nxt_market.market_avg(today_str)
+        if _m_avg is not None and _m_avg < 0:
+            nxt_thr = _m_avg - NXT_REL_GAP
+    credit_on = trade_switches.get("credit_buy")    # (2026-11-09) 신용매수 우선 스위치 — 끄면 이번 틱부터 전 종목 현금·당초 비중
+
+    # (2026-11-13 재훈님 지시) 정규장 신용 소진: 신용주문가능금액(+내 신용 미체결)으로 어떤 신용 종목도 1주를 못 사면
+    #   이번 틱은 신용가능 여부와 무관하게 전 종목을 현금·당초 비중(cash_target_qty)으로 — 현금 풀에서 비중 비례로 함께 배분.
+    #   (종전: 신용 종목은 신용불가 종목 배분 후 남은 현금만 받음.) 보증금율 구간별로 조회해 모두 부족할 때만. 조회 실패 = 판정 보류.
+    credit_dry, credit_pre = False, {}
+    if not nxt and credit_on:
+        _now = time.time()
+        # 판정 대상 = 이번 틱 실제로 살 수 있는 신용 종목만(배분 블록과 같은 자격: 점수·청산예정·당일매도 재매수 상한,
+        #   AI 평가 대기 제외) — 못 사는 저가 종목 하나가 '아직 1주 살 여력 있음'으로 판정을 막지 않도록(11-13 검토)
+        _rates, _code0 = {}, {}          # {보증금율: 최저 매수가}, {보증금율: 조회용 종목}
+        for c, t in targets.items():
+            c6 = _fmt(c)
+            px = int(t.get("promising_price", 0) or 0)
+            if (not t.get("credit") or px <= 0 or t.get("await_eval")
+                    or held_map.get(c6, 0) >= int(t.get("target_qty", 0) or 0)
+                    or _now < float((codes_state.get(c6) or {}).get("credit_off_until", 0) or 0)
+                    or c6 in sell_warn):
+                continue
+            sc = live_scores.get(c6)
+            if sc is None or sc < float(t.get("min_score", SCORE_MIN) or SCORE_MIN):
+                continue
+            if c6 in sold_today:
+                cap = _rebuy_cap((sell_fills or {}).get(c6) or {})[2]
+                if cap <= 0:
+                    continue
+                px = min(px, cap)
+            r = float(t.get("credit_rate") or CREDIT_RATE_DEFAULT)
+            if px < _rates.get(r, 10 ** 15):
+                _rates[r] = px
+            _code0.setdefault(r, c6)
+        if _rates:
+            _cinf = int(sum(int((v or {}).get("open_order_qty", 0) or 0) * int((v or {}).get("open_order_price", 0) or 0)
+                            for v in codes_state.values()
+                            if (v or {}).get("open_order_no") and (v or {}).get("open_order_credit")))
+            dry_all, rooms, failed = True, [], False
+            for r, mpx in _rates.items():
+                room_r, why_r = kt.fetch_credit_room(_code0[r], r)
+                credit_pre[r] = (room_r, why_r)
+                if room_r is None:
+                    dry_all = False
+                    failed = failed or why_r == "조회 실패"
+                elif int(room_r) + _cinf >= mpx:
+                    dry_all = False
+                if room_r is not None:
+                    rooms.append(int(room_r))
+            # 통신 실패 = 판정 보류(직전 상태 유지, 알림 없음) — 실패 한 번에 전환·복귀 알림이 오가지 않도록
+            credit_dry = bool(exec_state.get("credit_dry")) if failed else dry_all
+            if not failed and credit_dry != bool(exec_state.get("credit_dry")):
+                exec_state["credit_dry"] = credit_dry
+                changed = True
+                report.append(f"💳 신용주문가능 {max(rooms or [0]):,}원 — 신용 소진 → 신용가능 종목도 현금·당초 비중으로 배분"
+                              f"(주문가능현금 {cash:,}원)" if credit_dry else
+                              f"💳 신용주문가능 {max(rooms or [0]):,}원 회복 → 신용가능 종목 신용매수 재개")
+
+    def _mode(c, t):
+        """(신용주문 여부, 유효 목표수량). 신용 종목이라도 스위치 꺼짐·신용 대기(credit_off_until) 중이면
+           현금·당초 비중 목표(cash_target_qty). NXT 애프터는 신용만 — 신용 못 쓰면/신용불가 종목은 목표 0."""
+        cs = codes_state.get(_fmt(c)) or {}
+        ct = bool(t.get("credit"))
+        uc = (ct and credit_on and not credit_dry
+              and time.time() >= float(cs.get("credit_off_until", 0) or 0))
+        tq = int(t.get("target_qty", 0) or 0)
+        if not uc and (ct or nxt):
+            tq = 0 if nxt else int(t.get("cash_target_qty", 0) or 0)
+        return uc, tq
+
+    # 감시 슬롯(MAX_CODES)은 '아직 할 일이 있는' 종목에만 배정(2026-11-09): 목표 미달·미체결 주문 보유·체결 미보고.
+    #   목표를 다 채운 상위 종목이 슬롯을 차지해 하위(신용불가 등) 종목이 영영 감시되지 않던 문제 방지.
+    def _pending(c, t):
+        c6 = _fmt(c)
+        cs = codes_state.get(c6) or {}
+        h = held_map.get(c6, 0)
+        if t.get("await_eval"):              # (2026-11-11) AI 평가 대기 — 배분만 예약, 주문·감시 안 함
+            return bool(cs.get("open_order_no"))
+        return (h < _mode(c, t)[1] or bool(cs.get("open_order_no"))
+                or ("held_seen" in cs and h != int(cs.get("held_seen", 0) or 0)))
+    watch = [c for c, t in targets.items() if _pending(c, t)]
+    if nxt:   # NXT 매도호가가 없던 종목은 10분간 슬롯 제외(미체결 주문이 남은 종목은 취소 위해 유지)
+        _now_ts = time.time()
+        watch = [c for c in watch
+                 if _now_ts - _nxt_nobook.get(_fmt(c), 0) > NXT_NOBOOK_SEC
+                 or (codes_state.get(_fmt(c)) or {}).get("open_order_no")]
+    # 실효 모드 기준 재정렬(2026-11-09 검토 반영): 신용 실사용 종목(신규→보유) → 현금 종목(신규→보유), 그룹 안은 AI점수순.
+    #   스위치 꺼짐·신용 대기로 현금 대체된 신용 종목이 plan 의 신용 우선 자리에서 현금을 먼저 가져가지 않도록.
+    watch.sort(key=lambda c: ((0 if _mode(c, targets[c])[0] else 2) + (0 if targets[c].get("new") else 1),
+                              -float(targets[c].get("score100", 0) or 0)))   # (2026-11-11) 그룹 안은 V3 점수순
+    if len(watch) > MAX_CODES:
+        _log_once("buycap", f"  ℹ️ 미완료 {len(watch)}종목 중 상위 {MAX_CODES}종목만 감시(유량 보호)")
+    if nxt:
+        _log_once("nxthdr", f"🌙 NXT 애프터 신용매수 감시 {min(len(watch), MAX_CODES)}종목(plan {len(targets)}) · {nxt_info}"
+                            + (f" → 종가 대비 {nxt_thr * 100:+.2f}% 이하만 매수" if nxt_thr is not None
+                               else " → 시장 평균 ≥ 0 또는 계산 중 — 매수 안 함"))
+    else:
+        _log_once("buyhdr", f"🛒 매수감시 {min(len(watch), MAX_CODES)}종목(plan {len(targets)}) · 주문가능현금 {cash:,}원"
+                            f"{'' if credit_on else ' · 신용매수 꺼짐'}")
 
     # ── 동시 집행 + top-down 예산 예약 ──────────────────────────────────────
     #   현금을 AI 상위부터 '잔여목표금액'만큼 예약(committed)해, 하위 종목이 상위 몫을 못 쓰게 한다.
@@ -284,21 +546,118 @@ def _tick(today_str):
     #   내 미체결(in-flight) 주문이 이미 예약한 현금은 usable(주문가능현금 cash)에서 빠져 있으므로,
     #   예산 배분 기준 base_cash 에 되더한다(안 그러면 상위가 주문 중일 때 하위 예산이 과소평가).
     #   미수 방지는 별도 하드 한도(cash − local_spent, 실시간 재조회)로 보장한다.
-    my_inflight = sum(int((v or {}).get("open_order_qty", 0) or 0) *
-                      int((v or {}).get("open_order_price", 0) or 0)
-                      for v in codes_state.values() if (v or {}).get("open_order_no"))
-    base_cash   = cash + my_inflight
-    committed   = 0      # 상위 AI 유효종목이 예약한 현금(각자 잔여목표금액)
-    local_spent = 0      # 이번 틱에 새로 발주한 금액(미수 방지 로컬 차감)
+    #   (2026-11-09) 신용 종목은 같은 방식으로 '신용주문가능금액'을 예약(credit_*). 현금 풀과 분리.
+    #   ※ 반드시 정수(int) — 실수가 섞이면 budget//price 가 300.0 이 되어 주문수량 "300.0" 으로 나간다(2026-11-09 검토 지적).
+    def _inflight(credit):
+        return int(sum(int((v or {}).get("open_order_qty", 0) or 0) * int((v or {}).get("open_order_price", 0) or 0)
+                       for v in codes_state.values()
+                       if (v or {}).get("open_order_no") and bool((v or {}).get("open_order_credit")) == credit))
+    base_cash   = cash + _inflight(False)
+    committed   = 0      # 상위 AI 유효 현금종목이 예약한 현금(각자 잔여목표금액)
+    local_spent = 0      # 이번 틱에 새로 발주한 현금 매수액(미수 방지 로컬 차감)
+    credit_inflight  = _inflight(True)
+    credit_base      = None   # 신용 예산 기준 = 신용주문가능(틱당 첫 신용 종목에서 1회 조회) + 내 신용 미체결
+    credit_room0     = 0
+    credit_committed = 0      # 상위 신용 종목이 예약한 신용 매수액
+    local_credit     = 0      # 이번 틱에 새로 발주한 신용 매수액
 
-    # plan 삽입순 = AI점수 상위순. 상한까지만 감시(rate-limit 보호).
-    for code in list(targets.keys())[:MAX_CODES]:
+    # ── (2026-11-11) 정규장: 비중 비례 배분(사용자 확정) ────────────────────────────────
+    #   매 틱 plan 의 매수 대상(오늘 AI BUY + AI 평가 대기)을 두 풀로 나눠 '종목 비중(alloc)' 비례로 배분한다.
+    #     신용 풀: 신용주문가능금액 + 내 신용 미체결 → 신용 실사용 종목
+    #     현금 풀: 주문가능현금 + 내 현금 미체결 → 신용불가·현금대체 종목
+    #     현금 풀이 남으면 신용여력을 다 못 받은 신용 종목에 당초 비중(1배, cash_target_qty) 한도까지 재배분(현금 매수)
+    #   AI 평가 대기 종목은 몫만 차지하고 주문하지 않는다 → 평가가 BUY 로 나오면 바로 그 몫으로 매수,
+    #   관망·회피면 plan 에서 빠져 다음 틱부터 나머지 종목에 재배분. 이미 산 물량은 팔지 않는다(추가매수만 멈춤).
+    #   점수 미달·청산예정(평활)·당일매도 재매수 불가 종목은 배분에서 제외. NXT 애프터는 종전 규칙(지금 살 수 있는 종목 순).
+    alloc_credit, alloc_cash, alloc_extra = {}, {}, {}
+    credit_err = ""
+    if not nxt:
+        tmap6 = {_fmt(c): t for c, t in targets.items()}
+        # 하루 기준 배분(2026-11-11 검토 반영): 매 틱 '남은 돈'만 나누면 살 수 있는 종목이 틱마다 새 몫을 받아
+        #   평가 대기·호가 대기 종목의 몫을 결국 다 가져간다. → 배분 총액 = 지금 가용액 + 오늘 이 풀 종목들이 이미 산 금액,
+        #   종목 필요액 = 오늘 시작 기준 부족분. 각 종목은 '배분액 − 오늘 산 금액'만 더 산다(현재 부족분이 상한).
+        m_credit, m_cash, m_px, spent, cur_need = {}, {}, {}, {}, {}
+        for c6, t in tmap6.items():
+            uc, tq = _mode(c6, t)
+            px = int(t.get("promising_price", 0) or 0)
+            if c6 in sold_today:
+                cap = _rebuy_cap((sell_fills or {}).get(c6) or {})[2]
+                px = min(px, cap) if cap > 0 else 0
+            h = held_map.get(c6, 0)
+            sc = live_scores.get(c6)
+            if (px <= 0 or tq - h < 1 or c6 in sell_warn or sc is None
+                    or sc < float(t.get("min_score", SCORE_MIN) or SCORE_MIN)):
+                continue
+            b_sh = max(0, int((codes_state.get(c6) or {}).get("bought", 0) or 0))
+            need0 = max(0, tq - (h - b_sh))                 # 오늘 시작 기준 부족 수량
+            m_px[c6] = px
+            spent[c6] = min(b_sh, need0) * px
+            cur_need[c6] = (tq - h) * px
+            w = float(t.get("alloc", 0) or 0) if uc else float(t.get("base_alloc") or t.get("alloc") or 0)
+            (m_credit if uc else m_cash)[c6] = (w or 1.0, need0 * px)   # 비중 없는 구버전 plan → 동일 가중
+
+        def _budgets(members, free, pre=None):
+            """하루 기준 비중 비례 → 종목별 '지금 더 살 수 있는 금액'. pre {code: 우선 배정액}(교체매도 대금 등)."""
+            pre = {c: min(int(v), members[c][1]) for c, v in (pre or {}).items() if c in members and v > 0}
+            total = free + sum(spent.get(c, 0) for c in members) - sum(pre.values())
+            rest = {c: (w, need - pre.get(c, 0)) for c, (w, need) in members.items()}
+            al = _waterfill(rest, total)
+            return {c: max(0, min(al.get(c, 0) + pre.get(c, 0) - spent.get(c, 0), cur_need[c])) for c in members}
+
+        if m_credit:
+            c0 = next(iter(m_credit))
+            _r0 = float(tmap6[c0].get("credit_rate") or CREDIT_RATE_DEFAULT)
+            room0, why0 = (credit_pre[_r0] if _r0 in credit_pre      # 위 신용 소진 판정 때 조회한 값 재사용
+                           else kt.fetch_credit_room(c0, _r0))
+            if room0 is None:
+                credit_err = "조회 실패" if why0 == "조회 실패" else (why0 or "신용여력 조회 거부")
+            else:
+                credit_room0 = int(room0)
+                credit_base = credit_room0 + credit_inflight
+                alloc_credit = _budgets(m_credit, credit_base)
+        # 순위교체 매도 대금은 그 매도가 자금을 마련하려던 신규종목 몫으로 우선 배정(다른 보유종목 추가매수로 새지 않게)
+        earmark = {}
+        if isinstance(rot_exec, dict) and rot_exec.get("date") == today_str:
+            for _rc in (rot_exec.get("codes") or {}).values():
+                for ev in (_rc or {}).get("events") or []:
+                    fors = [_fmt(x) for x in (ev.get("for") or [])]
+                    amt = int(ev.get("cash_done", 0) or 0) * int(ev.get("price", 0) or 0)
+                    for x in fors:
+                        if x in m_cash and (tmap6.get(x) or {}).get("new"):
+                            earmark[x] = earmark.get(x, 0) + amt // len(fors)
+        alloc_cash = _budgets(m_cash, base_cash, pre=earmark)
+        leftover = base_cash - sum(alloc_cash.values())
+        if m_credit and leftover > 0 and credit_err != "조회 실패":
+            # 신용 몫이 1주 미만이라 현금으로 넘어갈 신용 종목 → 남는 현금을 당초 비중(1배) 한도까지
+            m_extra = {}
+            for c6 in m_credit:
+                t = tmap6[c6]; px = m_px[c6]; h = held_map.get(c6, 0)
+                if alloc_credit.get(c6, 0) >= px:
+                    continue                                # 신용으로 살 종목 — 현금 보충 몫 불필요(안 쓰면 잠김)
+                ex_need = max(0, int(t.get("cash_target_qty", 0) or 0) - h) * px
+                if ex_need > 0:
+                    m_extra[c6] = (float(t.get("base_alloc") or t.get("alloc") or 0) or 1.0, ex_need)
+            alloc_extra = _waterfill(m_extra, leftover)
+        if m_cash and base_cash < min(m_px[c] for c in m_cash) and exec_state.get("cash_short") != cash:
+            report.append(f"💸 현금부족 — 현금 매수 대상 {len(m_cash)}종목 배분 불가(주문가능 {cash:,}원)")
+            exec_state["cash_short"] = cash
+            changed = True
+        elif m_cash and base_cash >= min(m_px[c] for c in m_cash) and exec_state.get("cash_short") is not None:
+            exec_state["cash_short"] = None
+            changed = True
+        n_wait = sum(1 for t in targets.values() if t.get("await_eval"))
+        _log_once("allochdr", f"  🧮 배분 — 신용 {len(m_credit)}종목·{sum(alloc_credit.values()):,}원"
+                              f"(여력 {credit_room0:,}{'·' + credit_err if credit_err else ''}) · 현금 {len(m_cash)}종목·"
+                              f"{sum(alloc_cash.values()):,}원 · 신용부족분 현금 {sum(alloc_extra.values()):,}원"
+                              f"{f' · AI평가대기 {n_wait}종목 몫 예약' if n_wait else ''}")
+
+    # plan 삽입순 = 매수 우선순위. 할 일이 남은 종목 중 상한까지만 감시(rate-limit 보호).
+    for code in watch[:MAX_CODES]:
         t = targets[code]
         code = _fmt(code)
         name = t.get("name", "")
-        target_qty = int(t.get("target_qty", 0) or 0)
         price = int(t.get("promising_price", 0) or 0)
-        if target_qty < 1 or price <= 0:
+        if int(t.get("target_qty", 0) or 0) < 1 or price <= 0:
             continue
 
         held = held_map.get(code, 0)
@@ -306,6 +665,17 @@ def _tick(today_str):
         if cst is None:
             cst = codes_state[code] = _new_cst(held)
             changed = True
+
+        # ── (2026-11-09) 신용 종목: 신용 사용 가능(스위치 켜짐·최근 신용 거부/여력부족 대기 중 아님)이면 2배 목표를
+        #    신용으로, 아니면 당초 비중(1배) 현금 목표로 대체(NXT 는 대체 없음). 대기 해제 후 다시 신용 시도.
+        use_credit, target_qty = _mode(code, t)
+        crate = float(t.get("credit_rate") or CREDIT_RATE_DEFAULT)
+        close = 0
+        if nxt:
+            # NXT 지정가 = 오늘 KRX 종가 × (1 − 2%) 호가단위 내림 → 이 가격 이하 NXT 매도호가만 매수
+            close = _krx_close(today_str, code)
+            if close > 0 and nxt_thr is not None:
+                price = kt.normalize_krx_price(int(close * (1 + nxt_thr)))
 
         # ── 체결 판정: 보유 증가분 = 체결(우리 sweep) → 보고
         if held > cst["held_seen"]:
@@ -324,11 +694,14 @@ def _tick(today_str):
         #    이 종목은 이번 틱 재주문 안 함(보유 갱신 1틱 대기). 단, 잔여목표는 현금을 계속 '예약'한다
         #    (주문 중인 상위 종목의 몫을 하위가 뺏지 않도록).
         if cst.get("open_order_no"):
-            if _is_closing_auction():
+            if not nxt and _is_closing_auction():
                 # 동시호가(15:20~15:30): 체결 없는 호가접수 시간 — 취소/재주문 반복 금지(사용자 확정).
                 # 낸 주문 1건을 그대로 유지해 종가(15:30) 단일가 체결을 기다린다. 결과는 장마감 후 1회 알림.
                 if remaining >= 1:
-                    committed += remaining_amt
+                    if use_credit:
+                        credit_committed += remaining_amt
+                    else:
+                        committed += remaining_amt
                 if not cst.get("close_buy_hold"):
                     cst["close_buy_hold"] = True
                     changed = True
@@ -340,13 +713,23 @@ def _tick(today_str):
             mine = next((x for x in opens if x["order_no"] == cst["open_order_no"]), None)
             if mine is not None:
                 rem = mine.get("remaining_qty", 0)
-                if rem and kt.cancel_order(cst["open_order_no"], code, rem):
-                    report.append(f"🚫 미체결취소 {name}({code}) 잔량 {rem}주×{price:,}원")
+                if rem and kt.cancel_order(cst["open_order_no"], code, rem,
+                                           credit=bool(cst.get("open_order_credit")),   # 신용매수 주문은 kt10009
+                                           stex=cst.get("open_order_stex") or None):    # NXT 애프터 주문은 NXT 로 취소
+                    report.append(f"🚫 미체결취소 {name}({code}) 잔량 {rem}주×{int(cst.get('open_order_price') or price):,}원")
                 # 취소 실패면 다음 틱 재시도(중복주문 방지 위해 그대로 둠)
+            if cst.get("open_order_credit") and credit_base is None:
+                # 신용여력을 아직 이번 틱에 조회하지 않음 → 이 주문은 지금 취소(여력에 복귀)됐거나 체결(잔여에 반영)됨.
+                #   조회 시 되더하는 '내 신용 미체결'에서 빼 이중 계산 방지(2026-11-09 검토 반영).
+                credit_inflight -= int(cst.get("open_order_qty", 0) or 0) * int(cst.get("open_order_price", 0) or 0)
             cst["open_order_no"] = ""; cst["open_order_qty"] = 0; cst["open_order_price"] = 0
+            cst["open_order_credit"] = False; cst["open_order_stex"] = ""
             changed = True
             if remaining >= 1:
-                committed += remaining_amt      # 예산 예약 유지 → 하위가 이 종목 몫 못 씀
+                if use_credit:
+                    credit_committed += remaining_amt   # 신용 예산 예약 유지 → 하위 신용 종목이 이 종목 몫 못 씀
+                else:
+                    committed += remaining_amt          # 예산 예약 유지 → 하위가 이 종목 몫 못 씀
                 _log_once(f"buy:{code}", f"  🔄 {name}({code}) 직전주문 해소 → 계속 채움(잔여 {remaining}주, 예약)")
             else:
                 _log_once(f"buy:{code}", f"  🔄 {name}({code}) 주문 해소·목표달성")
@@ -354,6 +737,12 @@ def _tick(today_str):
 
         if remaining < 1:               # 목표 달성(완료) → 예약 없음, 다음 종목
             _log_once(f"buy:{code}", f"  ✔️ {name}({code}) 목표달성 보유{held}/목표{target_qty}")
+            continue
+        if nxt and close <= 0:
+            _log_once(f"buy:{code}", f"  ⏳ {name}({code}) 오늘 KRX 종가 확인 불가 — NXT 매수 보류")
+            continue
+        if nxt and nxt_thr is None:
+            _log_once(f"buy:{code}", f"  ⏸️ {name}({code}) {nxt_info or 'NXT 시장 평균 계산 중'} — 시장 평균이 마이너스일 때만 NXT 매수")
             continue
 
         # ── 당일 매도체결 종목: 조건부 재매수(2026-10-14). 지정가를 '매도 순수령 평균×98%'(매수수수료 포함) 이하로
@@ -408,100 +797,219 @@ def _tick(today_str):
             cst["last_skip_score"] = None                # 점수 회복 → 다음 보류 시 재알림
             changed = True
 
-        # ── 예산 배분: 이 종목 몫 = base_cash − (상위 유효종목 예약분). 그 뒤 이 종목도 예약한다.
-        is_top_valid = (committed == 0)          # 아직 상위 유효 미완료 종목이 없음 = 이 종목이 최우선
-        budget = max(0, base_cash - committed)
-        if t.get("new") and budget < remaining_amt and not _is_closing_auction():
-            # 신규종목 예산 부족 → 순위교체 매도 후보로 기록(plan 순서 유지). 기존 보유 추가매수는 기록 안 함.
-            _rot_need.append({"code": code, "name": name, "remaining": remaining,
-                              "price": price, "budget": budget})
-        committed += remaining_amt                # 이 종목 잔여목표를 하위 위해 예약
-
-        if budget < price:                        # 예산으로 1주도 못 삼(상위가 현금 다 가져감) → 대기
-            _log_once(f"buy:{code}", f"  ⏸️ {name}({code}) 예산 {budget:,}원<{price:,}원/주 — 대기(상위 우선 배정)")
-            if is_top_valid and exec_state.get("cash_short") != cash:   # 최우선도 못 사면 1회 알림
-                report.append(f"💸 현금부족 — 최우선 종목도 매수 불가(주문가능 {cash:,}원)")
-                exec_state["cash_short"] = cash
-                changed = True
-            continue
-        if is_top_valid:
-            exec_state["cash_short"] = None        # 최우선 종목은 예산 확보됨 → 부족 마커 해제
+        # ── (2026-11-11) 정규장: 위 비중 비례 배분액으로 매수. 신용 몫이 1주 미만이면 신용부족분 현금 몫으로.
+        if not nxt:
+            if use_credit and credit_err and credit_err != "조회 실패":
+                # 증권사 거부(신용계좌 아님 등) → 잠시 현금·당초 비중으로(다음 틱부터 현금 풀에서 배분)
+                changed |= _credit_off(cst, code, name, credit_err, report, key="room")
+                continue
+            cbudget = alloc_credit.get(code, 0) if use_credit else 0
+            if use_credit and cbudget < price:
+                xb = alloc_extra.get(code, 0)
+                c_rem = int(t.get("cash_target_qty", 0) or 0) - held
+                if t.get("new") and c_rem >= 1 and xb < c_rem * price and not _is_closing_auction():
+                    # 신용여력 부족 신규종목의 현금 보충분도 모자라면 순위교체 매도 후보(당초 비중 1배 기준)
+                    _rot_need.append({"code": code, "name": name, "remaining": c_rem, "price": price, "budget": xb})
+                if xb >= price:
+                    # 신용여력 부족분 → 현금으로 당초 비중(1배)까지
+                    use_credit = False
+                    target_qty = int(t.get("cash_target_qty", 0) or 0)
+                    remaining = target_qty - held
+                    remaining_amt = remaining * price
+                    budget = xb
+                else:
+                    _log_once(f"buy:{code}", f"  ⏸️ {name}({code}) 신용 배분 {cbudget:,}원·현금 보충 {xb:,}원 < {price:,}원/주 — 대기"
+                                             f"{'(신용여력 조회 실패)' if credit_err else ''}")
+                    continue
+                if remaining < 1:
+                    continue
+            elif not use_credit:
+                budget = alloc_cash.get(code, 0)
+                if t.get("new") and budget < remaining_amt and not _is_closing_auction():
+                    # 신규종목 배분액 부족 → 순위교체 매도 후보(기존 보유 추가매수는 기록 안 함)
+                    _rot_need.append({"code": code, "name": name, "remaining": remaining,
+                                      "price": price, "budget": budget})
+                if budget < price:
+                    _log_once(f"buy:{code}", f"  ⏸️ {name}({code}) 현금 배분 {budget:,}원<{price:,}원/주 — 대기")
+                    continue
+        elif use_credit:
+            # NXT 애프터 신용 풀: 신용주문가능금액(틱당 1회)
+            if credit_base is None:
+                room0, why0 = kt.fetch_credit_room(code, crate)
+                if room0 is None:
+                    if why0 != "조회 실패":      # 증권사 거부(신용계좌 아님 등) → 잠시 현금·당초 비중(NXT 는 대기)
+                        changed |= _credit_off(cst, code, name, why0, report, key="room", nxt=nxt)
+                    else:
+                        credit_committed += remaining_amt   # 통신 실패 → 이 종목 몫은 예약 유지(하위 신용 종목이 못 가져감)
+                    continue                     # 다음 신용 종목에서 다시 조회
+                credit_room0 = int(room0)
+                credit_base = credit_room0 + credit_inflight
+            if nxt:
+                # NXT 애프터(2026-11-09 실가동 보완): 지금 기준가(시장평균 −3%p) 이하로 살 수 있는 종목만 plan 순서대로 신용여력을 쓴다.
+                #   대기 종목(NXT 미거래·아직 기준가 미달)이 정규장처럼 여력을 미리 예약하면 실제 하락 종목이 예산 0 으로 못 산다.
+                if credit_room0 < price:                 # 계좌 신용여력 자체가 부족 → 신용 대기
+                    changed |= _credit_off(cst, code, name, f"신용주문가능 {credit_room0:,}원", report, key="room", nxt=True)
+                    continue
+                cbudget = max(0, credit_room0 - local_credit)
+                if cbudget < price:                      # 이번 틱 상위 종목 주문으로 소진 → 다음 틱
+                    _log_once(f"buy:{code}", f"  ⏸️ {name}({code}) 이번 틱 신용여력 소진 — 다음 틱")
+                    continue
+        else:
+            continue                         # NXT 애프터는 신용 종목만(현금 매수 없음)
 
         # ── 동시호가(15:20~15:30): sweep 불가(체결 없음) — 잔여목표를 지정가 1회 주문으로 내고
         #    종가 체결(15:30)을 기다린다. 취소/재주문 없음. 체결 여부는 장마감 후 1회 알림.
-        if _is_closing_auction():
-            live_cash = kt.fetch_order_cash()
-            if live_cash is None:
-                continue
-            cash_room = min(cash - local_spent, live_cash)
-            qty = min(remaining, budget // price, cash_room // price)
-            if qty < 1:
-                _log_once(f"buy:{code}", f"  💸 {name}({code}) 동시호가 — 예산/현금 부족, 주문 없음")
-                continue
-            res = kt.place_buy_order(code, qty, price)
+        if not nxt and _is_closing_auction():
+            if use_credit:
+                room, why = kt.fetch_credit_room(code, crate)
+                if room is None and why == "조회 실패":
+                    continue                     # 통신 실패 → 다음 틱 재시도(현금 대체 안 함)
+                if (room or 0) < price:          # 이 종목 보증금율 구간의 실시간 신용여력 부족 → 잠시 현금·당초 비중
+                    changed |= _credit_off(cst, code, name, f"신용주문가능 {room or 0:,}원 · {why}", report, key="room")
+                    continue
+                qty = int(min(remaining, room // price, cbudget // price, (credit_room0 - local_credit) // price))
+                if qty < 1:
+                    _log_once(f"buy:{code}", f"  💸 {name}({code}) 동시호가 — 신용 예산 부족, 주문 없음")
+                    continue
+                if _new_small(t, held, qty, target_qty):
+                    _log_once(f"buy:{code}", f"  🪙 {name}({code}) 동시호가 신규 자투리 {qty}주(보유 {held}주) — 매수 안 함")
+                    continue
+                res = kt.place_credit_buy_order(code, qty, price)
+            else:
+                live_cash = kt.fetch_order_cash()
+                if live_cash is None:
+                    continue
+                cash_room = min(cash - local_spent, live_cash)
+                qty = int(min(remaining, budget // price, cash_room // price))
+                if qty < 1:
+                    _log_once(f"buy:{code}", f"  💸 {name}({code}) 동시호가 — 예산/현금 부족, 주문 없음")
+                    continue
+                if _new_small(t, held, qty, target_qty):
+                    _log_once(f"buy:{code}", f"  🪙 {name}({code}) 동시호가 신규 자투리 {qty}주(보유 {held}주) — 매수 안 함")
+                    continue
+                res = kt.place_buy_order(code, qty, price)
+            ctag = "신용 " if use_credit else ""
             if res and res.get("return_code") == 0:
                 ono = res.get("ord_no", "?")
-                local_spent += qty * price
+                if use_credit:
+                    local_credit += qty * price
+                else:
+                    local_spent += qty * price
                 cst["last_fail"] = None
                 cst["open_order_no"] = ono
                 cst["open_order_qty"] = qty
                 cst["open_order_price"] = price
+                cst["open_order_credit"] = use_credit
+                cst["open_order_stex"] = "KRX"
                 cst["close_buy_hold"] = True
                 changed = True
-                report.append(f"🕒 동시호가 지정가매수 {name}({code}) {qty}주×{price:,}원 = {qty*price:,}원 "
+                report.append(f"🕒 동시호가 {ctag}지정가매수 {name}({code}) {qty}주×{price:,}원 = {qty*price:,}원 "
                               f"— 종가 체결 대기(장마감 후 결과 알림, 주문 {ono})")
-                _log_once(f"buy:{code}", f"  🕒 동시호가 지정가매수 {name}({code}) {qty}주×{price:,}원 (주문 {ono})")
+                _log_once(f"buy:{code}", f"  🕒 동시호가 {ctag}지정가매수 {name}({code}) {qty}주×{price:,}원 (주문 {ono})")
+            elif use_credit and res is not None:
+                changed |= _credit_off(cst, code, name, f"신용주문 거부: {res.get('return_msg', '')}", report)
             else:
                 err = (res or {}).get("return_msg", "응답 없음")
                 if cst.get("last_fail") != err:
-                    report.append(f"❌ 동시호가 매수실패 {name}({code}): {err}")
+                    report.append(f"❌ 동시호가 {ctag}매수실패 {name}({code}): {err}")
                     cst["last_fail"] = err
                     changed = True
-                _log_once(f"buy:{code}", f"  ❌ 동시호가 매수실패 {name}({code}): {err}")
+                _log_once(f"buy:{code}", f"  ❌ 동시호가 {ctag}매수실패 {name}({code}): {err}")
             continue
 
-        # ── 매도호가 sweep: promising 이하 잔량만큼. 없으면(가격상승 등) 예약 유지한 채 다음 종목.
-        avail, best_ask = kt.ask_qty_at_or_below(code, price)
+        # ── 매도호가 sweep: 지정가 이하 잔량만큼. 없으면(가격상승 등) 예약 유지한 채 다음 종목.
+        #    정규장 = KRX+NXT 통합호가(SOR 주문), NXT 애프터 = NXT 단독 호가(NXT 주문).
+        avail, best_ask = kt.ask_qty_at_or_below(code, price, venue="NX" if nxt else "AL")
+        if nxt and best_ask <= 0:
+            # NXT 매도호가 자체가 없음(NXT 미거래 종목 등) → 10분간 NXT 감시 슬롯에서 제외(다른 종목 감시 기회)
+            _nxt_nobook[code] = time.time()
         if avail < 1:
-            _log_once(f"buy:{code}", f"  ⏳ {name}({code}) 잔여{remaining} · 점수{live_sc:.0f} · 지정가{price:,} "
-                      f"매도최우선 {best_ask:,} — 호가대기(예산 {budget:,}원 예약 유지)")
+            if nxt:
+                _log_once(f"buy:{code}", f"  ⏳ {name}({code}) 잔여{remaining} · 종가 {close:,} → 지정가 {price:,}"
+                          f"(시장 {nxt_thr * 100 + NXT_REL_GAP * 100:+.2f}% −3%p) · NXT 매도최우선 {best_ask:,} — 하락 대기")
+            else:
+                _log_once(f"buy:{code}", f"  ⏳ {name}({code}) 잔여{remaining} · 점수{live_sc:.0f} · 지정가{price:,} "
+                          f"매도최우선 {best_ask:,} — 호가대기({'신용' if use_credit else f'예산 {budget:,}원 예약 유지'})")
             continue
 
-        # ── 주문 직전 현금 실시간 재조회(미수 방지 하드 한도).
-        #    cash−local_spent(내 이번 틱 발주 반영) 과 실시간값 중 작은 쪽. 예산과도 min.
-        live_cash = kt.fetch_order_cash()
-        if live_cash is None:
-            continue                     # 현금 조회 실패 → 이 종목만 이번 틱 건너뜀(하위는 진행)
-        cash_room = min(cash - local_spent, live_cash)
-        qty = min(remaining, avail, budget // price, cash_room // price)
-        if qty < 1:
-            _log_once(f"buy:{code}", f"  💸 {name}({code}) 매수불가(예산 {budget:,}·현금여유 {cash_room:,} < {price:,}/주)")
-            continue
+        if use_credit:
+            # ── 신용: 주문 직전 신용주문가능금액(kt00012) 실시간 확인 = 신용 하드 한도.
+            room, why = kt.fetch_credit_room(code, crate)
+            if room is None and why == "조회 실패":
+                continue                     # 통신 실패 → 이 종목만 이번 틱 건너뜀(현금 대체 안 함)
+            if (room or 0) < price:          # 이 종목 보증금율 구간의 실시간 신용여력 부족
+                # NXT 는 신용 대기, 정규장은 잠시 현금·당초 비중으로(다음 틱부터 현금 풀 배분 — 종목별 구간 여력이 달라 영구 대기 방지)
+                changed |= _credit_off(cst, code, name, f"신용주문가능 {room or 0:,}원 · {why}", report, key="room", nxt=nxt)
+                continue
+            # 신용 수량 = 잔여·호가·신용 예산(상위 몫 제외)·실시간 신용여력·이번 틱 신용 발주 차감 중 최소
+            qty = int(min(remaining, avail, cbudget // price, room // price, (credit_room0 - local_credit) // price))
+            if qty < 1:
+                _log_once(f"buy:{code}", f"  💸 {name}({code}) 신용 매수불가(신용 예산 {cbudget:,}·여력 {room:,} < {price:,}/주)")
+                continue
+            _nm = _new_small(t, held, qty, target_qty)
+            if _nm:
+                _log_once(f"buy:{code}", f"  🪙 {name}({code}) 신규 자투리 {qty}주(보유 {held}주) — 보유 {_nm}주 미만이라 대기")
+                continue
+            ostex = "NXT" if nxt else "SOR"
+            res = kt.place_credit_buy_order(code, qty, price, stex=ostex)
+        else:
+            # ── 주문 직전 현금 실시간 재조회(미수 방지 하드 한도).
+            #    cash−local_spent(내 이번 틱 발주 반영) 과 실시간값 중 작은 쪽. 예산과도 min.
+            live_cash = kt.fetch_order_cash()
+            if live_cash is None:
+                continue                     # 현금 조회 실패 → 이 종목만 이번 틱 건너뜀(하위는 진행)
+            cash_room = min(cash - local_spent, live_cash)
+            qty = int(min(remaining, avail, budget // price, cash_room // price))
+            if qty < 1:
+                _log_once(f"buy:{code}", f"  💸 {name}({code}) 매수불가(예산 {budget:,}·현금여유 {cash_room:,} < {price:,}/주)")
+                continue
+            _nm = _new_small(t, held, qty, target_qty)
+            if _nm:
+                _log_once(f"buy:{code}", f"  🪙 {name}({code}) 신규 자투리 {qty}주(보유 {held}주) — 보유 {_nm}주 미만이라 대기")
+                continue
+            ostex = "SOR"
+            res = kt.place_buy_order(code, qty, price, stex=ostex)   # 정규장 sweep 은 SOR(KRX/NXT 최선 라우팅)
 
-        res = kt.place_buy_order(code, qty, price, stex="SOR")   # 정규장 sweep 은 SOR(KRX/NXT 최선 라우팅)
+        ctag = ("NXT 애프터 신용 " if nxt else "신용 ") if use_credit else ""
         if res and res.get("return_code") == 0:
             ono = res.get("ord_no", "?")
             amt = qty * price
-            local_spent += amt
+            if use_credit:
+                local_credit += amt
+            else:
+                local_spent += amt
             cst["last_fail"] = None
             cst["open_order_no"] = ono
             cst["open_order_qty"] = qty
             cst["open_order_price"] = price
+            cst["open_order_credit"] = use_credit
+            cst["open_order_stex"] = ostex
             changed = True
             want = min(remaining, avail)
-            tag = (" ·예산한도" if qty < want and (budget // price) <= (cash_room // price)
-                   else " ·현금한도" if qty < want
-                   else " ·부분(호가한도)" if qty < remaining else "")
-            report.append(f"🟢 sweep매수 {name}({code}) {qty}주×{price:,}원 = {amt:,}원 "
-                          f"(잔여 {remaining}·호가 {avail}·최우선 {best_ask:,}{tag}, 주문 {ono})")
-            _log_once(f"buy:{code}", f"  🟢 sweep매수 {name}({code}) {qty}주×{price:,}원 = {amt:,}원 "
-                      f"(잔여{remaining}·호가{avail}{tag}, 주문 {ono})")
+            if use_credit:
+                tag = (" ·신용한도" if qty < want and qty == room // price
+                       else " ·예산한도" if qty < want else " ·부분(호가한도)" if qty < remaining else "")
+            else:
+                tag = (" ·예산한도" if qty < want and (budget // price) <= (cash_room // price)
+                       else " ·현금한도" if qty < want
+                       else " ·부분(호가한도)" if qty < remaining else "")
+            ref = (f"오늘 종가 {close:,} · NXT 최우선 {best_ask:,}({(best_ask - close) / close * 100:+.2f}%) · "
+                   f"시장 평균 {(nxt_thr + NXT_REL_GAP) * 100:+.2f}% · "
+                   if nxt and close > 0 and nxt_thr is not None else "")
+            report.append(f"🟢 {ctag}sweep매수 {name}({code}) {qty}주×{price:,}원 = {amt:,}원 "
+                          f"({ref}잔여 {remaining}·호가 {avail}·최우선 {best_ask:,}{tag}, 주문 {ono})")
+            _log_once(f"buy:{code}", f"  🟢 {ctag}sweep매수 {name}({code}) {qty}주×{price:,}원 = {amt:,}원 "
+                      f"({ref}잔여{remaining}·호가{avail}{tag}, 주문 {ono})")
             # 동시 집행: 이 종목 주문 후에도 하위 종목이 '자기 예산' 안에서 매수하도록 계속 진행.
+        elif use_credit and res is not None:
+            # 신용주문 거부(한도·보증금·종목 사유 등) → 잠시 현금·당초 비중으로 대체 후 신용 재시도(NXT 는 대기)
+            changed |= _credit_off(cst, code, name, f"신용주문 거부: {res.get('return_msg', '')}", report, nxt=nxt)
+            continue
         else:
             err = (res or {}).get("return_msg", "응답 없음")
-            _log_once(f"buy:{code}", f"  ❌ 매수실패 {name}({code}): {err}")
+            _log_once(f"buy:{code}", f"  ❌ {ctag}매수실패 {name}({code}): {err}")
             if cst.get("last_fail") != err:              # 실패 알림 도배 방지(같은 에러 1회만)
-                report.append(f"❌ 매수실패 {name}({code}): {err}")
+                report.append(f"❌ {ctag}매수실패 {name}({code}): {err}")
                 cst["last_fail"] = err
                 changed = True
             # 실패는 '초점 유지'의 예외 — 특정 종목 오류로 전체 매수가 얼지 않도록 다음 종목으로 진행.
@@ -510,7 +1018,7 @@ def _tick(today_str):
     if changed:
         _save_json(_exec_path(today_str), exec_state)
     if report:
-        _send_owner("🛒 실시간 sweep 집행\n" + "\n".join(report))
+        _send_owner(("🌙 NXT 애프터 신용매수\n" if nxt else "🛒 실시간 sweep 집행\n") + "\n".join(report))
 
 
 # ── 순위교체 매도 (2026-10-07) ────────────────────────────────────────────
@@ -598,14 +1106,17 @@ def _price_above(x):
 
 def _rotate_place(today_str, need, tranche_map, codes, report):
     """부족금액을 계산해 보유비중 순위대로 교체매도 주문. 주문을 냈으면 True."""
-    want_amt = 0.0
+    want_amt, need_amt = 0.0, 0.0
     for n in need:
         avail, _ = kt.ask_qty_at_or_below(n["code"], n["price"])
-        want_amt += min(n["remaining"], avail) * n["price"] * (1 + BUY_FEE_EST)
-    need_amt = want_amt - need[0]["budget"]
-    min_px = min(n["price"] for n in need)
+        # (2026-11-09) 현금 소요 = 매수대금 × rate (신용 신규종목은 보증금율만큼만 현금 필요, 현금 종목 rate=1)
+        w = min(n["remaining"], avail) * n["price"] * n.get("rate", 1.0) * (1 + BUY_FEE_EST)
+        want_amt += w
+        # (2026-11-11) 비중 비례 배분: 종목별 '지금 살 수 있는 금액 − 그 종목 배분액' 부족분의 합(종전: 첫 부족 종목 예산만 차감)
+        need_amt += max(0.0, w - float(n.get("budget", 0) or 0))
+    min_px = min(n["price"] * n.get("rate", 1.0) for n in need)
     if need_amt < min_px:
-        _log_once("rot", f"  🔁 교체매도 불필요(신규종목 즉시매수 가능분 {want_amt:,.0f}원 ≤ 예산 {need[0]['budget']:,}원)")
+        _log_once("rot", f"  🔁 교체매도 불필요(신규종목 즉시매수 가능분 {want_amt:,.0f}원 ≤ 배분액)")
         return False
 
     plan = _load_json(_plan_path(today_str), {}) or {}
@@ -885,7 +1396,7 @@ def _fire_upl_break(code, name, cst, positions, report):
         qty = pos.get("sell_possible_qty", 0)
         if qty < 1:
             continue
-        _tkey = pos["loan_dt"] or "CASH"
+        _tkey = _close_key(pos)
         res = kt.place_sell_order(code, qty, price, pos["loan_dt"], pos.get("crd_type", "00"), stex="SOR")
         if res and res.get("return_code") == 0:
             ono = res.get("ord_no", "?")
@@ -1032,12 +1543,12 @@ def _sell_tick(today_str):
             positions.sort(key=lambda h: (not bool(h["loan_dt"]), h["loan_dt"]))
             pending = [p for p in positions
                        if p.get("sell_possible_qty", 0) > 0
-                       and (p["loan_dt"] or "CASH") not in done_keys]
+                       and _close_key(p) not in done_keys]
             if not pending:
                 _log_once(f"sell:{code}", f"  ⏳ {name}({code}) 종가 시장가 주문 대기(전 트랜치 발주완료, 체결 15:30)")
                 continue
             for pos in pending:
-                key = pos["loan_dt"] or "CASH"
+                key = _close_key(pos)
                 qty = pos["sell_possible_qty"]
                 res = kt.place_sell_order(code, qty, 0, pos["loan_dt"], pos.get("crd_type", "00"), market=True)
                 if res and res.get("return_code") == 0:
@@ -1100,12 +1611,12 @@ def _sell_tick(today_str):
                     new_orders.append({"no": ono, "qty": qty, "price": sell_price, "loan_dt": pos["loan_dt"]})
                     report.append(f"🕒 동시호가 지정가매도 {name}({code}) {pos['order_type']} {qty}주×{sell_price:,}원 "
                                   f"— 종가 체결 대기(장마감 후 결과 알림, 주문 {ono})")
-                    _log_once(f"sell:{code}:{pos['loan_dt'] or 'CASH'}",
+                    _log_once(f"sell:{code}:{_close_key(pos)}",
                               f"  🕒 동시호가 지정가매도 {name}({code}) {qty}주×{sell_price:,}원 (주문 {ono})")
                 else:
                     err = (res or {}).get("return_msg", "응답 없음")
                     report.append(f"❌ 동시호가 매도실패 {name}({code}) {pos['order_type']}: {err}")
-                    _log_once(f"sell:{code}:{pos['loan_dt'] or 'CASH'}", f"  ❌ 동시호가 매도실패 {name}({code}): {err}")
+                    _log_once(f"sell:{code}:{_close_key(pos)}", f"  ❌ 동시호가 매도실패 {name}({code}): {err}")
             if new_orders:
                 cst["open_orders"] = new_orders
                 cst["close_sell_hold"] = True
@@ -1158,7 +1669,7 @@ def _sell_tick(today_str):
             qty = min(pos["sell_possible_qty"], rem_avail)
             if qty < 1:
                 break                   # 호가 잔량 소진 → 남은 트랜치는 다음 틱
-            _tkey = pos["loan_dt"] or "CASH"
+            _tkey = _close_key(pos)
             # 정규장 sweep 은 SOR(KRX/NXT 최선 라우팅). 거부 시 함수 내부에서 KRX 폴백.
             res = kt.place_sell_order(code, qty, sell_price, pos["loan_dt"], pos.get("crd_type", "00"), stex="SOR")
             if res and res.get("return_code") == 0:
@@ -1190,12 +1701,12 @@ def _sell_tick(today_str):
 
 
 # ── 장마감 후: 동시호가 주문 체결 확인·알림(1회) ────────────────────────────
-def _maybe_post_close_report(today_str):
+def _maybe_post_close_report(today_str, now=None):
     """15:30 종가 단일가 체결 확인. 동시호가에 유지한 매수/매도 주문(+종가 시장가 매도)의
-       체결 여부를 보유잔고 변화로 판정해 장마감 후 1회만 텔레그램 알림(15:30:30~17:00 사이 실행)."""
-    now = datetime.now()
-    sec = now.hour * 3600 + now.minute * 60 + now.second
-    if now.weekday() >= 5 or not (15 * 3600 + 30 * 60 + 30 <= sec <= 17 * 3600):
+       체결 여부를 보유잔고 변화로 판정해 장마감 후 1회만 텔레그램 알림(15:30:30~17:00 사이 실행,
+       수능일 등 KRX 지연일은 16:30:30~18:00 — kt.krx_t)."""
+    now = now or datetime.now()
+    if now.weekday() >= 5 or not (kt.krx_t(dtime(15, 30, 30), now) <= now.time() <= kt.krx_t(dtime(17, 0), now)):
         return
 
     exec_state = _load_json(_exec_path(today_str), None)
@@ -1256,7 +1767,7 @@ def _maybe_post_close_report(today_str):
             lines.append(f"❌ 매도 미체결 {name}({code6}) 보유 {held}주 그대로 — 주문 자동만료")
 
     if lines:
-        _send_owner("🔔 장마감(15:30) 종가 체결 결과\n" + "\n".join(lines))
+        _send_owner(f"🔔 장마감({kt.krx_close_time(now):%H:%M}) 종가 체결 결과\n" + "\n".join(lines))
     if exec_state is not None:
         exec_state["close_report_sent"] = True
         _save_json(_exec_path(today_str), exec_state)
@@ -1269,8 +1780,12 @@ def run_forever():
     if not getattr(secrets, "AUTO_BUY_ENABLED", False):
         print("ℹ️ AUTO_BUY_ENABLED=False — execution_monitor 대기만 함")
     print(f"🚀 execution_monitor 시작 (폴링 {POLL_SEC}s · 최대 {MAX_CODES}종목)")
-    print(f"   · 매수/매도는 KRX 정규장(09:00~15:30) + 정규장 점수 {SCORE_MIN:.0f}+ 에만 집행")
+    print(f"   · 매수/매도는 KRX 정규장(오늘 {kt.krx_hours_text()}) + 정규장 점수 {SCORE_MIN:.0f}+ 에만 집행")
+    if kt.KRX_LATE_DAYS:
+        print(f"   · KRX 지연 개장일(정규장 1시간 순연): {', '.join(sorted(kt.KRX_LATE_DAYS))}")
     print("   · 장전/장후 NXT 점수는 매매에 관여하지 않음(참고용)")
+    print(f"   · NXT 애프터 신용매수 15:35~19:55: NXT 시장 평균(종가 대비)이 마이너스일 때 plan 신용 종목 중 NXT 매도호가 ≤ 종가×(1+평균−{NXT_REL_GAP*100:.0f}%p)만, "
+          f"신용 2배 목표까지 — 스위치 nxt_buy·credit_buy (지금 {trade_switches.status_text().replace(chr(10), ' ')})")
     try:
         auth.get_access_token()        # 토큰 워밍업
     except Exception as e:
@@ -1281,13 +1796,20 @@ def run_forever():
             today = datetime.now().strftime("%Y%m%d")
             now = time.time()
             if now - last_beat > 300:      # 5분마다 생존/상태 하트비트(감시 중이 아닐 때도 표시)
-                st = "정규장(집행 ON)" if kt.is_market_open() else "정규장 외(NXT 매매 안 함·참고만)"
+                if kt.is_market_open():
+                    st = "정규장(집행 ON)"
+                elif kt.is_nxt_after_buy_window():
+                    st = ("NXT 애프터 신용매수 ON(시장평균 −3%p↓)" if trade_switches.get("nxt_buy") and trade_switches.get("credit_buy")
+                          else "NXT 애프터 신용매수 꺼짐(스위치)")
+                else:
+                    st = "정규장 외(매매 안 함·참고만)"
                 _log(f"💓 execution_monitor 대기/감시 중 · {st}")
                 last_beat = now
+            _maybe_post_close_report(today)   # 장마감 후 동시호가 주문 체결 결과 1회 알림(NXT 애프터 틱보다 먼저 — 체결 판정 기준 보존)
             _tick(today)          # 매수 sweep (KRX 정규장에만 동작)
+            _tick(today, "NXT")   # (2026-11-09) NXT 애프터 신용매수 (15:35~19:55, 스위치 nxt_buy)
             _rotate_tick(today)   # 순위교체 매도 (신규종목 매수자금 부족 시, 정규장에만)
             _sell_tick(today)     # 매도 sweep (KRX 정규장에만 동작)
-            _maybe_post_close_report(today)   # 장마감 후 동시호가 주문 체결 결과 1회 알림
         except Exception as e:
             print(f"   ⚠️ tick 오류: {e}")
         # 다음 틱까지 대기 — 상한가 잠김 보류 종목이 있으면 그 종목만 1초 간격으로 감시

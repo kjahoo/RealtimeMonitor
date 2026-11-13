@@ -33,7 +33,7 @@ if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
 from config import secrets
-from kis_api import auth, inquiry, indicators, kiwoom_trading, sell_strategy_b
+from kis_api import auth, inquiry, indicators, kiwoom_trading, sell_strategy_b, trade_switches
 from tensorflow.keras.models import load_model
 
 # ====================================================
@@ -128,6 +128,124 @@ def get_smoothed_scores():
     return out
 
 
+# ====================================================
+# ⚙️ 매매 운영 스위치 (2026-11-09) — 신용매수 우선 / 가격 손절 켜기·끄기 (소유자 전용)
+#    값은 logs/trading_switches.json(kis_api/trade_switches.py). 매수·매도 프로그램이 매 판정마다 다시 읽어
+#    재시작 없이 반영된다.
+# ====================================================
+def _credit_room_line():
+    """신용주문가능금액(삼성전자 기준, kt00012) 한 줄."""
+    try:
+        room, info = kiwoom_trading.fetch_credit_room("005930")
+    except Exception as e:
+        return f"  · 신용주문가능: 조회 오류({e})"
+    if room is None:
+        return f"  · 신용주문가능: 조회 불가({info})"
+    tail = " — 미수·예수금 부족 등으로 지금은 신용매수가 나가지 않고 현금·당초 비중으로 대체" if room <= 0 else ""
+    return f"  · 신용주문가능 {room:,}원 (삼성전자 기준·{info}){tail}"
+
+
+def _stop_preview():
+    """손절이 켜져 있을 때 '지금' 대상이 될 보유종목(예상): 평단 대비 STOP_PCT 이하 & 현재 점수 < STOP_SCORE_KEEP.
+       반환 [(name, code, 수익률, raw|None)] · 조회 실패 None. (실제 판정은 Update_Promising 의 최신 점수·평단 기준)"""
+    tm = kiwoom_trading.fetch_holdings_tranche_map()
+    if tm is None:
+        return None
+    names = {h["code"]: h.get("name", "") for h in (kiwoom_trading.fetch_all_holdings() or [])}
+    sm = get_smoothed_scores()
+    out = []
+    for code, poss in tm.items():
+        qty = sum(p["qty"] for p in poss)
+        if qty <= 0:
+            continue
+        avg = sum(p["qty"] * p["avg_buy_price"] for p in poss) / qty
+        cur = max((p.get("cur_price", 0) or 0) for p in poss)
+        if avg <= 0 or cur <= 0:
+            continue
+        r = cur / avg - 1
+        raw = (sm.get(code) or {}).get("raw")
+        if r <= sell_strategy_b.STOP_PCT and (raw is None or raw < sell_strategy_b.STOP_SCORE_KEEP):
+            out.append((names.get(code, ""), code, r, raw))
+    out.sort(key=lambda x: x[2])
+    return out
+
+
+def _switch_command(cmd, args, chat_id):
+    """/스위치 · /신용 [켜기|끄기] · /손절 [켜기|끄기] (영문 /switch · /credit · /stoploss) → 응답 문자열."""
+    key = (None if cmd in ("/스위치", "/switch")
+           else "credit_buy" if cmd in ("/신용", "/credit")
+           else "nxt_buy" if cmd in ("/nxt", "/넥스트") else "stop_loss")
+    usage = ("바꾸기: /신용 켜기|끄기 · /nxt 켜기|끄기 · /손절 켜기|끄기\n"
+             "        (영문 /credit on|off · /nxt on|off · /stoploss on|off)")
+    stop_p = abs(sell_strategy_b.STOP_PCT) * 100
+    keep_p = sell_strategy_b.STOP_SCORE_KEEP * 100
+    if key is None or not args:
+        lines = ["⚙️ 매매 스위치 현황", trade_switches.status_text()]
+        if key in (None, "credit_buy", "nxt_buy"):
+            lines.append(_credit_room_line())
+        if key == "nxt_buy":
+            lines.append("  · NXT 애프터 신용매수: 거래일 15:35~19:55, 오늘 매수 plan 의 신용가능 종목 중 "
+                         "NXT 시장 평균(종가 대비)이 마이너스일 때 NXT 매도호가 ≤ 종가×(1+평균−3%p) 물량을 신용 2배 목표까지(신용매수 우선도 켜져 있어야 동작)")
+        if key == "stop_loss" and not trade_switches.get("stop_loss"):
+            pv = _stop_preview()
+            if pv is not None:
+                lines.append(f"  · 지금 손절을 켜면 예상 대상 {len(pv)}종목"
+                             + ("".join(f"\n     - {n}({c}) {r*100:+.1f}%" for n, c, r, _ in pv[:15]) if pv else ""))
+        lines += ["", usage]
+        return "\n".join(lines)
+    v = trade_switches.parse_onoff(args[0])
+    if v is None:
+        return "❓ 켜기/끄기 를 붙여 주세요.\n" + usage
+    k, prev, new = trade_switches.set_switch(key, v, by=f"telegram:{chat_id}")
+    print(f"   ⚙️ [{chat_id}] 스위치 {k}: {prev} → {new}", flush=True)
+    onoff = lambda b: "켜짐" if b else "꺼짐"
+    same = " (이미 같은 상태)" if prev == new else ""
+    if k == "credit_buy":
+        if new:
+            body = ["💳 신용매수 우선: " + f"{onoff(prev)} → {onoff(new)}{same}",
+                    "  · 신용가능 종목 = 신용매수 · 비중 2배(60점대 10%~90점대 40%, 100점 50%, 40점 보조 10%)",
+                    "  · 신용불가 종목 = 현금 · 당초 비중(5~25%)",
+                    "  · 매수 순서: 신용가능(신규→보유) → 신용불가",
+                    "  · 실시간 집행은 바로, 목표수량은 다음 매수 plan 갱신(10분 이내)부터 반영",
+                    _credit_room_line()]
+        else:
+            body = ["💳 신용매수 우선: " + f"{onoff(prev)} → {onoff(new)}{same}",
+                    "  · 전 종목 현금 · 당초 비중(5~25%) — 11-09 이전 방식",
+                    "  · 진행 중인 신용매수는 다음 틱(4초)부터 멈추고 현금·당초 비중 목표로 전환",
+                    "  · 이미 신용으로 산 물량은 그대로 보유(매도 규칙 동일, 교체매도 대상 제외)"]
+    elif k == "nxt_buy":
+        if new:
+            body = ["🌙 NXT 애프터 신용매수: " + f"{onoff(prev)} → {onoff(new)}{same}",
+                    "  · 거래일 15:35~19:55 NXT 애프터마켓에서",
+                    "  · 오늘 매수 plan 의 신용가능 종목 중 NXT 시장 평균(전 NXT 종목 시총가중·오늘 KRX 종가 대비)이 마이너스일 때 그보다 3%p 이상 더 빠진 물량을",
+                    "  · 신용으로 2배 비중 목표까지 매수 (신용불가 종목은 제외)",
+                    "  · 점수(정규장 60점+)·청산예정·당일매도 재매수 규칙은 정규장과 동일",
+                    "  · 신용매수 우선(/신용)이 꺼져 있으면 동작 안 함",
+                    _credit_room_line()]
+            if not trade_switches.get("credit_buy"):
+                body.append("  ⚠️ 지금 신용매수 우선이 꺼져 있어 NXT 매수도 동작하지 않습니다 — /신용 켜기")
+        else:
+            body = ["🌙 NXT 애프터 신용매수: " + f"{onoff(prev)} → {onoff(new)}{same}",
+                    "  · 장후 NXT 매수 안 함 (정규장 매수는 그대로)",
+                    "  · 이미 낸 NXT 미체결 주문은 20:00 에 자동 만료"]
+    else:
+        if new:
+            body = ["🛑 가격 손절: " + f"{onoff(prev)} → {onoff(new)}{same}",
+                    f"  · 평단 대비 -{stop_p:.0f}% 이하 & 현재 점수 {keep_p:.0f}점 미만 → 전량 매도",
+                    "  · 다음 매도 판정(수십 초 이내)부터 반영 — 정규장이면 바로 매도 집행"]
+            pv = _stop_preview()
+            if pv is None:
+                body.append("  · 현재 해당 종목: 잔고 조회 실패")
+            else:
+                body.append(f"  · 지금 기준 예상 대상 {len(pv)}종목"
+                            + ("".join(f"\n     - {n}({c}) {r*100:+.1f}%" for n, c, r, _ in pv[:15]) if pv else ""))
+        else:
+            body = ["🛑 가격 손절: " + f"{onoff(prev)} → {onoff(new)}(일시 중지){same}",
+                    "  · 점수 청산(평활<10점 2일 연속 · 점수 0 미만 30분)은 그대로 동작",
+                    "  · 다음 매도 판정부터 손절 대상 제외(매도 plan 에서도 다음 갱신 때 빠짐)"]
+    return "\n".join(body + ["", "⚙️ 현재\n" + trade_switches.status_text()])
+
+
 def set_bot_commands():
     # 공통(모든 사용자에게 노출) — 매매/보유 관련 명령 제외
     common = [
@@ -145,6 +263,10 @@ def set_bot_commands():
         {"command": "holdings", "description": "📥 키움 보유종목을 추적목록에 추가 (=/보유종목)"},
         {"command": "cleanup",  "description": "🧹 키움 미보유 종목 정리 (=/종목정리)"},
         {"command": "smooth",   "description": "📉 관심종목 평활점수 (=/평활)"},
+        {"command": "switch",   "description": "⚙️ 매매 스위치 현황 (=/스위치)"},
+        {"command": "credit",   "description": "💳 신용매수 우선 켜기/끄기: /credit on|off (=/신용 켜기|끄기)"},
+        {"command": "nxt",      "description": "🌙 NXT 애프터 신용매수(시장평균 −3%p↓) 켜기/끄기: /nxt on|off"},
+        {"command": "stoploss", "description": "🛑 가격 손절 켜기/끄기: /stoploss on|off (=/손절 켜기|끄기)"},
     ]
     try:
         # 1) 기본 스코프(모든 사용자): 공통 명령만
@@ -332,8 +454,14 @@ def analyze(code, models, max_lb):
         "prog_ratio_vol": p_ratio,
     }
 
+    # 휴장일(주말·KRX_HOLIDAYS) 가드(2026-11-09): 시세 API 는 휴장일에도 직전 거래일 값을 돌려준다 →
+    #   오늘 행을 붙여 저장하면 직전일 복제 행이 일봉에 남는다(2026-08-22·10-05 수동 조회 사례).
+    #   비거래일엔 오늘 행 없이 기존 일봉(직전 거래일 종가 기준)으로만 점수를 내고 CSV 는 저장하지 않는다.
+    trading_today = kiwoom_trading.is_daily_row_date(target_date)
     df = df[df["date"] != target_date]
-    df = pd.concat([df, pd.DataFrame([today_row])]).sort_values("date").reset_index(drop=True)
+    if trading_today:
+        df = pd.concat([df, pd.DataFrame([today_row])])
+    df = df.sort_values("date").reset_index(drop=True)
     df = indicators.calculate_indicators_v3_save(df)
 
     df = indicators.fill_prog_net_ratio(df)   # 오늘 행 포함(기존: 열 존재 시 건너뛰어 오늘 행 0)
@@ -342,10 +470,11 @@ def analyze(code, models, max_lb):
             df[col] = 0.0
     df = df.fillna(0)
 
-    # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
-    _tmp_path = file_path + ".tmp"
-    df.to_csv(_tmp_path, index=False, encoding="utf-8-sig")
-    os.replace(_tmp_path, file_path)
+    # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지 (거래일만)
+    if trading_today:
+        _tmp_path = file_path + ".tmp"
+        df.to_csv(_tmp_path, index=False, encoding="utf-8-sig")
+        os.replace(_tmp_path, file_path)
 
     if len(df) < max_lb:
         return None, f"데이터 부족 (필요: {max_lb}행, 현재: {len(df)}행)"
@@ -820,7 +949,7 @@ def run():
                     thr      = sell_strategy_b.SELL_THRESH * 100
                     confirm  = sell_strategy_b.CONFIRM_DAYS
                     raw_m    = sell_strategy_b.RAW_NEG_HOLD_SEC // 60
-                    late_t   = sell_strategy_b.LATE_RAW_NEG_START.strftime("%H:%M")
+                    late_t   = sell_strategy_b.late_raw_neg_start().strftime("%H:%M")   # 수능일 16:00
                     help_text = (
                         "📖 사용법 안내\n"
                         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -867,19 +996,30 @@ def run():
                             "👥 /users\n"
                             "  봇 방문자 목록 조회 (소유자 전용)\n"
                             "\n"
+                            "⚙️ /스위치 (또는 /switch) — 매매 스위치 현황\n"
+                            "  💳 /신용 켜기|끄기 (또는 /credit on|off)\n"
+                            "     신용가능 종목 신용매수·비중 2배 ↔ 전 종목 현금·당초 비중\n"
+                            "  🌙 /nxt 켜기|끄기 (또는 /nxt on|off)\n"
+                            "     장후 15:35~19:55 NXT 시장 평균이 마이너스일 때 그보다 3%p 이상 빠진 종목 신용 2배까지 매수\n"
+                            "  🛑 /손절 켜기|끄기 (또는 /stoploss on|off)\n"
+                            "     평단 -14% 가격 손절 켜기 ↔ 일시 중지(점수 청산은 항상 유지)\n"
+                            "  ※ 재시작 없이 바로 반영\n"
+                            "\n"
                         )
                     help_text += "💡 입력란의 '/' 버튼을 누르면 명령어 메뉴가 표시됩니다.\n\n"
                     if is_owner:
                         stop_p  = sell_strategy_b.STOP_PCT * 100
                         keep_p  = sell_strategy_b.STOP_SCORE_KEEP * 100
-                        close_t = sell_strategy_b.CLOSE_AUCTION_START.strftime("%H:%M")
+                        close_t = sell_strategy_b.close_auction_start().strftime("%H:%M")   # 수능일 16:20
                         help_text += (
                             "🚨 매도 기준 (B전략 · 보유종목 자동 전량청산)\n"
                             f"  · 3일 평활점수 < {thr:.0f}점 이 {confirm}거래일 연속 → 전량청산\n"
                             f"    (당일 점수 {thr:.0f}점 이상 회복 시·매수 당일은 보류)\n"
                             f"  · 점수 0 미만이 {raw_m}분 연속 → 전량청산\n"
                             f"    ({late_t} 이후 즉시, {close_t} 동시호가는 시장가)\n"
-                            f"  · 평단 대비 {stop_p:.0f}% 이하 → 즉시 손절 (점수 {keep_p:.0f}점 이상이면 면제)\n"
+                            + (f"  · 평단 대비 {stop_p:.0f}% 이하 → 즉시 손절 (점수 {keep_p:.0f}점 이상이면 면제)\n"
+                               if sell_strategy_b.stop_enabled() else
+                               f"  · 평단 대비 {stop_p:.0f}% 손절 — ⏸️ 현재 일시 중지 (/손절 켜기)\n") +
                             "  ※ 하루 급락만으로는 매도하지 않음 (휩쏘 방지)"
                         )
                     else:
@@ -978,6 +1118,19 @@ def run():
                     lines.append(f"\n※ 평활점수 < {thr}점 이 {SMOOTH_CONFIRM}거래일 연속이면 B전략 전량청산")
                     send_message(chat_id, "\n".join(lines))
                     print(f"   📉 [{chat_id}] 평활점수 조회 {len(rows)}종목", flush=True)
+                    continue
+
+                # /스위치 (=/switch) · /신용 (=/credit) · /손절 (=/stoploss) — 소유자 전용 매매 운영 스위치(2026-11-09)
+                _sw_parts = text.split()
+                if _sw_parts and _sw_parts[0].lower() in ("/스위치", "/switch", "/신용", "/credit", "/nxt", "/넥스트",
+                                                          "/손절", "/stoploss"):
+                    if str(chat_id) != secrets.TELEGRAM_CHAT_ID:
+                        send_message(chat_id, "🔒 이 명령은 봇 소유자만 사용할 수 있습니다.")
+                        continue
+                    try:
+                        send_message(chat_id, _switch_command(_sw_parts[0].lower(), _sw_parts[1:], chat_id))
+                    except Exception as e:
+                        send_message(chat_id, f"❌ 스위치 처리 오류: {e}")
                     continue
 
                 # 그 외 슬래시 커맨드

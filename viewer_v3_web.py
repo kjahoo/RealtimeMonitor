@@ -74,18 +74,29 @@ def _ai_scores(day):
     return out
 
 
+def _krx_t(t, day):
+    """평소 기준 KRX 장 시각 → 그날 시각(수능일 등 kiwoom_trading.KRX_LATE_DAYS +1시간, 2026-11-09).
+       viewer_env 에서 kiwoom_trading 임포트가 안 되면 평소 시각."""
+    try:
+        from kis_api import kiwoom_trading as _kt
+        return _kt.krx_t(t, day)
+    except Exception:
+        return t
+
+
 def _is_post_close(now):
-    return now.weekday() < 5 and POST_CLOSE_START < now.time() < POST_CLOSE_END
+    return now.weekday() < 5 and _krx_t(POST_CLOSE_START, now) < now.time() < POST_CLOSE_END
 
 
 def _regular_close_scores(day):
-    """정규장(09:00~15:30) 시각에 계산된 행의 점수 {code: score} — 장후 '마감대비' 기준."""
+    """정규장(09:00~15:30, 수능일 10:00~16:30) 시각에 계산된 행의 점수 {code: score} — 장후 '마감대비' 기준."""
     path = os.path.join(LOG_DIR, f"{day}_Stock_V3.csv")
     try:
         df = load_csv(path, os.stat(path).st_mtime_ns)
     except Exception:
         return {}
-    df = df[df["time"].fillna("").between("09:00:00", "15:30:59")]
+    df = df[df["time"].fillna("").between(_krx_t(dtime(9, 0), day).strftime("%H:%M:%S"),
+                                          _krx_t(POST_CLOSE_START, day).strftime("%H:%M") + ":59")]
     return dict(zip(df["code"].str.split(".").str[0].str.zfill(6), df["score_total"]))
 
 
@@ -96,7 +107,7 @@ def table():
     after = _is_post_close(now) if session == "자동" else session == "장후"
 
     if after:
-        label = "애프터마켓" if now.time() >= AFTER_MKT_START else "NXT 장후"
+        label = "애프터마켓" if now.time() >= _krx_t(AFTER_MKT_START, now) else "NXT 장후"
         st.markdown(f"#### 🌙 장후 · {label} — 점수 KRX 기준 · 현재가 통합(SOR) · 자동매매 미적용")
         path = os.path.join(LOG_DIR, f"{day}_Stock_V3_AfterMkt.csv")
     else:

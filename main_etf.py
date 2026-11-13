@@ -27,6 +27,7 @@ if gpus:
 # 모듈 불러오기
 from config import secrets
 from kis_api import auth, inquiry, indicators
+from kis_api import kiwoom_trading as kt   # KRX 거래일 판정(휴장일 오늘 행 기록 방지)
 
 # ====== 설정 변수 (사용자 수정 영역) ======
 # [변경 전]
@@ -122,6 +123,9 @@ FINAL_COLUMNS = [
 
 
 def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb):
+    # 비거래일(주말·KRX_HOLIDAYS) 날짜의 오늘 행은 일봉 CSV 에 저장하지 않는다(2026-11-09, main_stock 과 동일 가드)
+    if not kt.is_daily_row_date(target_date):
+        return None
     try:
         # 1. 파일 읽기
         df = pd.read_csv(file_path, encoding='utf-8-sig')

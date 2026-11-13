@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, time as dtime
 from dateutil.relativedelta import relativedelta
 from kis_api import auth, inquiry, indicators, common
 from kis_api import kiwoom_inquiry   # 정규장 전용 당일 집계(분봉·시간별 프로그램매매)
+from kis_api import kiwoom_trading as kt   # KRX 거래일 판정(비거래일 행 제거)
 from config import secrets
 
 # ====== 설정 ======
@@ -189,7 +190,8 @@ def fetch_chart_data_chunked(code, start_date, end_date):
 
 
 # =========================================================
-# 🕘 정규장(09:00~15:30) 전용 당일 보정 — 2026-09-14 KRX 애프터마켓(16:00~20:00) 신설 대응
+# 🕘 정규장(09:00~15:30, 수능일 10:00~16:30) 전용 당일 보정 — 2026-09-14 KRX 애프터마켓(16:00~20:00) 신설 대응
+#    (수능일 등 KRX 지연일의 정규장 1분봉 경계는 kiwoom_inquiry._regular_bounds 가 그날 기준으로 순연, 2026-11-09)
 #    한투 일봉·일별 프로그램매매의 '당일' 값에는 장후(애프터마켓 등) 체결이 섞인다
 #    (2026-09-14 16:51 확인: 일봉 acml_vol = 장후 포함 실시간 누적과 동일).
 #    → 당일 행의 OHLCV·프로그램 매수/매도/순매수를 키움 1분봉·시간별 누적에서 정규장분만 잘라 교체.
@@ -202,7 +204,12 @@ REGULAR_FIX_FROM    = dtime(15, 35)   # 정규장 종가 확정 후에만 보정
 def apply_regular_session_today(df_new, code, stats):
     now = datetime.now()
     today = now.strftime("%Y%m%d")
-    if today < AFTER_MARKET_LAUNCH or now.time() < REGULAR_FIX_FROM:
+    try:
+        from kis_api import kiwoom_trading as _kt
+        fix_from = _kt.krx_t(REGULAR_FIX_FROM, today)   # 수능일 등 KRX 지연일 16:35 (정규장 10:00~16:30)
+    except Exception:
+        fix_from = REGULAR_FIX_FROM
+    if today < AFTER_MARKET_LAUNCH or now.time() < fix_from:
         return
     mask = df_new['date'] == pd.Timestamp(today)
     if not mask.any():
@@ -269,6 +276,9 @@ def update_all_files():
     success_cnt, fail_cnt = 0, 0
     failed_items = []
     reg_stats = {'ohlcv_ok': 0, 'prog_ok': 0, 'ohlcv_fail': [], 'prog_fail': []}
+    start_dt_guard = datetime.strptime(start_date_str, "%Y%m%d") - timedelta(days=14)
+    nontrading_removed = []          # [{'code','date'}] — 3-1 단계에서 제거한 비거래일 행
+    holiday_list_conflicts = set()   # KIS 일봉엔 있는데 비거래일로 판정된 날짜(KRX_HOLIDAYS 오기재 의심)
 
     for idx, file_path in enumerate(all_files, 1):
         code = os.path.basename(file_path)[1:7]
@@ -280,6 +290,9 @@ def update_all_files():
 
             # 2. 신규 데이터 수집 (주가 및 프로그램)
             df_price = fetch_chart_data_chunked(code, start_date_str, end_date_str)
+            # KIS 일봉에 실제 존재하는 날짜(3-1 비거래일 판정 예외) — df_new 가 df_price 를 그대로 가리켜
+            #   set_index 로 'date' 열이 사라질 수 있으므로 병합 전에 미리 확보
+            _kis_dates = set(df_price['date']) if not df_price.empty else set()
 
             if not df_price.empty:
                 df_prog = fetch_program_history(code, start_date_str, end_date_str)
@@ -315,6 +328,18 @@ def update_all_files():
                 df_combined = df_combined.sort_values('date').reset_index(drop=True)
             else:
                 df_combined = df_old
+
+            # 3-1. 비거래일(주말·KRX_HOLIDAYS) 행 제거 — 휴장일 실시간 '오늘 행' 잔존분 자가 치유(2026-11-09)
+            #      · 수집 시작일 14일 전 이후만 판정: 휴일 목록 오기재 시 과거 정상 데이터 대량 삭제 방지
+            #        (연휴 중 생긴 행은 다음 거래일 밤 이 단계에서 정리됨. 과거분 일괄 정리는 fix_nontrading_rows.py)
+            #      · 이번에 받은 KIS 일봉에 실제 있는 날짜는 거래일로 보고 보존(목록 오류 경고)
+            df_combined, _dropped = indicators.drop_non_trading_rows(
+                df_combined, since=start_dt_guard, keep_dates=_kis_dates)
+            _file_removed = [{'code': code, 'date': pd.Timestamp(_d).strftime('%Y-%m-%d')}
+                             for _d in _dropped['date']]
+            for _d in _kis_dates:
+                if not kt.is_daily_row_date(pd.Timestamp(_d)):
+                    holiday_list_conflicts.add(pd.Timestamp(_d).strftime('%Y-%m-%d'))
 
             # 4. 시장 지수 병합 (업데이트)
             if 'kospi_change' not in df_combined.columns: df_combined['kospi_change'] = np.nan
@@ -359,6 +384,7 @@ def update_all_files():
             df_final.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
             os.replace(_tmp_path, file_path)
             success_cnt += 1
+            nontrading_removed.extend(_file_removed)   # 저장 성공한 파일의 제거분만 기록
 
         except Exception as e:
             fail_cnt += 1
@@ -378,6 +404,20 @@ def update_all_files():
         if reg_stats['ohlcv_fail'] or reg_stats['prog_fail']:
             print(f"     실패 코드(시세): {reg_stats['ohlcv_fail'][:50]}")
             print(f"     실패 코드(프로그램): {reg_stats['prog_fail'][:50]}")
+
+    if nontrading_removed:
+        _nt = pd.DataFrame(nontrading_removed)
+        print(f"   - 비거래일 행 제거: {len(_nt)}행 / {_nt['code'].nunique()}종목 "
+              f"(날짜별 {_nt['date'].value_counts().sort_index().to_dict()})")
+        try:
+            _log = os.path.join(secrets.LOCAL_DATA_PATH, f"{end_date_str}_nontrading_rows_removed.csv")
+            _nt.to_csv(_log, mode='a', header=not os.path.exists(_log), index=False, encoding='utf-8-sig')
+            print(f"     기록: {_log}")
+        except Exception as e:
+            print(f"     ⚠️ 제거 기록 저장 실패: {e}")
+    if holiday_list_conflicts:
+        print(f"   ⚠️ KIS 일봉에 존재하나 휴장일로 등록된 날짜(보존함 — KRX_HOLIDAYS 확인 필요): "
+              f"{sorted(holiday_list_conflicts)}")
 
     if failed_items:
         print("\n⚠️ [업데이트 실패 종목 목록]")

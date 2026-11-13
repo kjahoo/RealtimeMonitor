@@ -17,6 +17,7 @@ warnings.filterwarnings("ignore")
 # 2. 모듈 불러오기
 from config import secrets
 from kis_api import auth, inquiry, indicators
+from kis_api import kiwoom_trading as kt   # KRX 거래일 판정(휴장일 오늘 행 기록 방지)
 from tensorflow.keras.models import load_model
 import pickle
 
@@ -318,7 +319,14 @@ def run_manual_analysis():
             "prog_net_qty": p_net, "prog_ratio_vol": p_ratio
         }
 
-        df = pd.concat([df, pd.DataFrame([today_row])]).sort_values('date').reset_index(drop=True)
+        # 휴장일(주말·KRX_HOLIDAYS) 가드(2026-11-09): 시세 API 는 휴장일에도 직전 거래일 값을 돌려준다 →
+        #   비거래일엔 오늘 행 없이 기존 일봉(직전 거래일 종가 기준)으로만 점수를 내고 CSV 는 저장하지 않는다.
+        trading_today = kt.is_daily_row_date(target_date)
+        if trading_today:
+            df = pd.concat([df, pd.DataFrame([today_row])])
+        else:
+            print("   📴 오늘은 KRX 휴장일 — 직전 거래일 일봉 기준으로 분석(일봉 CSV 미저장)")
+        df = df.sort_values('date').reset_index(drop=True)
 
         df = indicators.calculate_indicators_v3_save(df)
 
@@ -328,10 +336,11 @@ def run_manual_analysis():
             if col not in df.columns: df[col] = 0.0
         df = df.fillna(0)
 
-        # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
-        _tmp_path = file_path + ".tmp"
-        df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
-        os.replace(_tmp_path, file_path)
+        # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지 (거래일만)
+        if trading_today:
+            _tmp_path = file_path + ".tmp"
+            df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
+            os.replace(_tmp_path, file_path)
 
         # 예측 실행
         res = {}

@@ -16,8 +16,10 @@ KIWOOM_URL_BASE = "https://api.kiwoom.com"
 
 
 # ====================================================
-# ⏰ 정규장 시간 (평일 09:00~15:30)
+# ⏰ 정규장 시간 (평일 09:00~15:30 — 수능일 등 KRX_LATE_DAYS 는 10:00~16:30)
 #    이 시간 외에는 매도 본주문을 내지 않고 체크만 수행
+#    ※ MARKET_OPEN/MARKET_CLOSE 는 '평소' 기준값. 그날 실제 시각은 krx_open_time()/krx_close_time()/
+#      krx_t() 로 구한다(2026-11-09 수능일 대응 — 정규장 판정 전반에 KRX_LATE_DAYS 반영).
 # ====================================================
 MARKET_OPEN  = datetime.time(9, 0)
 MARKET_CLOSE = datetime.time(15, 30)
@@ -32,6 +34,7 @@ KRX_HOLIDAYS = {
     "20260101",   # 신정
     "20260216", "20260217", "20260218",   # 설날 연휴
     "20260302",   # 삼일절 대체(3/1 일)
+    "20260501",   # 노동절(근로자의 날) — KRX 매년 휴장. 2026-11-09 누락 발견·추가(당일 실시간 '오늘 행' 2,249건 오염)
     "20260505",   # 어린이날
     "20260525",   # 부처님오신날 대체(5/24 일)
     "20260603",   # 제9회 전국동시지방선거
@@ -71,36 +74,122 @@ def is_trading_day(now=None):
     return now.strftime("%Y%m%d") not in KRX_HOLIDAYS
 
 
+# 🎓 KRX 지연 개장일(수능일) — 장 시각이 통째로 1시간 순연되는 날(매년 갱신, 휴장일 목록과 함께 관리).
+#   2026-11-19(2027학년도 수능) — KRX·NXT 2026-11-05 공동 보도 기준:
+#     KRX  장전 시간외 종가 09:30~09:40 · 정규장 10:00~16:30(종가 단일가 16:20~16:30)
+#          장후 시간외 종가 16:40~17:00 · 애프터마켓(시간외 접속) 17:00~20:00 (종료 20:00 동일)
+#     NXT  프리마켓 미운영 · 메인마켓 10:00~16:20 · 애프터마켓 16:30~20:00 (종료 20:00 동일)
+#   → 코드의 '평소 기준 KRX 장 시각'(09:00 개장·15:20 동시호가·15:30 마감·16:00 애프터 등)은
+#     krx_t() 로 그날 시각으로 바꿔 쓴다. 장후 종료(20:00)·NXT 장전 시작(08:00)은 순연 없음.
+KRX_LATE_DAYS = {"20261119"}   # 2027학년도 수능
+KRX_LATE_SHIFT_MIN = 60
+
+
+def _day_str(day=None):
+    """'YYYYMMDD' 문자열 | datetime | date | None(오늘) → 'YYYYMMDD'."""
+    if day is None:
+        return datetime.datetime.now().strftime("%Y%m%d")
+    if isinstance(day, str):
+        return day
+    return day.strftime("%Y%m%d")
+
+
+def krx_shift_min(day=None):
+    """그날 KRX 장 시각 순연(분) — KRX_LATE_DAYS 면 60, 평소 0."""
+    return KRX_LATE_SHIFT_MIN if _day_str(day) in KRX_LATE_DAYS else 0
+
+
+def krx_t(t, day=None):
+    """평소 기준 KRX 장 시각 t(datetime.time) → 그날 실제 시각(수능일 등 KRX_LATE_DAYS 는 +60분).
+       예) krx_t(time(15, 20), '20261119') = 16:20 (종가 단일가 시작)."""
+    m = krx_shift_min(day)
+    if not m:
+        return t
+    return (datetime.datetime.combine(datetime.date(2000, 1, 1), t)
+            + datetime.timedelta(minutes=m)).time()
+
+
+def krx_open_time(day=None):
+    """그날 KRX 정규장 개장 시각 — 평소 09:00, KRX_LATE_DAYS 10:00."""
+    return krx_t(MARKET_OPEN, day)
+
+
+def krx_close_time(day=None):
+    """그날 KRX 정규장 마감(종가 단일가) 시각 — 평소 15:30, KRX_LATE_DAYS 16:30."""
+    return krx_t(MARKET_CLOSE, day)
+
+
+def krx_hours_text(day=None):
+    """표시용 '09:00~15:30' (수능일 '10:00~16:30')."""
+    return f"{krx_open_time(day):%H:%M}~{krx_close_time(day):%H:%M}"
+
+
+def in_krx_hours(now=None):
+    """시각만으로 그날 KRX 정규장 시간대(개장~마감, 양끝 포함)인가 — 휴장 여부는 보지 않는다.
+       (NXT 모드 봇의 '정규장 시간이면 자기 종료' 가드용)"""
+    now = now or datetime.datetime.now()
+    return krx_open_time(now) <= now.time() <= krx_close_time(now)
+
+
+# 일봉 CSV 비거래일 행 가드(2026-11-09) — 휴장일에 실시간 시세 API 가 직전 거래일 값을 돌려줘
+#   '오늘 행'이 복제·기록되던 문제(2026 05-01·05-25·06-03·07-17 등) 재발 방지용.
+#   KRX_HOLIDAYS 가 관리되는 첫 해부터만 판정한다 — 1998-12 이전 토요일(반일장) 등 과거 정상 행 보호.
+DAILY_GUARD_FROM = min(KRX_HOLIDAYS)[:4] + "0101"
+
+
+def is_daily_row_date(d):
+    """일봉 CSV 에 d 날짜 행을 기록/보존해도 되는가(=KRX 거래일).
+       d: datetime·date·pd.Timestamp. DAILY_GUARD_FROM 이전 날짜는 판정하지 않고 True."""
+    if d.strftime("%Y%m%d") < DAILY_GUARD_FROM:
+        return True
+    return is_trading_day(d)
+
+
 def is_market_open(now=None):
-    """평일 정규장(09:00~15:30) + 거래일(주말·공휴일 제외) 여부.
+    """평일 정규장(09:00~15:30, 수능일 10:00~16:30) + 거래일(주말·공휴일 제외) 여부.
        휴장일엔 시간이 정규장이어도 False → 매수/매도 집행 안 함."""
     now = now or datetime.datetime.now()
     if now.weekday() >= 5:           # 토(5)·일(6) 휴장
         return False
-    if not (MARKET_OPEN <= now.time() <= MARKET_CLOSE):
+    if not in_krx_hours(now):
         return False
     return is_trading_day(now)
 
 
 # ⏰ 장후 거래 (2026-09-14 KRX 애프터마켓 신설: 16:00~20:00, NXT 애프터는 15:30~20:00)
+#    수능일: KRX 애프터 17:00~·NXT 애프터 16:30~ (시작만 순연 — krx_t, 종료 20:00 동일)
 AFTER_MARKET_START = datetime.time(16, 0)
 AFTER_MARKET_END   = datetime.time(20, 0)
 
 
 def is_post_close(now=None):
-    """거래일 정규장 마감(15:30) 후 ~ 20:00 인가 — 장후(NXT·KRX 애프터마켓) '모니터링 전용' 구간.
+    """거래일 정규장 마감(15:30, 수능일 16:30) 후 ~ 20:00 인가 — 장후(NXT·KRX 애프터마켓) '모니터링 전용' 구간.
        이 구간 시세는 참고 점수·텔레그램 알림에만 쓰고, 주가 데이터(일봉 CSV·Stock_V3·promising·
        매도전략 상태)는 정규장 기준으로 보존한다. 자동매매 차단은 is_market_open() 이 담당(변경 없음)."""
     now = now or datetime.datetime.now()
     if not is_trading_day(now):
         return False
-    return MARKET_CLOSE < now.time() < AFTER_MARKET_END
+    return krx_close_time(now) < now.time() < AFTER_MARKET_END
+
+
+# 🌙 NXT 애프터마켓 신용매수 창 (2026-11-09) — KRX 종가 확정(15:30) 직후부터 NXT 애프터 종료(20:00) 직전까지
+#    수능일: 16:35~19:55 (KRX 종가 16:30 확정 후 — krx_t)
+NXT_AFTER_BUY_START = datetime.time(15, 35)
+NXT_AFTER_BUY_END   = datetime.time(19, 55)
+
+
+def is_nxt_after_buy_window(now=None):
+    """거래일 15:35~19:55(지연 마감일 16:35~) — NXT 애프터마켓 신용매수(오늘 종가 대비 하락분 매수) 집행 구간."""
+    now = now or datetime.datetime.now()
+    if not is_trading_day(now):
+        return False
+    return krx_t(NXT_AFTER_BUY_START, now) <= now.time() < NXT_AFTER_BUY_END
 
 
 def post_close_label(now=None):
-    """장후 알림 표시용 세션명 — 15:30~16:00 은 NXT 만 거래, 16:00~ 는 KRX 애프터마켓 병행."""
+    """장후 알림 표시용 세션명 — 15:30~16:00 은 NXT 만 거래, 16:00~ 는 KRX 애프터마켓 병행(수능일 16:30/17:00)."""
     now = now or datetime.datetime.now()
-    return "애프터마켓" if now.time() >= AFTER_MARKET_START else "NXT 장후"
+    return "애프터마켓" if now.time() >= krx_t(AFTER_MARKET_START, now) else "NXT 장후"
 
 
 def _pint(v):
@@ -155,7 +244,7 @@ def _post(api_id, url_path, body):
 # 💼 잔고 조회 (kt00018 qry_tp=2 개별)
 #    같은 종목이 현금/신용/담보로 나뉘어 있으면 각각 반환
 # ====================================================
-_CRD_TYPE_NAME = {"00": "현금", "01": "신용", "08": "담보"}
+_CRD_TYPE_NAME = {"00": "현금", "01": "신용", "03": "신용", "08": "담보"}
 
 def fetch_stock_holdings(code):
     """
@@ -382,10 +471,13 @@ def place_sell_order(code, qty, price, loan_dt="", crd_type="00", market=False, 
         price = normalize_krx_price(price)     # NXT 가격 섞임 → 호가단위 거부 방지
     trde_tp = "3" if market else "0"          # 3=시장가, 0=지정가
     ord_uv  = "0" if market else str(price)    # 시장가는 호가 0
+    # (2026-11-09) 대출일이 비어 있는 신용융자 트랜치(당일 신용매수분 등)는 crd_deal_tp=99(융자합, 대출일 불필요)로
+    #   신용 매도 — 현금 매도(kt10001)로 내면 거부돼 청산이 멈춘다.
+    credit_nodt = (not loan_dt) and str(crd_type or "").strip() not in ("", "00", "08")
     for st in ([stex, "KRX"] if stex != "KRX" else ["KRX"]):
-        if loan_dt:
-            # 담보(crd_type=08): crd_deal_tp="88", 신용융자(crd_type=01): crd_deal_tp="33"
-            crd_deal_tp = "88" if crd_type == "08" else "33"
+        if loan_dt or credit_nodt:
+            # 담보(crd_type=08): crd_deal_tp="88", 신용융자(crd_type=01/03): crd_deal_tp="33"(대출일 없으면 99)
+            crd_deal_tp = "88" if crd_type == "08" else ("99" if credit_nodt else "33")
             body = {
                 "dmst_stex_tp": st,
                 "stk_cd":       code,
@@ -438,6 +530,80 @@ def place_buy_order(code, qty, price, stex="KRX"):
         if st != "KRX":
             print(f"   ⚠️ 매수 SOR 거부 → KRX 폴백: {(res or {}).get('return_msg', '응답 없음')}")
     return res
+
+
+# ====================================================
+# 💳 신용(융자) 매수 (2026-11-09) — kt10006 신용 매수주문 · kt20016 신용가능 · kt00012 신용주문가능금액
+# ====================================================
+CREDIT_ASSR_BUCKETS = (30, 40, 50, 60)   # kt00012 보증금율 구간(%) — 종목 보증금율 이상 중 가장 낮은 구간 사용(보수적)
+
+
+def place_credit_buy_order(code, qty, price, stex="KRX"):
+    """신용(융자) 지정가 매수(kt10006). 반환: API dict (return_code=0 성공) or None(통신 실패).
+       본문은 현금 매수(kt10000)와 동일하고 경로만 /crdordr. SOR 거부 시 KRX 로 1회 자동 폴백.
+       stex="NXT"(장후 NXT 애프터)는 폴백 없음 — 장 마감 후 KRX 로 넘기면 안 됨.
+       ※ 신용 약정이 없는 계좌·신용불가 종목·신용한도 초과면 거래소/증권사가 거부(return_code≠0)."""
+    if qty <= 0 or price <= 0:
+        return None
+    price = normalize_krx_price(price)
+    res = None
+    for st in ([stex, "KRX"] if stex == "SOR" else [stex]):
+        body = {
+            "dmst_stex_tp": st,
+            "stk_cd":       code,
+            "ord_qty":      str(qty),
+            "ord_uv":       str(price),
+            "trde_tp":      "0",     # 지정가
+            "cond_uv":      "",
+        }
+        res = _post("kt10006", "/api/dostk/crdordr", body)
+        if res and res.get("return_code") == 0:
+            return res
+        if st != "KRX":
+            print(f"   ⚠️ 신용매수 SOR 거부 → KRX 폴백: {(res or {}).get('return_msg', '응답 없음')}")
+    return res
+
+
+def _pct(v):
+    """'45%' / '45' / '45.00%' → 45.0. 실패 시 None."""
+    try:
+        s = str(v or "").replace("%", "").replace(",", "").strip()
+        return float(s) if s else None
+    except (ValueError, TypeError):
+        return None
+
+
+def fetch_credit_info(code):
+    """종목 신용융자 가능 여부(kt20016, 키움 회사 기준). 조회 실패 시 None.
+       반환 {"able": bool, "rate": 보증금율(0.45)|None, "over": 회사한도 초과 bool, "txt": 원문}.
+       ※ 응답 목록은 stk_cd '부터' 이어지는 가능종목 목록이라 코드가 정확히 일치하는 행만 인정한다.
+         불가 종목: crd_loan_able='< 신용융자 불가능 >'('가능' 부분문자열 포함 주의) + 일치 행 없음(실측 2026-11-09)."""
+    d = _post("kt20016", "/api/dostk/stkinfo", {"crd_stk_grde_tp": "%", "mrkt_deal_tp": "%", "stk_cd": code})
+    if not d or d.get("return_code") != 0:
+        return None
+    txt = str(d.get("crd_loan_able") or "").strip()
+    row = next((r for r in (d.get("crd_loan_pos_stk") or []) if _code6(r.get("stk_cd")) == code), None)
+    rate = _pct((row or {}).get("crd_assr_rt"))
+    over = bool(row) and str(row.get("crd_limit_over_yn") or "").strip().upper() == "Y"
+    able = bool(row) and "불가" not in txt and not over
+    return {"able": able, "rate": (rate / 100.0) if rate else None, "over": over, "txt": txt}
+
+
+def fetch_credit_room(code, rate=None):
+    """신용매수 주문가능금액(kt00012 신용보증금율별주문가능수량). 반환 (room, info).
+       room: 주문가능금액(원, 매수총액 기준) · None = 조회 불가(info 에 사유: '조회 실패'=통신, 그 외=증권사 거부 메시지,
+             예 '신용계좌만 조회가능합니다' = 신용 약정 없는 계좌).
+       보증금율 구간은 종목 보증금율(응답 stk_assr_rt_nm, 없으면 rate, 둘 다 없으면 60%) 이상 중 가장 낮은 구간."""
+    d = _post("kt00012", "/api/dostk/acnt", {"stk_cd": code, "uv": ""})
+    if d is None:
+        return None, "조회 실패"
+    if d.get("return_code") != 0:
+        return None, str(d.get("return_msg") or f"return_code={d.get('return_code')}")
+    r = _pct(d.get("stk_assr_rt_nm")) or (rate * 100.0 if rate else None) or 60.0
+    b = next((x for x in CREDIT_ASSR_BUCKETS if x >= r - 1e-9), None)
+    if b is None:
+        return 0, f"보증금율 {r:.0f}% — 조회 구간 없음"
+    return max(0, _pint(d.get(f"assr_{b}ord_alow_amt"))), f"보증금율 {r:.0f}%(→{b}% 구간)"
 
 
 # ====================================================
@@ -533,14 +699,18 @@ def fetch_ask_book(code):
     return _book_levels(data, "sel")
 
 
-def ask_qty_at_or_below(code, limit_price):
+def ask_qty_at_or_below(code, limit_price, venue="AL"):
     """매도호가 중 limit_price 이하(포함)에 쌓인 총 잔량과 최우선호가를 반환.
        반환: (avail_qty:int, best_ask:int). 호가 없으면 (0, 0).
        KRX+NXT 통합호가(_AL) 기준 — SOR 주문이 두 거래소를 모두 잡으므로
-       감시도 통합으로 본다(2026-08-25. NXT 에만 선 더 싼 매도 누락 방지)."""
-    levels = fetch_ask_book(code + "_AL")
-    if not levels:                      # 통합 조회 실패 → KRX 단독 폴백
-        levels = fetch_ask_book(code)
+       감시도 통합으로 본다(2026-08-25. NXT 에만 선 더 싼 매도 누락 방지).
+       venue="NX"(2026-11-09): NXT 단독 호가(_NX)만 — 장후 NXT 애프터마켓 주문용(KRX 폴백 없음)."""
+    if venue == "NX":
+        levels = fetch_ask_book(code + "_NX")
+    else:
+        levels = fetch_ask_book(code + "_AL")
+        if not levels:                      # 통합 조회 실패 → KRX 단독 폴백
+            levels = fetch_ask_book(code)
     if not levels:
         return 0, 0
     best_ask = levels[0][0]
@@ -592,6 +762,75 @@ def fetch_book(code):
     return None
 
 
+def fetch_krx_close(code, today=None):
+    """오늘 KRX 정규장 종가(15:30 종가 단일가) = ka10080 1분봉 중 {오늘}153000 봉의 종가. 실패 시 0.
+       ※ 장후엔 ka10001·ka10081·ka10086·KIS 현재가가 모두 KRX 애프터마켓(16:00~20:00) 체결가로 바뀌어
+         정규장 종가가 아니다(2026-11-09 실측: 프로텍 15:30 봉 48,700 vs 17시 현재가 47,900 — 15:30 봉은
+         11-06 기준가와도 일치 확인). 15:30 봉이 없으면(종가 체결 없음) 오늘 09:00~15:30 마지막 봉 종가.
+       (NXT 애프터 신용매수 '오늘 종가 대비 -2%' 기준 · 장후 알림 '오늘 종가 대비 등락률', 2026-11-09)"""
+    today = today or datetime.datetime.now().strftime("%Y%m%d")
+    close_hms = krx_close_time(today).strftime("%H%M%S")      # 평소 153000, 수능일 163000
+    open_hms = krx_open_time(today).strftime("%H%M%S")        # 평소 090000, 수능일 100000(장전 시간외 09:30 봉 제외)
+    data = _post("ka10080", "/api/dostk/chart", {"stk_cd": code, "tic_scope": "1", "upd_stkpc_tp": "1"})
+    if not data or data.get("return_code") != 0:
+        return 0
+    last = None
+    for r in data.get("stk_min_pole_chart_qry") or []:
+        tm = str(r.get("cntr_tm") or "")
+        if not tm.startswith(today):
+            continue
+        hms = tm[8:14]
+        if hms == close_hms:
+            return _pabs(r.get("cur_prc"))
+        if open_hms <= hms < close_hms and (last is None or hms > last[0]):
+            last = (hms, _pabs(r.get("cur_prc")))
+    return last[1] if last else 0
+
+
+_close_cache = {"date": "", "px": {}}
+
+
+def krx_close_cached(code, today=None):
+    """fetch_krx_close 를 종목당 하루 1회만 조회(프로세스 내 캐시). 그날 KRX 마감(+30초) 전엔 조회하지 않고 0."""
+    now = datetime.datetime.now()
+    today = today or now.strftime("%Y%m%d")
+    ct = krx_close_time(today)
+    if now.strftime("%Y%m%d") == today and now.time() < datetime.time(ct.hour, ct.minute, 30):
+        return 0
+    if _close_cache["date"] != today:
+        _close_cache.update(date=today, px={})
+    px = _close_cache["px"].get(code)
+    if not px:
+        px = fetch_krx_close(code, today)
+        if px > 0:
+            _close_cache["px"][code] = px
+    return px or 0
+
+
+def close_change_text(cur, close):
+    """장후 알림용 '오늘 종가 대비' 문구. close 없으면 빈 문자열."""
+    if not close or close <= 0 or not cur:
+        return ""
+    return f"오늘 종가 {close:,}원 대비 {(cur - close) / close * 100:+.2f}%"
+
+
+def fetch_quotes_multi(codes, suffix="_NX", chunk=100):
+    """여러 종목 현재가 묶음 조회(ka10095 관심종목정보, '|' 구분 최대 chunk 개). (2026-11-11)
+       반환 {code6: {"cur": 현재가, "base": 기준가(전일종가), "qty": 거래량}} — 실패한 묶음은 빠짐."""
+    out = {}
+    codes = [c for c in codes if c]
+    for i in range(0, len(codes), chunk):
+        d = _post("ka10095", "/api/dostk/stkinfo", {"stk_cd": "|".join(c + suffix for c in codes[i:i + chunk])})
+        for r in (d or {}).get("atn_stk_infr") or []:
+            c = _code6(str(r.get("stk_cd", "")).replace(suffix, ""))
+            if c:
+                out[c] = {"cur": _pabs(r.get("cur_prc")), "base": _pabs(r.get("base_pric")),
+                          "qty": _pint(str(r.get("trde_qty", "0")).replace("+", "").replace("-", "")),
+                          "tm": str(r.get("cntr_tm") or "").strip()}    # 마지막 체결 시각 HHMMSS
+        time.sleep(0.25)
+    return out
+
+
 def fetch_upper_limit(code):
     """당일 상한가(ka10001 upl_pric, KRX 기준, 원). 조회 실패/미제공 시 0."""
     data = _post("ka10001", "/api/dostk/stkinfo", {"stk_cd": code})
@@ -634,23 +873,29 @@ def fetch_open_buy_orders(code):
 # ❌ 주문 취소
 #    loan_dt 있으면 신용/담보 취소(kt10009), 없으면 현금 취소(kt10003)
 # ====================================================
-def cancel_order(order_no, code, qty, loan_dt=""):
+def cancel_order(order_no, code, qty, loan_dt="", credit=False, stex=None):
     """반환: True(성공) / False(실패).
        원주문이 KRX/SOR 어느 쪽이든 취소되도록 KRX → SOR 순으로 시도한다
-       (정규장 sweep 이 SOR 주문을 내므로, 2026-08-25). 첫 시도 성공 시 종료."""
-    for st in ("KRX", "SOR"):
-        body = {
-            "dmst_stex_tp": st,
-            "orig_ord_no":  order_no,
-            "stk_cd":       code,
-            "cncl_qty":     "0",     # 전량취소
-        }
-        if loan_dt:
-            data = _post("kt10009", "/api/dostk/crdordr", body)
-        else:
-            data = _post("kt10003", "/api/dostk/ordr", body)
-        if data is not None and data.get("return_code") == 0:
-            return True
+       (정규장 sweep 이 SOR 주문을 내므로, 2026-08-25). 첫 시도 성공 시 종료.
+       credit=True(신용매수 주문, 2026-11-09) 또는 loan_dt 있음 → 신용 취소(kt10009) 먼저.
+       (2026-11-09) 첫 경로가 모두 실패하면 반대 경로(현금↔신용)로도 시도 — 대출일 없는 신용 트랜치 매도주문 등
+       주문 종류를 잘못 기억해도 취소가 막히지 않게.
+       stex="NXT"(2026-11-09, NXT 애프터 주문) → 그 거래소를 먼저 시도."""
+    apis = [("kt10003", "/api/dostk/ordr"), ("kt10009", "/api/dostk/crdordr")]
+    if loan_dt or credit:
+        apis.reverse()
+    sts = [stex] + [x for x in ("KRX", "SOR") if x != stex] if stex else ["KRX", "SOR"]
+    for api_id, path in apis:
+        for st in sts:
+            body = {
+                "dmst_stex_tp": st,
+                "orig_ord_no":  order_no,
+                "stk_cd":       code,
+                "cncl_qty":     "0",     # 전량취소
+            }
+            data = _post(api_id, path, body)
+            if data is not None and data.get("return_code") == 0:
+                return True
     return False
 
 
@@ -860,7 +1105,7 @@ def auto_sell(code, stock_name, total_score, curr_price, prev_open_orders=None, 
     if keep_amount is None:
         return None  # 매도 불필요
 
-    # ── 정규장 시간(평일 09:00~15:30) 외에는 본주문/취소 없이 체크만 ──────
+    # ── 정규장 시간(평일 09:00~15:30, 수능일 10:00~16:30) 외에는 본주문/취소 없이 체크만 ──────
     #    sell_level을 진행시키지 않고 대기 → 정규장 개장 후 사이클에서 실제 주문
     if not is_market_open():
         keep_label = "전량매도" if keep_amount == 0 else f"{keep_amount // 10_000:,}만원 보유"
@@ -869,7 +1114,7 @@ def auto_sell(code, stock_name, total_score, curr_price, prev_open_orders=None, 
             "code":   code,
             "name":   stock_name,
             "msg":    (f"⏸️ 정규장 시간 외 — 매도 대기\n{stock_name}({code})  [{keep_label}]\n"
-                       f"09:00~15:30 정규장에 주문 실행"),
+                       f"{krx_hours_text()} 정규장에 주문 실행"),
         }
 
     # ── 레벨 변경 시 이전 주문 취소 ───────────────────────────────────────

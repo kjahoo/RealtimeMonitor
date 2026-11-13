@@ -32,10 +32,23 @@ LOW_SIGNAL = "40+자동등록"
 #   · Search_History.timestamp 는 자동등록·평가후처리가 장전 점수에 현재시각을 찍을 수 있어 쓰지 않는다.
 #   · since = scheduler 가 NXT 봇 종료 직후 KRX 봇 기동 시 기록(logs/{날짜}_krx_session.json).
 #     마커가 없으면 09:01:00 (NXT 봇이 09:00 직후 ~20초 더 쓸 수 있어 여유).
+#   · (2026-11-09) 아래 시각 상수는 '평소' 기준. 수능일 등 KRX 지연 개장일(kiwoom_trading.KRX_LATE_DAYS,
+#     정규장 10:00~16:30)은 _krx_hms() 로 +1시간 순연해 쓴다 — 마커가 09시대로 찍혀도(구 scheduler)
+#     FLOOR(10:00:30) 가 장전 행을 막는다.
 KRX_END = "15:30:59"
 KRX_SINCE_DEFAULT = "09:01:00"
 KRX_SINCE_FLOOR = "09:00:30"
 RESCORE_READY_RATIO = 0.8   # 40점+ 보조모드 판정 전, 오늘 Stock_V3 의 이 비율 이상이 재평가돼야 함
+
+
+def _krx_hms(hms, day=None):
+    """평소 기준 'HH:MM:SS' → 그날 KRX 시각(수능일 등 KRX_LATE_DAYS 는 +1시간). 실패 시 그대로."""
+    try:
+        from datetime import datetime
+        from kis_api import kiwoom_trading as kt
+        return kt.krx_t(datetime.strptime(hms, "%H:%M:%S").time(), day).strftime("%H:%M:%S")
+    except Exception:
+        return hms
 
 
 def primary_count(scores):
@@ -54,8 +67,9 @@ def krx_session_path(log_dir, day):
 
 
 def krx_since(log_dir, day):
-    """정규장 재평가 경계 시각 'HH:MM:SS' (이 시각 이후 계산된 점수만 매수에 쓴다)."""
-    since = KRX_SINCE_DEFAULT
+    """정규장 재평가 경계 시각 'HH:MM:SS' (이 시각 이후 계산된 점수만 매수에 쓴다).
+       수능일 등 KRX 지연 개장일은 기본값·하한이 10:01:00·10:00:30."""
+    since = _krx_hms(KRX_SINCE_DEFAULT, day)
     try:
         with open(krx_session_path(log_dir, day), encoding="utf-8") as f:
             d = json.load(f)
@@ -63,7 +77,12 @@ def krx_since(log_dir, day):
             since = str(d["since"])
     except Exception:
         pass
-    return max(since, KRX_SINCE_FLOOR)
+    return max(since, _krx_hms(KRX_SINCE_FLOOR, day))
+
+
+def krx_end(day=None):
+    """그날 정규장 재평가 행의 마지막 시각 'HH:MM:SS' — 평소 15:30:59, 수능일 16:30:59."""
+    return _krx_hms(KRX_END, day)
 
 
 def load_v3_rows(log_dir, day):
@@ -98,9 +117,10 @@ def load_v3_rows(log_dir, day):
     return rows
 
 
-def rescored_rows(rows, since):
-    """정규장 재평가된 행만: since ≤ time ≤ 15:30:59."""
-    return {c: r for c, r in rows.items() if since <= r.get("time", "") <= KRX_END}
+def rescored_rows(rows, since, day=None):
+    """정규장 재평가된 행만: since ≤ time ≤ 15:30:59 (수능일 등 KRX 지연일 16:30:59). day 생략 = 오늘."""
+    end = krx_end(day)
+    return {c: r for c, r in rows.items() if since <= r.get("time", "") <= end}
 
 
 def awaiting_primary(rows, rescored):
@@ -121,8 +141,56 @@ def low_mode_ready(rows, rescored, now_hhmmss=None):
     if now_hhmmss is None:
         from datetime import datetime
         now_hhmmss = datetime.now().strftime("%H:%M:%S")
-    if now_hhmmss < AWAIT_DEADLINE and awaiting_primary(rows, rescored):
+    if now_hhmmss < _krx_hms(AWAIT_DEADLINE) and awaiting_primary(rows, rescored):   # 수능일 10:15:00
         return False
     if len(rescored) < RESCORE_READY_RATIO * len(rows):
         return False
     return low_mode([r["score100"] / 100.0 for r in rescored.values()])
+
+
+def latest_evals(log_dir, day, include_today=False, max_files=None):
+    """종목별 가장 최근 AI 평가 {code(6): {"date": YYYYMMDD, "rec": BUY|HOLD|AVOID, "score": int}} (2026-11-11).
+       logs/{날짜}_claude_results_all.json(누적 평가풀)을 최신 날짜부터 훑어 종목별 첫 발견(=가장 최근)만 채택.
+       include_today=False 면 day 이전 날짜만(= '직전 평가'). 같은 파일 안의 중복 코드는 뒤(나중 평가)가 우선.
+       include_today=True 면 오늘 results.json(미승격 평가)도 가장 먼저 반영."""
+    import glob
+    out = {}
+
+    def _take(items, d):
+        seen = {}
+        for it in items if isinstance(items, list) else []:
+            if not isinstance(it, dict):
+                continue
+            c = str(it.get("code", "")).strip().split(".")[0]
+            c = c.zfill(6) if c.isdigit() else c
+            if c:
+                seen[c] = it                     # 뒤가 우선
+        for c, it in seen.items():
+            if c not in out:
+                try:
+                    sc = int(float(it.get("claude_score", 0) or 0))
+                except Exception:
+                    sc = 0
+                out[c] = {"date": d, "rec": str(it.get("recommendation", "")).upper(), "score": sc}
+
+    def _load(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+            return d.get("results", d) if isinstance(d, dict) else d
+        except Exception:
+            return []
+
+    if include_today:
+        _take(_load(os.path.join(log_dir, f"{day}_claude_results.json")), day)
+    files = sorted(glob.glob(os.path.join(log_dir, "2*_claude_results_all.json")), reverse=True)
+    n = 0
+    for p in files:
+        d = os.path.basename(p)[:8]
+        if d > day or (d == day and not include_today):
+            continue
+        n += 1
+        if max_files and n > max_files:
+            break
+        _take(_load(p), d)
+    return out

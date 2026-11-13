@@ -21,6 +21,21 @@ def today_change_pct(rt, curr, df=None, target_date=None):
     return (curr / prev - 1) if prev > 0 and curr > 0 else 0.0
 
 
+def drop_non_trading_rows(df, since=None, keep_dates=None, date_col='date'):
+    """일봉 df 에서 KRX 비거래일(주말·KRX_HOLIDAYS, kiwoom_trading.DAILY_GUARD_FROM 이후) 행을 제거한다.
+    since      : 이 날짜(포함) 이후 행만 판정 — None 이면 전 기간(가드 시작일 이후).
+    keep_dates : 거래소 일봉(API)으로 실제 존재가 확인된 날짜 집합 — 휴일 목록 오기재 대비, 여기 있으면 보존.
+    반환       : (정리된 df(인덱스 재설정), 제거된 행 df)"""
+    from kis_api import kiwoom_trading as _kt   # 지연 import — 학습 코드 등 indicators 단독 사용처 의존성 방지
+    d = pd.to_datetime(df[date_col], errors='coerce')
+    bad = d.notna() & ~d.apply(lambda x: True if pd.isna(x) else _kt.is_daily_row_date(x))
+    if since is not None:
+        bad &= d >= pd.Timestamp(since)
+    if keep_dates:
+        bad &= ~d.dt.normalize().isin({pd.Timestamp(x).normalize() for x in keep_dates})
+    return df[~bad].reset_index(drop=True), df[bad]
+
+
 # ====== v3용 지표 전체 계산 함수 ======
 def calculate_indicators_v3_save(df):
     """

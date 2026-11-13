@@ -164,6 +164,20 @@ def fetch_program_today(code, date_str):
 # ====================================================
 REGULAR_START_HHMM = "0900"
 REGULAR_END_HHMMSS = "153459"     # 15:30 종가 단일가 체결(15:30:0x~) 포함 · 15:35~ 장후 체결 제외
+#   ※ 위 두 값은 '평소' 기준. 수능일 등 KRX 지연 개장일(kiwoom_trading.KRX_LATE_DAYS)은 _regular_bounds() 로
+#     1000 / 163459 (장전 시간외 종가 09:30~09:40 체결 제외 · 16:30 종가 포함 · 16:40~ 장후 제외, 2026-11-09).
+
+
+def _regular_bounds(date_str):
+    """date_str 정규장 1분봉 경계 (start 'HHMM', end 'HHMMSS') — 평소 0900/153459, 수능일 1000/163459."""
+    try:
+        import datetime as _d
+        from kis_api import kiwoom_trading as _kt
+        st = _kt.krx_t(_d.time(int(REGULAR_START_HHMM[:2]), int(REGULAR_START_HHMM[2:])), date_str)
+        en = _kt.krx_t(_d.datetime.strptime(REGULAR_END_HHMMSS, "%H%M%S").time(), date_str)
+        return st.strftime("%H%M"), en.strftime("%H%M%S")
+    except Exception:
+        return REGULAR_START_HHMM, REGULAR_END_HHMMSS
 
 
 def _post_page(api_id, url_path, body, next_key=""):
@@ -200,6 +214,7 @@ def _post_page(api_id, url_path, body, next_key=""):
 def fetch_regular_session_ohlcv(code, date_str, max_pages=3):
     """date_str(YYYYMMDD) 정규장 1분봉 집계 {open, high, low, close, volume}. 봉이 없거나 실패 시 None.
     ka10080 은 최신봉부터 900개/페이지 — 해당일 09:00 봉에 닿을 때까지 페이지를 넘긴다."""
+    start_hhmm, end_hhmmss = _regular_bounds(date_str)      # 수능일 1000 / 163459
     bars, nk = [], ""
     for _ in range(max_pages):
         data, nk = _post_page("ka10080", "/api/dostk/chart",
@@ -209,11 +224,11 @@ def fetch_regular_session_ohlcv(code, date_str, max_pages=3):
         page = data.get("stk_min_pole_chart_qry") or []
         bars += page
         oldest = min((str(b.get("cntr_tm", "")) for b in page), default="")
-        if not nk or not page or oldest < date_str + REGULAR_START_HHMM:
+        if not nk or not page or oldest < date_str + start_hhmm:
             break
     reg = sorted((b for b in bars
                   if str(b.get("cntr_tm", "")).startswith(date_str)
-                  and REGULAR_START_HHMM <= str(b["cntr_tm"])[8:14] <= REGULAR_END_HHMMSS),
+                  and start_hhmm <= str(b["cntr_tm"])[8:14] <= end_hhmmss),
                  key=lambda b: str(b["cntr_tm"]))
     if not reg:
         return None
@@ -229,7 +244,8 @@ def fetch_regular_session_ohlcv(code, date_str, max_pages=3):
 def fetch_regular_session_program(code, date_str, max_pages=15):
     """date_str 정규장 마감 시점 프로그램매매 누적 {prog_net_qty, prog_buy, prog_sell}. 실패 시 None.
     ka90008 은 시각 역순 누적값 — REGULAR_END_HHMMSS(15:34:59) 이하 첫 행이 정규장 최종치. 해당 행이 없고
-    목록이 끝났으면 정규장 프로그램 체결 없음(0)."""
+    목록이 끝났으면 정규장 프로그램 체결 없음(0). 수능일 등 KRX 지연일은 16:34:59 이하(_regular_bounds)."""
+    end_hhmmss = _regular_bounds(date_str)[1]
     nk = ""
     for _ in range(max_pages):
         data, nk = _post_page("ka90008", "/api/dostk/mrkcond",
@@ -237,7 +253,7 @@ def fetch_regular_session_program(code, date_str, max_pages=15):
         if data is None:
             return None
         for r in data.get("stk_tm_prm_trde_trnsn") or []:
-            if str(r.get("tm", "")) <= REGULAR_END_HHMMSS:
+            if str(r.get("tm", "")) <= end_hhmmss:
                 return {"prog_net_qty": _num(r.get("prm_netprps_qty")),
                         "prog_buy":     _abs(r.get("prm_buy_qty")),
                         "prog_sell":    _abs(r.get("prm_sell_qty"))}

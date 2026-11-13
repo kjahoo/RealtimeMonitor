@@ -222,6 +222,7 @@ def get_cached_avg_price(code, force=False):
         if c and c[0] == today:
             return c[1]
     avg = None
+    hs = None
     try:
         hs = trading.fetch_stock_holdings(code)
         if hs:
@@ -234,6 +235,12 @@ def get_cached_avg_price(code, force=False):
             avg = (ta / tq) if tq > 0 else None
     except Exception:
         avg = None
+    # (2026-11-13) 조회 실패(None: 429 유량 초과·통신 오류)는 캐시하지 않는다 — 하루 종일 '평단 없음'으로 굳어
+    #   가격 손절(-14%)이 판정조차 안 되던 문제(11-13 삼성전기우 -19.6%·기가비스 -17.9% 미매도). 다음 사이클 재조회.
+    #   실패 시 직전 캐시 평단(같은 날)이 있으면 그 값을 쓴다.
+    if hs is None:
+        c = _avg_price_cache.get(code)
+        return c[1] if (c and c[0] == today) else None
     _avg_price_cache[code] = (today, avg)
     return avg
 
@@ -558,7 +565,10 @@ def run_updater():
     print(f"\n🚀 [Promising Updater] 시작 (마켓 모드: {market_mode})")
     print(f"   - 자동발굴 : 점수 {TARGET_SCORE*100:.0f}점 이상만 추적")
     print(f"   - 검색기록 : 점수 무관 무조건 추적")
-    print(f"   - 매도규칙 : ①-{abs(_sb.STOP_PCT)*100:.0f}% 손절(raw≥{_sb.STOP_SCORE_KEEP*100:.0f} 면제) "
+    _stop_txt = (f"①-{abs(_sb.STOP_PCT)*100:.0f}% 손절(raw≥{_sb.STOP_SCORE_KEEP*100:.0f} 면제) " if _sb.stop_enabled()
+                 else f"①-{abs(_sb.STOP_PCT)*100:.0f}% 손절 ⏸️일시중지 ")
+    _stop_txt += "[스위치 /손절 켜기|끄기 — 재시작 없이 반영] "
+    print(f"   - 매도규칙 : {_stop_txt}"
           f"②raw<0 {_sb.RAW_NEG_HOLD_SEC//60}분연속(15:00~ 즉시매도, 15:20~ 동시호가 시장가) "
           f"③평활<{_sb.SELL_THRESH*100:.0f}점 2일연속(오늘 raw≥{_sb.SELL_THRESH*100:.0f} 회복시 보류)")
     print(f"   - 하락경고 : 평활 < {_sb.SELL_THRESH*100:.0f}점 + raw<0 카운트다운 알림(자동매매는 본인 등록종목만)")
@@ -605,11 +615,19 @@ def run_updater():
 
             today_str   = now.strftime("%Y%m%d")
             market_mode = os.environ.get("MARKET_MODE", "KRX")
-            # NXT 모드 프로세스는 KRX 정규장(09:00~15:30)에 점수를 쓰지 않는다(2026-09-29) — scheduler
+            # NXT 모드 프로세스는 KRX 정규장(09:00~15:30, 수능일 10:00~16:30)에 점수를 쓰지 않는다(2026-09-29) — scheduler
             # 비정상 종료로 남은 고아 NXT 봇이 NX 시세 점수를 '정규장 재평가'로 오인시키지 않도록 종료.
-            if market_mode.upper() == "NXT" and trading.MARKET_OPEN <= now.time() <= trading.MARKET_CLOSE:
+            if market_mode.upper() == "NXT" and trading.in_krx_hours(now):
                 print(f"   🛑 [{now:%H:%M:%S}] NXT 모드인데 정규장 시간 — 종료(KRX 봇이 정규장 점수 담당)")
                 sys.exit(0)
+            # 수능일 등 KRX 지연 개장일(trading.KRX_LATE_DAYS) 2중 가드(2026-11-09): KRX 모드인데 개장(10:00) 전이면 대기 —
+            #   구 scheduler 가 09:00 에 KRX 모드로 띄워도 장전 KRX 시세로 promising 정리·매도 판정(raw<0 30분 타이머)·
+            #   매도 plan·last_scores 를 갱신하지 않게. 평소엔 krx_shift_min=0 이라 무동작.
+            if (trading.krx_shift_min(now) and market_mode.upper() == "KRX"
+                    and now.time() < trading.krx_open_time(now)):
+                print(f"   ⏳ [{now:%H:%M:%S}] KRX 지연 개장일 — 정규장 {trading.krx_hours_text(now)}, 개장 전 대기(30초 후 재확인)")
+                time.sleep(30)
+                continue
             post_close  = trading.is_post_close(now)   # 15:30~20:00 장후: 모니터링·알림만
             if post_close and after_sell_alert is None:
                 after_sell_alert = load_after_sell_alerts(today_str)
@@ -657,7 +675,7 @@ def run_updater():
 
             # ── (NXT 아침 1회) 어제 평활<SELL_THRESH 이월 종목 → 오늘 raw 임계 리포트 ──
             #    어제 평활이 SELL_THRESH(현재 0.10) 미만이던 종목은 오늘도 미만이면 즉시 2일 연속 → 매도.
-            if (market_mode == "NXT" and now.time() < dtime(9, 0)
+            if (market_mode == "NXT" and now.time() < trading.krx_open_time(now)
                     and nxt_carry_reported != today_str):
                 nxt_carry_reported = today_str
                 _nm_map = load_name_map(today_str)
@@ -780,7 +798,8 @@ def run_updater():
                     df['code'] = df['code'].astype(str).apply(lambda x: x.split('.')[0].zfill(6))
                     # 원자적 저장 (temp + os.replace) — 동시 쓰기로 인한 줄바꿈 유실/파일 손상 방지
                     #   장후는 저장 안 함(일봉 CSV 정규장 기준 보존 — 오늘 행은 메모리에서만 계산)
-                    if not post_close:
+                    #   비거래일(주말·KRX_HOLIDAYS) 날짜 행도 저장 안 함 — 루프 휴장 가드와 별개의 저장 지점 이중 가드(2026-11-09)
+                    if not post_close and trading.is_daily_row_date(target_date):
                         _tmp_path = file_path + ".tmp"
                         df.to_csv(_tmp_path, index=False, encoding='utf-8-sig')
                         os.replace(_tmp_path, file_path)
@@ -838,6 +857,12 @@ def run_updater():
                                  "score":         f"평활 {sell_strategy_b.SELL_THRESH * 100:.0f}점 미만 2일 연속",
                                  "raw_neg_close": "점수 0 미만"}
                         _sm_txt = f" (평활 {_psm * 100:.1f})" if _psm is not None else ""
+                        # (2026-11-09) 오늘 KRX 종가(15:30 종가 단일가) 대비 현재가(통합) 등락률 — 알림 보낼 때만 조회(종목당 하루 1회)
+                        _cc_txt = ""
+                        if any(after_sell_alert.get((str(_c), code), "") != (_prsn if str(_c) == _owner_id else _pfriend)
+                               for _c in (history_chat.get(code) or [])):
+                            _cc = trading.close_change_text(disp_cur, trading.krx_close_cached(code, today_str))
+                            _cc_txt = f"\n{_cc}" if _cc else ""
                         _changed = False
                         for _cid in list(history_chat.get(code) or []):
                             _is_owner = str(_cid) == _owner_id
@@ -854,12 +879,12 @@ def run_updater():
                                 _pmsg = (f"🌙 [{_sess}·참고] 매도조건 충족 {stock_name} ({code})\n"
                                          f"사유: {_ptxt.get(_r, _r)}\n"
                                          f"점수: {total_score * 100:.1f}점{_sm_txt} (KRX 기준)\n"
-                                         f"현재가(통합): {disp_cur:,}원{_extra}\n"
+                                         f"현재가(통합): {disp_cur:,}원{_extra}{_cc_txt}\n"
                                          f"※ 장후 자동매도 미적용 — 실제 매도 판단은 다음 정규장")
                             else:
                                 _pmsg = (f"🌙 [{_sess}·참고] 매도조건 해소 {stock_name} ({code})\n"
                                          f"점수: {total_score * 100:.1f}점{_sm_txt} (KRX 기준)\n"
-                                         f"현재가(통합): {disp_cur:,}원")
+                                         f"현재가(통합): {disp_cur:,}원{_cc_txt}")
                             if _is_owner:
                                 print(f"   🌙 {_pmsg.replace(chr(10), '  ')}")
                             send_telegram(_pmsg, [_cid])
@@ -1170,7 +1195,7 @@ def run_updater():
                     continue
 
             # 저장 직전 재확인: 사이클 도중 09:00 을 넘긴 NXT 모드 프로세스는 쓰지 않고 종료
-            if market_mode.upper() == "NXT" and trading.MARKET_OPEN <= datetime.now().time() <= trading.MARKET_CLOSE:
+            if market_mode.upper() == "NXT" and trading.in_krx_hours():
                 print("   🛑 NXT 모드인데 정규장 시간 — 이번 사이클 결과 미저장·종료")
                 sys.exit(0)
 
@@ -1183,7 +1208,7 @@ def run_updater():
             # 보유종목 set(5분 캐시) — promising 자동정리(60+미달·미보유 제거)에 사용
             #   장전(NXT) 중엔 정리 생략: 장전 60점+ 종목은 promising 에 보류해 두었다가
             #   09시 정규장 재평가 점수로 판단한다(장전 점수 일시 하락으로 미리 지우지 않음, 2026-09-29).
-            premkt = market_mode == "NXT" and datetime.now().time() < dtime(9, 0)
+            premkt = market_mode == "NXT" and datetime.now().time() < trading.krx_open_time()   # 수능일 10:00
             holdings_set = None if premkt else get_holdings_set()
             update_search_history_scores(history_updates, today_str, holdings_set)
             save_last_scores(last_scores)

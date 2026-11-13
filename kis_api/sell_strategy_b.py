@@ -16,11 +16,18 @@ sell_strategy_b.py — B 매도전략 (전량청산 결정 엔진)  [평활 방�
     일별 Stock_V3.csv 로그(최근 며칠)에서 평활 이력을 자동 복원.
   ※ 2026-07-22 그리드 최적화: SELL_THRESH 0.20→0.10, STOP_PCT -0.12→-0.14, raw<0 즉시청산 추가.
   ※ 2026-07-27 raw<0 즉시 → 30분 연속(RAW_NEG_HOLD_SEC) 지속 조건으로 변경(휩쏘 방지).
+  ※ 2026-11-06 가격 손절 일시 중지 — 점수 청산만 동작.
+  ※ 2026-11-09 손절 켜기/끄기를 운영 스위치로 전환: kis_api/trade_switches.py 'stop_loss'
+    (logs/trading_switches.json, 텔레그램 /손절 켜기|끄기). 재시작 없이 다음 판정부터 반영.
 
 파라미터: SELL_THRESH=0.10, RAW_SELL_THRESH=0.0, RAW_NEG_HOLD_SEC=1800, CONFIRM_DAYS=2, SMOOTH_N=3, STOP_PCT=-0.14, STOP_SCORE_KEEP=0.60
 """
 import json, os, re, time
 from datetime import datetime as _dt, time as _dtime
+try:
+    from kis_api import trade_switches as _sw
+except ImportError:                      # kis_api 폴더 자체가 경로에 있는 실행 환경
+    import trade_switches as _sw
 
 STATE_FILE   = r"C:\Projects\RealtimeMonitor\logs\sell_state_b.json"
 LOG_DIR      = r"C:\Projects\RealtimeMonitor\logs"
@@ -30,9 +37,35 @@ RAW_NEG_HOLD_SEC = 1800  # raw<0 이 이 초(30분) 연속 지속돼야 매도 �
 CLOSE_AUCTION_START = _dtime(15, 20)  # 종가 단일가(동시호가) 시작 — 이후 raw<0 이면 즉시청산(시장가)
 LATE_RAW_NEG_START  = _dtime(15, 0)   # 장 후반 시작 — 이후 raw<0 이면 30분 대기 없이 즉시청산(현재가 sweep).
                                       # 15:00 이후 진입은 마감(15:30)까지 30분을 못 채우므로 대기 무의미 + 종가까지 추가하락 노출 방지.
+#   ※ 위 두 시각은 '평소' 기준. 수능일 등 KRX 지연 개장일(kiwoom_trading.KRX_LATE_DAYS, 정규장 10:00~16:30)은
+#     close_auction_start()/late_raw_neg_start() 로 +1시간(16:20/16:00) — 판정·표시는 함수 사용(2026-11-09).
+
+
+def _krx_t(t, day=None):
+    """평소 기준 KRX 장 시각 → 그날 시각(kiwoom_trading.krx_t). 임포트 실패 시 평소 시각."""
+    try:
+        try:
+            from kis_api import kiwoom_trading as _kt
+        except ImportError:              # kis_api 폴더 자체가 경로에 있는 실행 환경
+            import kiwoom_trading as _kt
+        return _kt.krx_t(t, day)
+    except Exception:
+        return t
+
+
+def close_auction_start(day=None):
+    """그날 종가 단일가(동시호가) 시작 — 평소 15:20, 수능일 16:20. day: 'YYYYMMDD'|datetime|None(오늘)."""
+    return _krx_t(CLOSE_AUCTION_START, day)
+
+
+def late_raw_neg_start(day=None):
+    """그날 장 후반(raw<0 즉시청산) 시작 — 평소 15:00, 수능일 16:00."""
+    return _krx_t(LATE_RAW_NEG_START, day)
 CONFIRM_DAYS = 2       # 연속 청산구간 확인일수
 SMOOTH_N     = 3       # 평활 기간(거래일)
 STOP_PCT     = -0.14   # 가격 손절 (-14%) — 그리드 최적: -0.12→-0.14
+#   가격 손절 켜기/끄기 = 운영 스위치 stop_loss(stop_enabled()) — 2026-11-06 일시 중지 상수(STOP_ENABLED)를 2026-11-09 스위치로 대체.
+#   점수 청산(평활<임계 2일·raw<0)은 스위치와 무관하게 항상 유효. 롤백: logs\sell_strategy_b.py.bak_20261106_stopoff(손절 상시 적용 원본)
 STOP_SCORE_KEEP = 0.60 # 손절 면제 임계: total_score(raw)가 이 값 이상이면 STOP_PCT 이하라도 청산 안 함
 BACKFILL_DAYS = 6      # startup backfill 시 참고할 최근 일별 로그 수
 
@@ -140,10 +173,17 @@ def _roll_day(e, today):
     e["day"] = today
 
 
+def stop_enabled():
+    """가격 손절 켜짐 여부 — 운영 스위치 stop_loss(logs/trading_switches.json, 2초 캐시)."""
+    return _sw.get("stop_loss")
+
+
 def is_stop_loss(cur_price, avg_price):
     """가격 손절(STOP_PCT, 현재 -14%) 조건만 판정 (점수·평활 무관).
     avg_price·cur_price 가 유효(>0)할 때만 True 가능. 손절 주문 직전 최신 평단
-    재확인용으로도 사용된다."""
+    재확인용으로도 사용된다. 스위치 stop_loss 꺼짐(일시 중지)이면 항상 False."""
+    if not stop_enabled():
+        return False
     if avg_price and avg_price > 0 and cur_price and cur_price > 0:
         return (cur_price - avg_price) / avg_price <= STOP_PCT
     return False
@@ -176,11 +216,13 @@ def decide(code, raw_score, cur_price, avg_price, today, now_ts=None):
 
     # 장 후반(15:00~) + raw<0: 마감까지 30분 연속을 채울 시간이 없으므로 즉시 청산.
     #   15:00~15:20 정규장 → 현재가 sweep(reason raw_neg) / 15:20~ 동시호가 → 시장가(raw_neg_close).
+    #   수능일 등 KRX 지연 개장일은 16:00 / 16:20 (now_ts 의 날짜 기준).
     if raw_score < RAW_SELL_THRESH:
-        _t = _dt.fromtimestamp(now_ts).time()
-        if _t >= CLOSE_AUCTION_START:
+        _d = _dt.fromtimestamp(now_ts)
+        _t = _d.time()
+        if _t >= close_auction_start(_d):
             return True, smoothed, "raw_neg_close"
-        if _t >= LATE_RAW_NEG_START:
+        if _t >= late_raw_neg_start(_d):
             return True, smoothed, "raw_neg"
 
     # raw 청산 (A + raw<0): raw < RAW_SELL_THRESH 가 RAW_NEG_HOLD_SEC(30분) 연속 지속되면 전량.

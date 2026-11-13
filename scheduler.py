@@ -11,6 +11,9 @@ scheduler.py - RealtimeMonitor 자동 스케줄러
                        ※ 자동매매 미적용(execution_monitor 는 정규장만 집행),
                          일봉 CSV·Stock_V3·promising·매도전략 상태는 정규장 기준으로 보존하고
                          장후 점수는 logs/{날짜}_Stock_V3_AfterMkt.csv 에 따로 기록
+  ※ 수능일 등 KRX 지연 개장일(kis_api/kiwoom_trading.KRX_LATE_DAYS, 2026-11-09 반영):
+     NXT 08:00~10:00(NXT 프리마켓 미운영) · KRX 10:00~16:30 · AFTER 16:30~20:00,
+     개장킥 10:00:30~10:20 · 평가 파이프라인 08:00~17:30
   평일 20:00~       : 봇 종료 → Update_Data_All → build_stock_master(신규상장 편입)
                        → build_buylist(다음거래일 매수리스트) 자동 실행 → 익일 08:00 대기
   주말              : 대기
@@ -67,10 +70,21 @@ def titled_cmd(args, python=None, title=None):
 
 # 시간대 설정
 TIME_NXT_START   = dtime(8,  0)   # NXT 프리마켓 시작
-TIME_KRX_START   = dtime(9,  0)   # KRX 정규장 시작
-TIME_KRX_END     = dtime(15, 30)  # KRX 정규장 종료
+TIME_KRX_START   = dtime(9,  0)   # KRX 정규장 시작(평소 기준 — 그날 시각은 _krx_t, 수능일 10:00)
+TIME_KRX_END     = dtime(15, 30)  # KRX 정규장 종료(평소 기준 — 그날 시각은 _krx_t, 수능일 16:30)
 TIME_NXT_END     = dtime(20,  0)  # NXT 애프터마켓 종료
 TIME_NEXT_START  = dtime(8,  0)   # 다음날 재시작 시각
+# (2026-11-09) 수능일 등 KRX 지연 개장일(kiwoom_trading.KRX_LATE_DAYS): KRX 장 시각 +1시간.
+#   NXT 08:00~10:00(그날 NXT 프리마켓 미운영 — 장전 점수는 매수에 안 쓰임) → KRX 10:00~16:30 → AFTER 16:30~20:00.
+
+
+def _krx_t(t, now=None):
+    """평소 기준 KRX 장 시각 → 그날 시각(kiwoom_trading.krx_t). 임포트 실패 시 평소 시각."""
+    try:
+        from kis_api import kiwoom_trading as _kt
+        return _kt.krx_t(t, now or datetime.now())
+    except Exception:
+        return t
 
 # 폴링 간격 (초)
 POLL_INTERVAL = 10
@@ -111,12 +125,13 @@ def get_market_mode():
         pass
 
     t = now.time().replace(second=0, microsecond=0)
+    krx_start, krx_end = _krx_t(TIME_KRX_START, now), _krx_t(TIME_KRX_END, now)   # 수능일 10:00 / 16:30
 
-    if TIME_NXT_START <= t < TIME_KRX_START:
+    if TIME_NXT_START <= t < krx_start:
         return "NXT"
-    elif TIME_KRX_START <= t < TIME_KRX_END:
+    elif krx_start <= t < krx_end:
         return "KRX"
-    elif TIME_KRX_END <= t < TIME_NXT_END:
+    elif krx_end <= t < TIME_NXT_END:
         return "AFTER"      # 장후 모니터링(자동매매 미적용)
     elif t >= TIME_NXT_END:
         return "CLOSED"
@@ -339,7 +354,7 @@ def _write_krx_session_marker():
         os.replace(tmp, path)
         log(f"🕘 정규장 재평가 경계 기록: {since} 이후 계산된 점수만 매수에 사용")
     except Exception as e:
-        log(f"   ⚠️ 정규장 재평가 경계 기록 실패(기본 09:01:00 적용): {e}")
+        log(f"   ⚠️ 정규장 재평가 경계 기록 실패(기본 09:01:00 — 수능일 10:01:00 적용): {e}")
 
 
 def start_bots(mode):
@@ -582,7 +597,7 @@ def run_build_buylist():
 #      promote 가 그 결과를 받아간다. (이 스케줄러는 결정적 파이썬 단계만 담당)
 # ====================================================
 EVAL_START    = dtime(8,  0)
-EVAL_END      = dtime(16, 30)
+EVAL_END      = dtime(16, 30)      # 평소 기준(정규장 마감 +1시간) — 수능일 17:30 (_krx_t)
 EVAL_INTERVAL = 10 * 60            # 10분(초)
 _eval_last_run = None
 _eval_lock     = threading.Lock()
@@ -728,6 +743,28 @@ def _results_sig(day):
         return None
 
 
+def _eval_priority(day, codes, prow):
+    """(2026-11-11) CLI 평가 순서: 직전 AI 평가(오늘 이전 가장 최근)가 BUY·없음(신규)인 종목 먼저, 관망·회피는 뒤.
+       각 묶음 안은 pending 스냅샷 V3 점수 높은 순. 반환 [(code, 직전평가 HOLD/AVOID 또는 '')]."""
+    try:
+        import buy_gate
+        prior = buy_gate.latest_evals(os.path.join(PROJECT_DIR, "logs"), day)
+    except Exception:
+        prior = {}
+
+    def _sc(c):
+        try:
+            return float(prow.get(c, {}).get("score_total", 0) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    out = []
+    for c in codes:
+        pr = (prior.get(c) or {}).get("rec", "")
+        out.append((c, pr if pr in ("HOLD", "AVOID") else ""))
+    out.sort(key=lambda x: (1 if x[1] else 0, -_sc(x[0])))
+    return out
+
+
 def _claude_eval_worker(codes):
     """Claude Code CLI 헤드리스로 AI 평가 실행(별도 스레드, 락 보유 상태로 진입).
 
@@ -744,32 +781,51 @@ def _claude_eval_worker(codes):
         # V3 점수는 수 분 내 급락할 수 있어(2026-09-14 루닛 66.5→39, 3분 만에),
         # CLI 가 Stock_V3 를 다시 읽는 시점 점수로 대상에서 누락시키지 않게 한다.
         prow = _pending_rows(day)
+        order = _eval_priority(day, codes, prow)
         targets = "; ".join(
-            f"{c} {prow.get(c, {}).get('name', '')} score_total={prow.get(c, {}).get('score_total', '?')}"
-            for c in sorted(codes))
+            f"{i}) {c} {prow.get(c, {}).get('name', '')} score_total={prow.get(c, {}).get('score_total', '?')}"
+            f"{'(직전 ' + pr + ')' if pr else ''}"
+            for i, (c, pr) in enumerate(order, 1))
         prompt = (
             f"오늘({day}) 60점+ 종목 AI 평가를 CLAUDE.md 지침 그대로 수행하라. "
             f"대상: logs/{day}_Stock_V3.csv 의 score_total>=0.60 중 미평가 종목"
             f"(60점+ 가 0개면 CLAUDE.md 보조매수 규칙대로 score_total>=0.40 중 미평가 종목). "
-            f"필수 평가 종목(pending 스냅샷 — 기준점 돌파 시점 점수): {targets}. "
+            f"필수 평가 종목(pending 스냅샷 — 기준점 돌파 시점 점수, 평가 순서): {targets}. "
             f"필수 평가 종목은 평가 시점 Stock_V3 의 score_total 이 기준 미만으로 떨어졌어도 기평가가 아니면 "
             f"반드시 평가하고, 그 경우 v3_score/v3_score100 은 위 스냅샷 score_total 값을 사용하라. "
+            f"반드시 위 번호 순서대로 한 종목씩 평가하고(서브에이전트를 쓰더라도 이 순서로), "
+            f"한 종목 평가가 끝날 때마다 즉시 logs/{day}_claude_results.json 에 그 종목을 추가 저장하라"
+            f"(기존 항목 보존, 임시파일에 쓴 뒤 교체하는 원자적 쓰기). 매수 시스템이 저장되는 대로 바로 매수한다. "
             f"결과는 logs/{day}_claude_results.json 에 스키마대로 저장 후 종료. "
             f"전부 기평가면 아무 파일도 쓰지 말고 한 줄 보고 후 종료."
         )
         logf = os.path.join(PROJECT_DIR, "logs", f"{day}_claude_cli_eval.log")
         with open(logf, "a", encoding="utf-8") as lf:
-            lf.write(f"\n===== {datetime.now()} codes={sorted(codes)} =====\n")
+            lf.write(f"\n===== {datetime.now()} codes={[c for c, _ in order]} =====\n")
             lf.flush()
-            r = subprocess.run(
+            proc = subprocess.Popen(
                 [CLAUDE_EXE, "-p", prompt,
                  "--model", CLAUDE_EVAL_MODEL,
                  "--effort", CLAUDE_EVAL_EFFORT,
                  "--permission-mode", "acceptEdits",
                  "--allowedTools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"],
                 cwd=PROJECT_DIR, stdout=lf, stderr=subprocess.STDOUT,
-                timeout=CLAUDE_EVAL_TIMEOUT,
             )
+            # (2026-11-11) 평가 도중에도 종목별 결과가 저장되는 대로 auto_buy 실행 → 평가 나온 종목 즉시 매수
+            #   (promote 는 CLI 종료 후 1회 — 평가 중인 results.json 을 소비·이동하지 않도록)
+            t0 = time.time()
+            seen_sig = _results_sig(day)
+            while proc.poll() is None:
+                if time.time() - t0 > CLAUDE_EVAL_TIMEOUT:
+                    proc.kill()
+                    raise subprocess.TimeoutExpired(CLAUDE_EXE, CLAUDE_EVAL_TIMEOUT)
+                time.sleep(15)
+                sig = _results_sig(day)
+                if sig != seen_sig and proc.poll() is None:
+                    seen_sig = sig
+                    log("🤖 CLI 평가 중 결과 저장 감지 → auto_buy 즉시 실행(평가 나온 종목 매수)")
+                    _run_eval_script("auto_buy.py", "auto_buy(평가중 반영)")
+            r = proc
         rc = r.returncode
         log(f"🤖 Claude CLI 평가 종료 rc={rc}")
     except subprocess.TimeoutExpired:
@@ -866,7 +922,7 @@ def _fast_trigger_worker(new_codes):
 def run_fast_claude_trigger():
     global _fast_v3_mtime, _fast_seen, _fast_day
     now = datetime.now()
-    if now.weekday() >= 5 or not (EVAL_START <= now.time() <= EVAL_END):
+    if now.weekday() >= 5 or not (EVAL_START <= now.time() <= _krx_t(EVAL_END, now)):
         return
     day = now.strftime("%Y%m%d")
     if day != _fast_day:
@@ -896,7 +952,8 @@ def run_fast_claude_trigger():
 
 
 
-OPENKICK_END      = dtime(9, 20)   # 개장 킥 반복 종료(첫 정규장 스캔·40점 보조모드 판정까지 커버)
+OPENKICK_START    = dtime(9, 0, 30)   # 평소 기준 — 수능일 10:00:30 (_krx_t)
+OPENKICK_END      = dtime(9, 20)   # 개장 킥 반복 종료(첫 정규장 스캔·40점 보조모드 판정까지 커버) — 수능일 10:20
 OPENKICK_INTERVAL = 60             # 개장 킥 반복 간격(초)
 _openkick_last    = 0.0
 _openkick_busy    = threading.Event()
@@ -922,7 +979,7 @@ def run_autobuy_open_kick():
     now = datetime.now()
     if now.weekday() >= 5:
         return
-    if not (dtime(9, 0, 30) <= now.time() <= OPENKICK_END):
+    if not (_krx_t(OPENKICK_START, now) <= now.time() <= _krx_t(OPENKICK_END, now)):
         return
     try:
         from kis_api import kiwoom_trading as _kt
@@ -951,7 +1008,7 @@ def run_eval_pipeline_if_due():
             return
     except Exception:
         pass
-    if not (EVAL_START <= now.time() <= EVAL_END):
+    if not (EVAL_START <= now.time() <= _krx_t(EVAL_END, now)):
         return
     if _eval_last_run and (now - _eval_last_run).total_seconds() < EVAL_INTERVAL - 30:
         return
@@ -1020,7 +1077,7 @@ def main():
 
             if mode in MARKET_MODES:
                 # NXT 아침 첫 전환(08:00)이면 공휴일 체크
-                if mode == "NXT" and datetime.now().time() < TIME_KRX_START:
+                if mode == "NXT" and datetime.now().time() < _krx_t(TIME_KRX_START):
                     log("🔍 NXT 개장 — 삼성전자 시세로 공휴일 여부 확인 중...")
                     if not is_market_open_today():
                         holiday_today = True

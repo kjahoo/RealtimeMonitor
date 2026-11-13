@@ -148,6 +148,10 @@ FINAL_COLUMNS = [
 
 def process_stock(file_path, code, target_date, k_val, kq_val, models, max_lb, persist=True):
     """persist=False(장후): 일봉 CSV 는 정규장 기준 보존 — 오늘 행은 메모리에서만 계산하고 저장하지 않는다."""
+    # 저장 지점 이중 가드(2026-11-09): 메인 루프 휴장 가드와 별개로, 비거래일(주말·KRX_HOLIDAYS) 날짜의
+    #   오늘 행은 일봉 CSV 에 절대 저장하지 않는다(휴장일 시세 = 직전 거래일 값 복제 → 일봉 오염).
+    if not kt.is_daily_row_date(target_date):
+        return None
     try:
         # 1. 파일 읽기
         df = pd.read_csv(file_path, encoding='utf-8-sig', dtype={'code': str, 'name': str})
@@ -557,13 +561,14 @@ def _after_tiers_path(date_str):
 
 
 def init_after_tiers(date_str):
-    """장후 알림 기준 tier: 정규장(09:00~15:30) 마지막 점수 tier 에, 오늘 장후에 이미 알린 tier 를 덮어씀.
+    """장후 알림 기준 tier: 정규장(09:00~15:30, 수능일 10:00~16:30) 마지막 점수 tier 에, 오늘 장후에 이미 알린 tier 를 덮어씀.
        → 정규장 마감 대비 '변화'만 알리고, 15:30/16:00 봇 재시작 때 같은 알림을 반복하지 않는다."""
     tiers = {}
     path = os.path.join(secrets.LOCAL_DATA_PATH, f"{date_str}_Stock_V3.csv")
     try:
         df = pd.read_csv(path, encoding='utf-8-sig', dtype=str, on_bad_lines='skip')
-        df = df[df['time'].fillna('').between("09:00:00", "15:30:59")]
+        df = df[df['time'].fillna('').between(kt.krx_open_time(date_str).strftime("%H:%M:%S"),
+                                              kt.krx_close_time(date_str).strftime("%H:%M") + ":59")]
         for c, s in zip(df['code'], pd.to_numeric(df['score_total'], errors='coerce').fillna(0)):
             t = get_score_tier(s)
             if t is not None:
@@ -646,14 +651,23 @@ if __name__ == "__main__":
                 time.sleep(600)
                 continue
 
-            # ── NXT 모드 프로세스는 KRX 정규장(09:00~15:30)에 절대 점수를 쓰지 않는다(2026-09-29).
+            # ── NXT 모드 프로세스는 KRX 정규장(09:00~15:30, 수능일 10:00~16:30)에 절대 점수를 쓰지 않는다(2026-09-29).
             #    정상이면 scheduler 가 09:00 에 KRX 모드로 재기동하지만, scheduler 비정상 종료로 남은
             #    고아 NXT 봇이 NX 시세로 계산한 점수를 09시 이후 시각으로 Stock_V3 에 쓰면
             #    '정규장 재평가' 게이트를 통과해 버린다 → 스스로 종료.
             if (os.environ.get("MARKET_MODE", "KRX").upper() == "NXT"
-                    and kt.MARKET_OPEN <= _now.time() <= kt.MARKET_CLOSE):
+                    and kt.in_krx_hours(_now)):
                 print(f"🛑 [{_now:%H:%M:%S}] NXT 모드인데 정규장 시간 — 종료(KRX 봇이 정규장 점수 담당)")
                 sys.exit(0)
+
+            # ── 수능일 등 KRX 지연 개장일(kt.KRX_LATE_DAYS) 2중 가드(2026-11-09): KRX 모드인데 개장(10:00) 전이면
+            #    스캔·기록 없이 대기 — scheduler 가 재기동 전(구 코드)이라 09:00 에 KRX 모드로 띄워도 장전 KRX 시세
+            #    점수가 Stock_V3·일봉 CSV 에 쓰이지 않게. 평소엔 krx_shift_min=0 이라 무동작.
+            if (kt.krx_shift_min(_now) and os.environ.get("MARKET_MODE", "KRX").upper() == "KRX"
+                    and _now.time() < kt.krx_open_time(_now)):
+                print(f"⏳ [{_now:%H:%M:%S}] KRX 지연 개장일 — 정규장 {kt.krx_hours_text(_now)}, 개장 전 대기(30초 후 재확인)")
+                time.sleep(30)
+                continue
 
             # 정규장 ↔ 장후 경계를 넘긴 채 계속 도는 경우(보통은 scheduler 가 모드 전환 시 재시작) 기준 전환
             if kt.is_post_close(_now) != after_mode:
@@ -679,7 +693,7 @@ if __name__ == "__main__":
             for idx, filename in enumerate(files, 1):
                 # 사이클(~8분) 도중 09:00 을 넘긴 NXT 모드 프로세스도 즉시 종료(미저장 결과는 버림)
                 if (os.environ.get("MARKET_MODE", "KRX").upper() == "NXT"
-                        and kt.MARKET_OPEN <= datetime.now().time() <= kt.MARKET_CLOSE):
+                        and kt.in_krx_hours()):
                     print("🛑 NXT 모드인데 정규장 시간 — 사이클 중단·종료")
                     sys.exit(0)
                 # ✅ [수정] 1번 종목(시작) 및 50개 종목마다 지수 데이터 갱신
@@ -732,7 +746,11 @@ if __name__ == "__main__":
                             _msg = (f"🌙 [{session_label()}·참고] 60 미만 이탈 {res['name']} ({code})\n"
                                     f"점수: {score * 100:.1f} (직전 {prev * 100:.0f}점대)\n현재가: {res['close_price']:,}")
                         if _msg:
-                            _msg += "\n※ 점수 KRX·현재가 통합 기준 참고 · 자동매매 미적용"
+                            # (2026-11-09) 오늘 KRX 종가(15:30 종가 단일가) 대비 현재가(통합) 등락률
+                            _cc = kt.close_change_text(res['close_price'], kt.krx_close_cached(code, today_str))
+                            if _cc:
+                                _msg += f"\n{_cc}"
+                            _msg += "\n※ 점수 KRX·현재가 통합 기준 참고 · 장후 자동매도 없음"
                             print(f"   🔔 {_msg.replace(chr(10), ' ')}")
                             send_telegram(_msg)
                             sent_tiers[code] = tier

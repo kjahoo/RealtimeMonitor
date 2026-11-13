@@ -81,7 +81,7 @@ TICK_SEC = 60
 READY_RATIO = 0.8
 HIST_DAYS = 20
 PREP_TIME = dtime(7, 30)
-MARKET_OPEN, MARKET_CLOSE = kt.MARKET_OPEN, kt.MARKET_CLOSE
+MARKET_OPEN, MARKET_CLOSE = kt.MARKET_OPEN, kt.MARKET_CLOSE   # 평소 기준 — 그날 시각은 kt.krx_open_time/krx_close_time(수능일 10:00~16:30)
 
 DATA_DIR = os.path.join(ROOT, "Data", "Stock")
 LOG_DIR = os.path.join(ROOT, "logs")
@@ -393,7 +393,7 @@ class PaperTrader:
         df["score_total"] = pd.to_numeric(df["score_total"], errors="coerce")
         df["close_price"] = pd.to_numeric(df["close_price"], errors="coerce")
         t = df["time"].astype(str)
-        df = df[(t >= "09:00:00") & (t <= t_hi)].dropna(subset=["score_total"])
+        df = df[(t >= kt.krx_open_time(today).strftime("%H:%M:%S")) & (t <= t_hi)].dropna(subset=["score_total"])
         out = {}
         for r in df.itertuples():
             out[r.code] = (float(r.score_total), float(r.close_price) if r.close_price == r.close_price else None)
@@ -435,7 +435,7 @@ class PaperTrader:
     # ── 장중 틱 ──
     def tick(self, now):
         today = now.strftime("%Y%m%d")
-        ts_open = datetime.combine(now.date(), MARKET_OPEN).timestamp()
+        ts_open = datetime.combine(now.date(), kt.krx_open_time(now)).timestamp()
         st_today = self.state["today"]
         st_today["ticked"] = True
         uni = self.universe(today)
@@ -455,7 +455,7 @@ class PaperTrader:
             st_today["ready"] = True
             log(f"정규장 스캔 준비 완료 {desc} — 가상매매 시작")
 
-        t_hi = min(now.strftime("%H:%M:%S"), MARKET_CLOSE.strftime("%H:%M:%S")) if not SELFTEST else "15:30:00"
+        t_hi = min(now.strftime("%H:%M:%S"), kt.krx_close_time(now).strftime("%H:%M:%S")) if not SELFTEST else "15:30:00"
         prod = self.read_prod(today, t_hi)
         codes = set(prod) | self.held_codes() | set(uni)
         n_new = self.refresh_bull(codes, today, ts_open)
@@ -516,7 +516,7 @@ class PaperTrader:
             if r < sb.STOP_SCORE_KEEP and p / pos["avg"] - 1.0 <= sb.STOP_PCT:
                 reason = "stop"
             elif r < sb.RAW_SELL_THRESH:
-                if now.time() >= sb.LATE_RAW_NEG_START:
+                if now.time() >= sb.late_raw_neg_start(now):   # 수능일 16:00
                     reason = "raw_neg_late"
                 elif pos.get("raw_neg_since") is None:
                     pos["raw_neg_since"] = now.timestamp()
@@ -716,13 +716,14 @@ def run():
                 continue
             if tr.state.get("hist_day") != today:
                 tr.prepare_day(today)
-            if MARKET_OPEN <= t <= MARKET_CLOSE:
+            m_open, m_close = kt.krx_open_time(now), kt.krx_close_time(now)   # 수능일 10:00~16:30
+            if m_open <= t <= m_close:
                 tr.tick(now)
                 time.sleep(TICK_SEC)
-            elif t > MARKET_CLOSE and tr.state.get("last_eod") != today:
+            elif t > m_close and tr.state.get("last_eod") != today:
                 tr.finalize_day(today, now)
             else:
-                time.sleep(TICK_SEC if t < MARKET_OPEN else 600)
+                time.sleep(TICK_SEC if t < m_open else 600)
         except Exception as e:
             log(f"❌ 오류: {type(e).__name__}: {e}\n{traceback.format_exc()}")
             time.sleep(60)
